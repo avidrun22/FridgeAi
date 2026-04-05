@@ -9,7 +9,10 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@supabase/supabase-js": "^2.101.1",
     "expo": "~55.0.9",
+    "expo-camera": "~55.0.13",
     "expo-status-bar": "55.0.5-canary-20260327-0789fbc",
     "react": "19.2.0",
     "react-native": "^0.83.2",
