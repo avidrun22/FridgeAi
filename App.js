@@ -2,59 +2,89 @@ import { useState, useEffect, useRef } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   StyleSheet, SafeAreaView, StatusBar, Modal, Alert,
-  Animated, Platform, ActivityIndicator, AppState, KeyboardAvoidingView,
+  Animated, Platform, ActivityIndicator, AppState,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import { createClient } from "@supabase/supabase-js";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Notifications from "expo-notifications";
 
-// ─── Supabase Client ──────────────────────────────────────────────────────────
-const SUPABASE_URL = "https://qemarhvgeuzhlwybmbie.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlbWFyaHZnZXV6aGx3eWJtYmllIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2Njc2NTgsImV4cCI6MjA5MDI0MzY1OH0.ejYeJkucIwAWZ7Rf0hcmpIENSnnmXMh4V_nhjXlDQk4";
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: {
-    storage: AsyncStorage,
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: false,
-  },
+// ─── Notification Setup ───────────────────────────────────────────────────────
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
 });
 
-// ─── DB Helpers ───────────────────────────────────────────────────────────────
-async function dbGetItems() {
-  const { data, error } = await supabase.from("fridge_items").select("*").order("created_at", { ascending: false });
-  if (error) throw error;
-  return data;
+async function requestNotificationPermission() {
+  const { status } = await Notifications.requestPermissionsAsync();
+  return status === "granted";
 }
 
-async function dbAddItem(item) {
-  const { data: { user } } = await supabase.auth.getUser();
-  const { data, error } = await supabase.from("fridge_items").insert({
-    name: item.name, category: item.category, emoji: item.emoji,
-    quantity: item.quantity || 1,
-    added_date: item.addedDate || new Date().toISOString(),
-    expiry_date: item.expiryDate, barcode: item.barcode || null,
-    user_id: user.id,
-  }).select().single();
-  if (error) throw error;
-  return data;
+async function scheduleExpiryNotification(item, daysUntilExpiry) {
+  const triggerDate = new Date();
+  triggerDate.setSeconds(triggerDate.getSeconds() + 5); // small delay for immediate
+
+  if (daysUntilExpiry <= 0) {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: "⚠️ Item Expired",
+        body: `${item.name} has expired — time to toss it!`,
+        data: { itemId: item.id },
+      },
+      trigger: { type: "timeInterval", seconds: 2, repeats: false },
+    });
+  } else if (daysUntilExpiry <= 1) {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: "🚨 Expires Today!",
+        body: `${item.name} expires today — use it now!`,
+        data: { itemId: item.id },
+      },
+      trigger: { type: "timeInterval", seconds: 2, repeats: false },
+    });
+  } else if (daysUntilExpiry <= 3) {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: "⏰ Expiring Soon",
+        body: `${item.name} expires in ${daysUntilExpiry} days.`,
+        data: { itemId: item.id },
+      },
+      trigger: { type: "timeInterval", seconds: 2, repeats: false },
+    });
+  }
 }
 
-async function dbUpdateItem(id, updates) {
-  const { data, error } = await supabase.from("fridge_items").update(updates).eq("id", id).select().single();
-  if (error) throw error;
-  return data;
+async function scheduleDailyReminder() {
+  await Notifications.cancelAllScheduledNotificationsAsync();
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title: "🧊 ok2eat Daily Check",
+      body: "Open the app to check what's expiring soon!",
+    },
+    trigger: { type: "daily", hour: 9, minute: 0 },
+  });
 }
 
-async function dbDeleteItem(id) {
-  const { error } = await supabase.from("fridge_items").delete().eq("id", id);
-  if (error) throw error;
+async function checkAndNotifyExpiring(items) {
+  for (const item of items) {
+    const days = Math.ceil((new Date(item.expiryDate).getTime() - Date.now()) / 86400000);
+    if (days <= 3) {
+      await scheduleExpiryNotification(item, days);
+    }
+  }
 }
 
-function rowToItem(row) {
-  return { id: row.id, name: row.name, category: row.category, emoji: row.emoji, quantity: row.quantity, addedDate: row.added_date, expiryDate: row.expiry_date, barcode: row.barcode };
-}
+// ─── Supabase Config ──────────────────────────────────────────────────────────
+const SUPABASE_URL = "https://qemarhvgeuzhlwybmbie.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlbWFyaHZnZXV6aGx3eWJtYmllIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2Njc2NTgsImV4cCI6MjA5MDI0MzY1OH0.ejYeJkucIwAWZ7Rf0hcmpIENSnnmXMh4V_nhjXlDQk4";
+const dbHeaders = { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Prefer": "return=representation" };
+
+async function dbGetItems() { const res = await fetch(`${SUPABASE_URL}/rest/v1/fridge_items?order=created_at.desc`, { headers: dbHeaders }); if (!res.ok) throw new Error("Failed"); return res.json(); }
+async function dbAddItem(item) { const res = await fetch(`${SUPABASE_URL}/rest/v1/fridge_items`, { method: "POST", headers: dbHeaders, body: JSON.stringify({ name: item.name, category: item.category, emoji: item.emoji, quantity: item.quantity || 1, added_date: item.addedDate || new Date().toISOString(), expiry_date: item.expiryDate, barcode: item.barcode || null }) }); if (!res.ok) throw new Error("Failed"); return (await res.json())[0]; }
+async function dbUpdateItem(id, updates) { const res = await fetch(`${SUPABASE_URL}/rest/v1/fridge_items?id=eq.${id}`, { method: "PATCH", headers: dbHeaders, body: JSON.stringify(updates) }); if (!res.ok) throw new Error("Failed"); return (await res.json())[0]; }
+async function dbDeleteItem(id) { await fetch(`${SUPABASE_URL}/rest/v1/fridge_items?id=eq.${id}`, { method: "DELETE", headers: dbHeaders }); }
+function rowToItem(row) { return { id: row.id, name: row.name, category: row.category, emoji: row.emoji, quantity: row.quantity, addedDate: row.added_date, expiryDate: row.expiry_date, barcode: row.barcode }; }
 
 // ─── Open Food Facts ──────────────────────────────────────────────────────────
 const CATEGORY_MAP = { "beverages": "Beverages", "dairies": "Dairy", "dairy": "Dairy", "cheeses": "Dairy", "milks": "Dairy", "yogurts": "Dairy", "meats": "Protein", "poultry": "Protein", "seafood": "Protein", "eggs": "Protein", "fish": "Protein", "fruits": "Produce", "vegetables": "Produce", "fresh": "Produce", "breads": "Dry Goods", "cereals": "Dry Goods", "snacks": "Dry Goods", "pasta": "Dry Goods" };
@@ -78,7 +108,7 @@ async function lookupBarcode(barcode) { const res = await fetch(`https://world.o
 async function searchProducts(query) { const encoded = encodeURIComponent(query); const res = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encoded}&search_simple=1&action=process&json=1&page_size=20&fields=product_name,product_name_en,brands,categories_tags,nutrition_grades,nutriments,serving_size,ingredients_text_en,code`); const data = await res.json(); if (!data.products) return []; return data.products.filter(p => p.product_name || p.product_name_en).slice(0, 10).map(p => productFromOFF(p, p.code)); }
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
-const T = { bg: "#0A0F0A", surface: "#111811", card: "#161E16", accent: "#4ADE80", warn: "#FB923C", danger: "#F87171", muted: "#4B5E4B", text: "#E8F5E8", textSoft: "#9DB89D", border: "#1E2E1E" };
+const T = { bg: "#F7FAF7", surface: "#FFFFFF", card: "#FFFFFF", accent: "#16A34A", warn: "#EA580C", danger: "#DC2626", muted: "#9CA3AF", text: "#111827", textSoft: "#6B7280", border: "#E5E7EB" };
 function daysUntil(dateStr) { return Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86400000); }
 function expiryColor(days) { return days <= 1 ? T.danger : days <= 3 ? T.warn : T.accent; }
 function formatDate(dateStr) { return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric" }); }
@@ -92,99 +122,6 @@ const UNIT_GROUPS = [
   { label: "Fraction", units: ["quarter", "third", "half", "¾"] },
 ];
 const FRACTION_MAP = { "quarter": 0.25, "third": 0.333, "half": 0.5, "¾": 0.75 };
-
-// ─── Auth Screen ──────────────────────────────────────────────────────────────
-function AuthScreen({ onAuth }) {
-  const [mode, setMode] = useState("login");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  async function handleLogin() {
-    if (!email || !password) { setError("Please enter your email and password."); return; }
-    setLoading(true); setError("");
-    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    if (error) setError(error.message);
-    setLoading(false);
-  }
-
-  async function handleSignup() {
-    if (!email || !password) { setError("Please enter your email and password."); return; }
-    if (password.length < 6) { setError("Password must be at least 6 characters."); return; }
-    setLoading(true); setError("");
-    const { error } = await supabase.auth.signUp({ email: email.trim(), password });
-    if (error) setError(error.message);
-    else Alert.alert("Check your email!", "We sent you a confirmation link. Click it then come back and log in.");
-    setLoading(false);
-  }
-
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: 24 }} keyboardShouldPersistTaps="handled">
-
-          {/* Logo */}
-          <View style={{ alignItems: "center", marginBottom: 48 }}>
-            <View style={{ width: 80, height: 80, backgroundColor: T.accent, borderRadius: 24, alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
-              <Text style={{ fontSize: 40 }}>🧊</Text>
-            </View>
-            <Text style={{ fontSize: 32, fontWeight: "800", color: T.accent, letterSpacing: -1 }}>FridgeAI</Text>
-            <Text style={{ color: T.textSoft, fontSize: 14, marginTop: 6 }}>Your smart fridge companion</Text>
-          </View>
-
-          {/* Mode Toggle */}
-          <View style={[s.modeToggle, { marginBottom: 24 }]}>
-            <TouchableOpacity style={[s.modeBtn, mode === "login" && s.modeBtnActive]} onPress={() => { setMode("login"); setError(""); }}>
-              <Text style={[s.modeBtnText, mode === "login" && s.modeBtnTextActive]}>Sign In</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[s.modeBtn, mode === "signup" && s.modeBtnActive]} onPress={() => { setMode("signup"); setError(""); }}>
-              <Text style={[s.modeBtnText, mode === "signup" && s.modeBtnTextActive]}>Create Account</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Form */}
-          <View style={[s.card, { padding: 20, marginBottom: 16 }]}>
-            <Text style={s.inputLabel}>Email</Text>
-            <TextInput
-              style={s.input}
-              placeholder="you@example.com"
-              placeholderTextColor={T.muted}
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <Text style={s.inputLabel}>Password</Text>
-            <TextInput
-              style={s.input}
-              placeholder={mode === "signup" ? "At least 6 characters" : "Your password"}
-              placeholderTextColor={T.muted}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-            />
-            {error !== "" && (
-              <View style={[s.errorBox, { marginBottom: 8 }]}>
-                <Text style={{ color: T.danger, fontSize: 13 }}>{error}</Text>
-              </View>
-            )}
-            <TouchableOpacity style={s.btnPrimary} onPress={mode === "login" ? handleLogin : handleSignup} disabled={loading}>
-              {loading ? <ActivityIndicator color={T.bg} /> : <Text style={s.btnPrimaryText}>{mode === "login" ? "Sign In" : "Create Account"}</Text>}
-            </TouchableOpacity>
-          </View>
-
-          {mode === "signup" && (
-            <Text style={{ color: T.textSoft, fontSize: 12, textAlign: "center", lineHeight: 18 }}>
-              After signing up, check your email for a confirmation link before signing in.
-            </Text>
-          )}
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
-  );
-}
 
 // ─── Nutrition Panel ──────────────────────────────────────────────────────────
 function NutritionPanel({ nutrition, grade }) {
@@ -203,9 +140,17 @@ function NutritionPanel({ nutrition, grade }) {
   if (rows.length === 0) return null;
   return (
     <View style={[s.card, { marginBottom: 12, overflow: "hidden" }]}>
-      <View style={{ backgroundColor: "rgba(74,222,128,0.08)", padding: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: T.border }}>
-        <View><Text style={[s.bold, { fontSize: 14, letterSpacing: 0.5 }]}>NUTRITION FACTS</Text><Text style={{ color: T.textSoft, fontSize: 11, marginTop: 2 }}>Per serving · {nutrition.serving}</Text></View>
-        {grade && <View style={{ backgroundColor: nutriColor(grade), borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, alignItems: "center" }}><Text style={{ color: "#0A0F0A", fontSize: 10, fontWeight: "700" }}>NUTRI</Text><Text style={{ color: "#0A0F0A", fontSize: 20, fontWeight: "800", lineHeight: 24 }}>{grade.toUpperCase()}</Text></View>}
+      <View style={{ backgroundColor: "rgba(22,163,74,0.08)", padding: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: T.border }}>
+        <View>
+          <Text style={[s.bold, { fontSize: 14, letterSpacing: 0.5 }]}>NUTRITION FACTS</Text>
+          <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 2 }}>Per serving · {nutrition.serving}</Text>
+        </View>
+        {grade && (
+          <View style={{ backgroundColor: nutriColor(grade), borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, alignItems: "center" }}>
+            <Text style={{ color: "#0A0F0A", fontSize: 10, fontWeight: "700" }}>NUTRI</Text>
+            <Text style={{ color: "#0A0F0A", fontSize: 20, fontWeight: "800", lineHeight: 24 }}>{grade.toUpperCase()}</Text>
+          </View>
+        )}
       </View>
       {rows.map((row, i) => (
         <View key={i} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 9, paddingHorizontal: 14, borderBottomWidth: i < rows.length - 1 ? 1 : 0, borderBottomColor: T.border }}>
@@ -223,7 +168,9 @@ function UseItemModal({ item, visible, onClose, onUse }) {
   const [selectedUnit, setSelectedUnit] = useState("tbsp");
   const [expandedGroup, setExpandedGroup] = useState("Volume");
 
-  useEffect(() => { if (visible) { setAmount("1"); setSelectedUnit("tbsp"); setExpandedGroup("Volume"); } }, [visible]);
+  useEffect(() => {
+    if (visible) { setAmount("1"); setSelectedUnit("tbsp"); setExpandedGroup("Volume"); }
+  }, [visible]);
 
   if (!item) return null;
 
@@ -234,8 +181,15 @@ function UseItemModal({ item, visible, onClose, onUse }) {
   function getNewQuantity() {
     const used = parseFloat(amount) || 0;
     if (used <= 0) return currentQtyText;
-    if (currentUnit && selectedUnit === currentUnit) { const remaining = Math.max(0, currentQtyNum - used); return remaining <= 0.01 ? null : `${round1(remaining)} ${selectedUnit}`; }
-    if (FRACTION_MAP[selectedUnit]) { const fraction = FRACTION_MAP[selectedUnit]; const remaining = Math.max(0, currentQtyNum - fraction * currentQtyNum); return remaining <= 0.01 ? null : `${round1(remaining)} ${currentUnit || "units"}`; }
+    if (currentUnit && selectedUnit === currentUnit) {
+      const remaining = Math.max(0, currentQtyNum - used);
+      return remaining <= 0.01 ? null : `${round1(remaining)} ${selectedUnit}`;
+    }
+    if (FRACTION_MAP[selectedUnit]) {
+      const fraction = FRACTION_MAP[selectedUnit];
+      const remaining = Math.max(0, currentQtyNum - fraction * currentQtyNum);
+      return remaining <= 0.01 ? null : `${round1(remaining)} ${currentUnit || "units"}`;
+    }
     return `${currentQtyText} (used ${amount} ${selectedUnit})`;
   }
 
@@ -243,8 +197,14 @@ function UseItemModal({ item, visible, onClose, onUse }) {
     const used = parseFloat(amount) || 0;
     if (used <= 0) { Alert.alert("Enter an amount", "Please enter how much you used."); return; }
     const newQty = getNewQuantity();
-    if (newQty === null) { Alert.alert("Item Fully Used", `Remove ${item.name} from your fridge?`, [{ text: "Keep it", style: "cancel" }, { text: "Remove", style: "destructive", onPress: () => onUse(item.id, null) }]); }
-    else { onUse(item.id, newQty); }
+    if (newQty === null) {
+      Alert.alert("Item Fully Used", `Remove ${item.name} from your fridge?`, [
+        { text: "Keep it", style: "cancel" },
+        { text: "Remove", style: "destructive", onPress: () => onUse(item.id, null) }
+      ]);
+    } else {
+      onUse(item.id, newQty);
+    }
   }
 
   const preview = getNewQuantity();
@@ -256,7 +216,10 @@ function UseItemModal({ item, visible, onClose, onUse }) {
           <View style={s.sheetHandle} />
           <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 20 }}>
             <Text style={{ fontSize: 36 }}>{item.emoji}</Text>
-            <View><Text style={[s.bold, { fontSize: 18 }]}>Use Item</Text><Text style={{ color: T.textSoft, fontSize: 13 }}>{item.name}</Text></View>
+            <View>
+              <Text style={[s.bold, { fontSize: 18 }]}>Use Item</Text>
+              <Text style={{ color: T.textSoft, fontSize: 13 }}>{item.name}</Text>
+            </View>
           </View>
           <View style={{ backgroundColor: T.card, borderRadius: 12, padding: 12, marginBottom: 16, flexDirection: "row", justifyContent: "space-between", borderWidth: 1, borderColor: T.border }}>
             <Text style={{ color: T.textSoft, fontSize: 13 }}>Current amount</Text>
@@ -275,7 +238,7 @@ function UseItemModal({ item, visible, onClose, onUse }) {
                 {expandedGroup === group.label && (
                   <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
                     {group.units.map(unit => (
-                      <TouchableOpacity key={unit} onPress={() => setSelectedUnit(unit)} style={[{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1 }, selectedUnit === unit ? { backgroundColor: "rgba(74,222,128,0.15)", borderColor: T.accent } : { backgroundColor: T.card, borderColor: T.border }]}>
+                      <TouchableOpacity key={unit} onPress={() => setSelectedUnit(unit)} style={[{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1 }, selectedUnit === unit ? { backgroundColor: "rgba(22,163,74,0.15)", borderColor: T.accent } : { backgroundColor: T.card, borderColor: T.border }]}>
                         <Text style={{ fontSize: 13, fontWeight: "600", color: selectedUnit === unit ? T.accent : T.textSoft }}>{unit}</Text>
                       </TouchableOpacity>
                     ))}
@@ -285,12 +248,14 @@ function UseItemModal({ item, visible, onClose, onUse }) {
             ))}
           </ScrollView>
           {amount && parseFloat(amount) > 0 && (
-            <View style={{ backgroundColor: "rgba(74,222,128,0.08)", borderRadius: 12, padding: 12, marginTop: 12, borderWidth: 1, borderColor: "rgba(74,222,128,0.2)" }}>
+            <View style={{ backgroundColor: "rgba(22,163,74,0.08)", borderRadius: 12, padding: 12, marginTop: 12, borderWidth: 1, borderColor: "rgba(22,163,74,0.2)" }}>
               <Text style={{ color: T.textSoft, fontSize: 12, marginBottom: 4 }}>Remaining after use</Text>
               <Text style={[s.bold, { color: T.accent, fontSize: 16 }]}>{preview === null ? "🗑 Item will be removed" : preview}</Text>
             </View>
           )}
-          <TouchableOpacity style={[s.btnPrimary, { marginTop: 16 }]} onPress={handleUse}><Text style={s.btnPrimaryText}>✅  Confirm Usage</Text></TouchableOpacity>
+          <TouchableOpacity style={[s.btnPrimary, { marginTop: 16 }]} onPress={handleUse}>
+            <Text style={s.btnPrimaryText}>✅  Confirm Usage</Text>
+          </TouchableOpacity>
         </TouchableOpacity>
       </TouchableOpacity>
     </Modal>
@@ -362,7 +327,7 @@ function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse
           </View>
           <View style={{ paddingHorizontal: 16 }}>
             {!editing && (
-              <TouchableOpacity style={{ backgroundColor: "rgba(74,222,128,0.12)", borderWidth: 1.5, borderColor: T.accent, borderRadius: 14, padding: 16, marginBottom: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 }} onPress={() => { onClose(); setTimeout(() => onShowUse(item), 350); }}>
+              <TouchableOpacity style={{ backgroundColor: "rgba(22,163,74,0.12)", borderWidth: 1.5, borderColor: T.accent, borderRadius: 14, padding: 16, marginBottom: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 }} onPress={() => { onClose(); setTimeout(() => onShowUse(item), 350); }}>
                 <Text style={{ fontSize: 20 }}>🍽</Text>
                 <View><Text style={[s.bold, { color: T.accent, fontSize: 15 }]}>Use Item</Text><Text style={{ color: T.textSoft, fontSize: 12, marginTop: 1 }}>Track how much you used</Text></View>
               </TouchableOpacity>
@@ -374,8 +339,14 @@ function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse
                 {editing ? <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>{categories.map(c => (<TouchableOpacity key={c} onPress={() => setCategory(c)} style={[s.chip, category === c && s.chipActive, { marginRight: 0 }]}><Text style={[s.chipText, category === c && s.chipTextActive]}>{c}</Text></TouchableOpacity>))}</View> : <Text style={{ color: T.text, fontSize: 15 }}>{item.category}</Text>}
               </View>
               <View style={{ flexDirection: "row", gap: 10 }}>
-                <View style={{ flex: 1 }}><Text style={s.inputLabel}>Amount</Text>{editing ? <TextInput style={s.input} value={quantity} onChangeText={setQuantity} placeholder="e.g. 1 gallon" placeholderTextColor={T.muted} /> : <Text style={{ color: T.text, fontSize: 15 }}>{item.quantity}</Text>}</View>
-                <View style={{ flex: 2 }}><Text style={s.inputLabel}>Expiry Date</Text>{editing ? <TextInput style={s.input} value={expiryDate} onChangeText={setExpiryDate} placeholder="YYYY-MM-DD" placeholderTextColor={T.muted} /> : <Text style={{ color: T.text, fontSize: 15 }}>{formatDate(item.expiryDate)}</Text>}</View>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.inputLabel}>Amount</Text>
+                  {editing ? <TextInput style={s.input} value={quantity} onChangeText={setQuantity} placeholder="e.g. 1 gallon" placeholderTextColor={T.muted} /> : <Text style={{ color: T.text, fontSize: 15 }}>{item.quantity}</Text>}
+                </View>
+                <View style={{ flex: 2 }}>
+                  <Text style={s.inputLabel}>Expiry Date</Text>
+                  {editing ? <TextInput style={s.input} value={expiryDate} onChangeText={setExpiryDate} placeholder="YYYY-MM-DD" placeholderTextColor={T.muted} /> : <Text style={{ color: T.text, fontSize: 15 }}>{formatDate(item.expiryDate)}</Text>}
+                </View>
               </View>
               {item.barcode && <View style={{ marginTop: 8 }}><Text style={s.inputLabel}>Barcode</Text><Text style={[s.monoText, { color: T.textSoft, fontSize: 12 }]}>{item.barcode}</Text></View>}
               <View style={{ marginTop: 8 }}><Text style={s.inputLabel}>Added</Text><Text style={{ color: T.textSoft, fontSize: 13 }}>{formatDate(item.addedDate)}</Text></View>
@@ -404,7 +375,7 @@ function CameraScanner({ onCodeDetected, onClose }) {
     return (
       <View style={{ flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center", padding: 32 }}>
         <Text style={{ color: "#fff", fontSize: 18, fontWeight: "700", textAlign: "center", marginBottom: 12 }}>Camera Permission Required</Text>
-        <TouchableOpacity onPress={requestPermission} style={{ backgroundColor: T.accent, borderRadius: 12, padding: 14, paddingHorizontal: 28, marginBottom: 16 }}><Text style={{ color: T.bg, fontWeight: "700", fontSize: 15 }}>Grant Permission</Text></TouchableOpacity>
+        <TouchableOpacity onPress={requestPermission} style={{ backgroundColor: T.accent, borderRadius: 12, padding: 14, paddingHorizontal: 28, marginBottom: 16 }}><Text style={{ color: "#FFFFFF", fontWeight: "700", fontSize: 15 }}>Grant Permission</Text></TouchableOpacity>
         <TouchableOpacity onPress={onClose}><Text style={{ color: "#aaa", fontSize: 14 }}>Cancel</Text></TouchableOpacity>
       </View>
     );
@@ -434,7 +405,7 @@ function FridgeScreen({ items, onDelete, onAdd, onUpdate, onUse, loading }) {
   const [selectedItem, setSelectedItem] = useState(null);
   const [useItem, setUseItem] = useState(null);
   const categories = ["All", "Dairy", "Protein", "Produce", "Dry Goods", "Beverages"];
-  const filtered = filter === "All" ? items : items.filter(i => i.category === filter);
+  const filtered = filter === "All" ? items : filter === "expiring" ? items.filter(i => daysUntil(i.expiryDate) <= 3) : items.filter(i => i.category === filter);
   const expiringSoon = items.filter(i => daysUntil(i.expiryDate) <= 3).length;
 
   return (
@@ -445,9 +416,18 @@ function FridgeScreen({ items, onDelete, onAdd, onUpdate, onUse, loading }) {
           <TouchableOpacity style={s.addBtn} onPress={onAdd}><Text style={{ color: T.bg, fontSize: 24, lineHeight: 28 }}>+</Text></TouchableOpacity>
         </View>
         <View style={s.statsRow}>
-          {[{ num: items.length, label: "Total Items", color: T.accent }, { num: expiringSoon, label: "Expiring Soon", color: expiringSoon > 0 ? T.warn : T.accent }, { num: [...new Set(items.map(i => i.category))].length, label: "Categories", color: T.accent }].map(st => (
-            <View key={st.label} style={s.statBox}><Text style={[s.statNum, { color: st.color }]}>{st.num}</Text><Text style={s.statLabel}>{st.label}</Text></View>
-          ))}
+          <TouchableOpacity style={s.statBox} onPress={() => setFilter("All")}>
+            <Text style={[s.statNum, { color: T.accent }]}>{items.length}</Text>
+            <Text style={s.statLabel}>Total Items</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[s.statBox, filter === "expiring" && { borderColor: T.warn, borderWidth: 2 }]} onPress={() => setFilter(filter === "expiring" ? "All" : "expiring")}>
+            <Text style={[s.statNum, { color: expiringSoon > 0 ? T.warn : T.accent }]}>{expiringSoon}</Text>
+            <Text style={s.statLabel}>Expiring Soon</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={s.statBox} onPress={() => setFilter("All")}>
+            <Text style={[s.statNum, { color: T.accent }]}>{[...new Set(items.map(i => i.category))].length}</Text>
+            <Text style={s.statLabel}>Categories</Text>
+          </TouchableOpacity>
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ paddingLeft: 16, marginBottom: 16 }}>
           {categories.map(c => (<TouchableOpacity key={c} onPress={() => setFilter(c)} style={[s.chip, filter === c && s.chipActive]}><Text style={[s.chipText, filter === c && s.chipTextActive]}>{c}</Text></TouchableOpacity>))}
@@ -457,7 +437,7 @@ function FridgeScreen({ items, onDelete, onAdd, onUpdate, onUse, loading }) {
           <View style={{ alignItems: "center", padding: 48 }}><ActivityIndicator color={T.accent} size="large" /><Text style={{ color: T.textSoft, marginTop: 12 }}>Loading your fridge...</Text></View>
         ) : (
           <>
-            <Text style={s.sectionLabel}>// CONTENTS · TAP TO VIEW DETAILS</Text>
+            <Text style={s.sectionLabel}>{filter === "expiring" ? "// EXPIRING SOON" : "// CONTENTS · TAP TO VIEW DETAILS"}</Text>
             {filtered.length === 0 && <View style={{ alignItems: "center", padding: 48 }}><Text style={{ fontSize: 48 }}>🧊</Text><Text style={[s.bold, { fontSize: 18, marginTop: 12 }]}>Your fridge is empty!</Text><Text style={{ color: T.textSoft, fontSize: 14, marginTop: 6 }}>Tap + or use the Add tab.</Text></View>}
             {filtered.map(item => {
               const days = daysUntil(item.expiryDate); const color = expiryColor(days);
@@ -486,7 +466,7 @@ function FridgeScreen({ items, onDelete, onAdd, onUpdate, onUse, loading }) {
   );
 }
 
-// ─── Scan Screen ──────────────────────────────────────────────────────────────
+// ─── Scan / Add Screen ────────────────────────────────────────────────────────
 function ScanScreen({ onScanned }) {
   const [mode, setMode] = useState("search");
   const [query, setQuery] = useState("");
@@ -516,8 +496,11 @@ function ScanScreen({ onScanned }) {
 
   async function handleCodeDetected(code) {
     setShowCamera(false); setCameraLooking(true); setError("");
-    try { const product = await lookupBarcode(code); if (product) { setResults([product]); setSelected(product); } else setError(`Barcode ${code} not found. Try searching by name.`); }
-    catch (e) { setError("Couldn't look up barcode. Check your connection."); }
+    try {
+      const product = await lookupBarcode(code);
+      if (product) { setResults([product]); setSelected(product); }
+      else setError(`Barcode ${code} not found. Try searching by name.`);
+    } catch (e) { setError("Couldn't look up barcode. Check your connection."); }
     setCameraLooking(false);
   }
 
@@ -533,7 +516,7 @@ function ScanScreen({ onScanned }) {
         <View style={s.aiBadge}><Text style={s.aiBadgeText}>🌍 LIVE DB</Text></View>
       </View>
       <TouchableOpacity style={s.cameraBigBtn} onPress={() => setShowCamera(true)} disabled={cameraLooking}>
-        {cameraLooking ? <><ActivityIndicator color={T.bg} /><View style={{ marginLeft: 14 }}><Text style={[s.bold, { fontSize: 16, color: T.bg }]}>Looking up product...</Text></View></> : <><Text style={{ fontSize: 32 }}>📷</Text><View style={{ marginLeft: 14 }}><Text style={[s.bold, { fontSize: 16, color: T.bg }]}>Scan Barcode</Text><Text style={{ fontSize: 12, color: T.bg, opacity: 0.7, marginTop: 2 }}>Point camera at any grocery barcode</Text></View></>}
+        {cameraLooking ? <><ActivityIndicator color={T.bg} /><View style={{ marginLeft: 14 }}><Text style={[s.bold, { fontSize: 16, color: "#FFFFFF" }]}>Looking up product...</Text></View></> : <><Text style={{ fontSize: 32 }}>📷</Text><View style={{ marginLeft: 14 }}><Text style={[s.bold, { fontSize: 16, color: "#FFFFFF" }]}>Scan Barcode</Text><Text style={{ fontSize: 12, color: "#FFFFFF", opacity: 0.7, marginTop: 2 }}>Point camera at any grocery barcode</Text></View></>}
       </TouchableOpacity>
       <View style={s.modeToggle}>
         <TouchableOpacity style={[s.modeBtn, mode === "search" && s.modeBtnActive]} onPress={() => { setMode("search"); setResults([]); setError(""); setQuery(""); }}><Text style={[s.modeBtnText, mode === "search" && s.modeBtnTextActive]}>🔍  Search by name</Text></TouchableOpacity>
@@ -547,7 +530,8 @@ function ScanScreen({ onScanned }) {
       </View>
       {error !== "" && <View style={s.errorBox}><Text style={{ color: T.danger, fontSize: 13 }}>{error}</Text></View>}
       {results.length > 0 && !selected && (
-        <>{<Text style={s.sectionLabel}>// {results.length} RESULT{results.length !== 1 ? "S" : ""} FOUND</Text>}
+        <>
+          <Text style={s.sectionLabel}>// {results.length} RESULT{results.length !== 1 ? "S" : ""} FOUND</Text>
           {results.map((product, i) => (
             <TouchableOpacity key={i} style={s.resultItem} onPress={() => setSelected(product)}>
               <Text style={{ fontSize: 28, width: 40, textAlign: "center" }}>{product.emoji}</Text>
@@ -584,7 +568,8 @@ function ScanScreen({ onScanned }) {
         </View>
       )}
       {results.length === 0 && !searching && !cameraLooking && error === "" && (
-        <><Text style={s.sectionLabel}>// TRY SEARCHING FOR</Text>
+        <>
+          <Text style={s.sectionLabel}>// TRY SEARCHING FOR</Text>
           <View style={{ paddingHorizontal: 16, flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
             {DEMO_SEARCHES.map(term => (<TouchableOpacity key={term} onPress={() => handleDemoSearch(term)} style={{ paddingHorizontal: 14, paddingVertical: 8, backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderRadius: 20 }}><Text style={{ color: T.textSoft, fontSize: 13 }}>🔍 {term}</Text></TouchableOpacity>))}
           </View>
@@ -636,7 +621,7 @@ function RecipesScreen({ items }) {
             const have = itemNames.some(n => n.includes(ingName.toLowerCase().split(" ")[0]));
             return (
               <View key={i} style={[s.ingredientRow, i < selected.ingredients.length - 1 && { borderBottomWidth: 1, borderBottomColor: T.border }]}>
-                <View style={[s.checkBox, { backgroundColor: have ? "rgba(74,222,128,0.1)" : "rgba(248,113,113,0.1)", borderColor: have ? "rgba(74,222,128,0.3)" : "rgba(248,113,113,0.3)" }]}><Text style={{ fontSize: 10, color: have ? T.accent : T.danger }}>{have ? "✓" : "✗"}</Text></View>
+                <View style={[s.checkBox, { backgroundColor: have ? "rgba(22,163,74,0.1)" : "rgba(220,38,38,0.1)", borderColor: have ? "rgba(22,163,74,0.3)" : "rgba(220,38,38,0.3)" }]}><Text style={{ fontSize: 10, color: have ? T.accent : T.danger }}>{have ? "✓" : "✗"}</Text></View>
                 <Text style={{ fontSize: 14, color: have ? T.text : T.muted, marginLeft: 10, flex: 1 }}>{ingName}</Text>
                 {ingAmount && <Text style={{ fontSize: 12, color: T.accent, fontWeight: "600" }}>{ingAmount}</Text>}
               </View>
@@ -648,13 +633,13 @@ function RecipesScreen({ items }) {
             <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 8, paddingHorizontal: 0 }]}>INSTRUCTIONS</Text>
             {selected.instructions.map((step, i) => (
               <View key={i} style={{ flexDirection: "row", gap: 12, paddingVertical: 10, borderBottomWidth: i < selected.instructions.length - 1 ? 1 : 0, borderBottomColor: T.border }}>
-                <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: "rgba(74,222,128,0.1)", borderWidth: 1, borderColor: "rgba(74,222,128,0.3)", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 2 }}><Text style={{ fontSize: 11, color: T.accent, fontWeight: "700" }}>{i + 1}</Text></View>
+                <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: "rgba(22,163,74,0.1)", borderWidth: 1, borderColor: "rgba(22,163,74,0.3)", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 2 }}><Text style={{ fontSize: 11, color: T.accent, fontWeight: "700" }}>{i + 1}</Text></View>
                 <Text style={{ fontSize: 14, color: T.textSoft, lineHeight: 21, flex: 1 }}>{step}</Text>
               </View>
             ))}
           </View>
         )}
-        {selected.tip && <View style={[s.card, { margin: 16, padding: 16, marginBottom: 12, backgroundColor: "rgba(74,222,128,0.06)", borderColor: "rgba(74,222,128,0.15)" }]}><Text style={[s.monoText, { color: T.accent, marginBottom: 6 }]}>💡 PRO TIP</Text><Text style={{ color: T.textSoft, fontSize: 13, lineHeight: 20 }}>{selected.tip}</Text></View>}
+        {selected.tip && <View style={[s.card, { margin: 16, padding: 16, marginBottom: 12, backgroundColor: "rgba(22,163,74,0.06)", borderColor: "rgba(22,163,74,0.15)" }]}><Text style={[s.monoText, { color: T.accent, marginBottom: 6 }]}>💡 PRO TIP</Text><Text style={{ color: T.textSoft, fontSize: 13, lineHeight: 20 }}>{selected.tip}</Text></View>}
         <View style={{ height: 32 }} />
       </ScrollView>
     );
@@ -677,7 +662,7 @@ function RecipesScreen({ items }) {
 }
 
 // ─── Reminders Screen ─────────────────────────────────────────────────────────
-function RemindersScreen({ items }) {
+function RemindersScreen({ items, notificationsEnabled, onToggleNotifications, onTestNotification }) {
   const [dismissed, setDismissed] = useState([]);
   const autoReminders = items.filter(i => daysUntil(i.expiryDate) <= 3 && !dismissed.includes("auto-" + i.id)).map(i => ({ id: "auto-" + i.id, type: "toss", text: `Check ${i.name}`, detail: `Expires in ${Math.max(0, daysUntil(i.expiryDate))} day(s)`, time: formatDate(i.expiryDate), emoji: i.emoji, urgent: daysUntil(i.expiryDate) <= 1 }));
   const staticReminders = [{ id: "r1", type: "order", text: "Reorder Chicken Breast", detail: "Running low", time: "Friday 10:00 AM", emoji: "🛒", urgent: false }].filter(r => !dismissed.includes(r.id));
@@ -688,7 +673,7 @@ function RemindersScreen({ items }) {
   function ReminderItem({ r }) {
     return (
       <View style={s.fridgeItem}>
-        <View style={[s.reminderIcon, { backgroundColor: r.urgent ? "rgba(248,113,113,0.1)" : "rgba(251,146,60,0.1)" }]}><Text style={{ fontSize: 20 }}>{r.emoji}</Text></View>
+        <View style={[s.reminderIcon, { backgroundColor: r.urgent ? "rgba(220,38,38,0.1)" : "rgba(234,88,12,0.1)" }]}><Text style={{ fontSize: 20 }}>{r.emoji}</Text></View>
         <View style={{ flex: 1, marginLeft: 12 }}>
           <Text style={s.bold}>{r.text}</Text>
           <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>{r.detail}</Text>
@@ -702,6 +687,30 @@ function RemindersScreen({ items }) {
   return (
     <ScrollView style={s.screen} showsVerticalScrollIndicator={false}>
       <View style={s.headerRow}><View><Text style={s.pageTitle}>Reminders</Text><Text style={s.pageSubtitle}>{allReminders.length} active</Text></View></View>
+
+      {/* Notification Settings Card */}
+      <View style={[s.card, { margin: 16, padding: 16, marginBottom: 12 }]}>
+        <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 12, paddingHorizontal: 0 }]}>PUSH NOTIFICATIONS</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={[s.bold, { fontSize: 14 }]}>Daily Check Reminder</Text>
+            <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Reminds you to check your fridge every morning at 9am</Text>
+          </View>
+          <TouchableOpacity
+            onPress={onToggleNotifications}
+            style={{ width: 50, height: 28, borderRadius: 14, backgroundColor: notificationsEnabled ? T.accent : T.border, justifyContent: "center", padding: 3, marginLeft: 12 }}
+          >
+            <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: "#fff", alignSelf: notificationsEnabled ? "flex-end" : "flex-start" }} />
+          </TouchableOpacity>
+        </View>
+        <TouchableOpacity
+          style={[s.btnSecondary, { marginBottom: 0 }]}
+          onPress={onTestNotification}
+        >
+          <Text style={s.btnSecondaryText}>🔔  Send Test Notification</Text>
+        </TouchableOpacity>
+      </View>
+
       <View style={s.statsRow}>{[{ num: urgent.length, label: "Urgent", color: T.danger }, { num: allReminders.filter(r => r.type === "order").length, label: "Reorder", color: T.accent }, { num: allReminders.filter(r => r.type === "toss").length, label: "Toss", color: T.warn }].map(st => (<View key={st.label} style={s.statBox}><Text style={[s.statNum, { color: st.color }]}>{st.num}</Text><Text style={s.statLabel}>{st.label}</Text></View>))}</View>
       {urgent.length > 0 && <><Text style={s.sectionLabel}>// URGENT</Text>{urgent.map(r => <ReminderItem key={r.id} r={r} />)}</>}
       {normal.length > 0 && <><Text style={s.sectionLabel}>// UPCOMING</Text>{normal.map(r => <ReminderItem key={r.id} r={r} />)}</>}
@@ -752,35 +761,79 @@ function AddModal({ visible, onClose, onAdd }) {
 
 // ─── Root App ─────────────────────────────────────────────────────────────────
 export default function App() {
-  const [session, setSession] = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
   const [tab, setTab] = useState("fridge");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [toast, setToast] = useState("");
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const toastOpacity = useRef(new Animated.Value(0)).current;
+  const appState = useRef(AppState.currentState);
 
   useEffect(() => {
-    // Check current session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setAuthLoading(false);
+    loadItems();
+    setupNotifications();
+
+    // Check for expiring items when app comes to foreground
+    const subscription = AppState.addEventListener("change", nextAppState => {
+      if (appState.current.match(/inactive|background/) && nextAppState === "active") {
+        loadItems();
+      }
+      appState.current = nextAppState;
     });
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setAuthLoading(false);
+    // Listen for notification taps
+    const notifSubscription = Notifications.addNotificationResponseReceivedListener(() => {
+      setTab("reminders");
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.remove();
+      notifSubscription.remove();
+    };
   }, []);
 
+  // Whenever items load, check for expiring ones and notify
   useEffect(() => {
-    if (session) loadItems();
-    else setItems([]);
-  }, [session]);
+    if (items.length > 0 && notificationsEnabled) {
+      checkAndNotifyExpiring(items);
+    }
+  }, [items, notificationsEnabled]);
+
+  async function setupNotifications() {
+    const granted = await requestNotificationPermission();
+    setNotificationsEnabled(granted);
+  }
+
+  async function toggleNotifications() {
+    if (notificationsEnabled) {
+      await Notifications.cancelAllScheduledNotificationsAsync();
+      setNotificationsEnabled(false);
+      showToast("🔕 Daily reminders turned off");
+    } else {
+      const granted = await requestNotificationPermission();
+      if (granted) {
+        await scheduleDailyReminder();
+        setNotificationsEnabled(true);
+        showToast("🔔 Daily reminders enabled!");
+      } else {
+        Alert.alert("Permission Required", "Please enable notifications in your iPhone Settings to use this feature.");
+      }
+    }
+  }
+
+  async function sendTestNotification() {
+    const granted = await requestNotificationPermission();
+    if (!granted) { Alert.alert("Permission Required", "Please enable notifications in your iPhone Settings."); return; }
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: "🧊 FridgeAI Test",
+        body: "Notifications are working! You'll be reminded about expiring items.",
+      },
+      trigger: { type: "timeInterval", seconds: 2, repeats: false },
+    });
+    showToast("Test notification sent!");
+  }
 
   async function loadItems() {
     try { setLoading(true); const rows = await dbGetItems(); setItems(rows.map(rowToItem)); }
@@ -825,46 +878,20 @@ export default function App() {
     catch (e) { Alert.alert("Couldn't delete item", "Check your connection."); }
   }
 
-  async function handleSignOut() {
-    Alert.alert("Sign Out", "Are you sure you want to sign out?", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Sign Out", style: "destructive", onPress: () => supabase.auth.signOut() }
-    ]);
-  }
-
-  if (authLoading) {
-    return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: T.bg, alignItems: "center", justifyContent: "center" }}>
-        <Text style={{ fontSize: 48 }}>🧊</Text>
-        <ActivityIndicator color={T.accent} style={{ marginTop: 20 }} />
-      </SafeAreaView>
-    );
-  }
-
-  if (!session) return <AuthScreen onAuth={setSession} />;
-
   const navItems = [{ id: "fridge", label: "Fridge", icon: "🧊" }, { id: "scan", label: "Add", icon: "📷" }, { id: "recipes", label: "Recipes", icon: "🍳" }, { id: "reminders", label: "Alerts", icon: "🔔" }];
 
   return (
     <SafeAreaView style={s.root}>
-      <StatusBar barStyle="light-content" backgroundColor={T.bg} />
+      <StatusBar barStyle="dark-content" backgroundColor={T.bg} />
       <View style={s.appBar}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <View style={s.appLogo}><Text style={{ fontSize: 14 }}>🧊</Text></View>
-          <Text style={s.appName}>FridgeAI</Text>
-        </View>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-          <Text style={{ color: T.muted, fontSize: 11 }} numberOfLines={1}>{session.user.email?.split("@")[0]}</Text>
-          <TouchableOpacity onPress={handleSignOut} style={{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: T.card, borderRadius: 8, borderWidth: 1, borderColor: T.border }}>
-            <Text style={{ color: T.textSoft, fontSize: 11 }}>Sign Out</Text>
-          </TouchableOpacity>
-        </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}><View style={s.appLogo}><Text style={{ fontSize: 14 }}>🧊</Text></View><Text style={s.appName}>ok2eat</Text></View>
+        <View style={s.aiBadge}><Text style={s.aiBadgeText}>⚡ LIVE</Text></View>
       </View>
       <View style={{ flex: 1 }}>
         {tab === "fridge" && <FridgeScreen items={items} onDelete={handleDelete} onAdd={() => setShowAdd(true)} onUpdate={handleUpdate} onUse={handleUse} loading={loading} />}
         {tab === "scan" && <ScanScreen onScanned={handleScanned} />}
         {tab === "recipes" && <RecipesScreen items={items} />}
-        {tab === "reminders" && <RemindersScreen items={items} />}
+        {tab === "reminders" && <RemindersScreen items={items} notificationsEnabled={notificationsEnabled} onToggleNotifications={toggleNotifications} onTestNotification={sendTestNotification} />}
       </View>
       {toast !== "" && <Animated.View style={[s.toast, { opacity: toastOpacity }]}><Text style={s.toastText}>{toast}</Text></Animated.View>}
       <AddModal visible={showAdd} onClose={() => setShowAdd(false)} onAdd={handleAddManual} />
@@ -878,7 +905,7 @@ export default function App() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: T.bg }, screen: { flex: 1, backgroundColor: T.bg },
-  appBar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 20, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: T.border },
+  appBar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 20, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: T.border, backgroundColor: "#FFFFFF" },
   appLogo: { width: 28, height: 28, backgroundColor: T.accent, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   appName: { fontWeight: "800", fontSize: 16, color: T.accent, letterSpacing: -0.3 },
   headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", padding: 20, paddingBottom: 12 },
@@ -891,10 +918,10 @@ const s = StyleSheet.create({
   statLabel: { fontSize: 10, color: T.textSoft, marginTop: 4, textTransform: "uppercase", letterSpacing: 0.5 },
   sectionLabel: { fontSize: 10, color: T.muted, letterSpacing: 1.5, textTransform: "uppercase", paddingHorizontal: 16, marginBottom: 10, marginTop: 16 },
   chip: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: T.border, backgroundColor: T.card, marginRight: 8 },
-  chipActive: { backgroundColor: "rgba(74,222,128,0.15)", borderColor: T.accent },
+  chipActive: { backgroundColor: "rgba(22,163,74,0.15)", borderColor: T.accent },
   chipText: { color: T.textSoft, fontSize: 12, fontWeight: "500" },
   chipTextActive: { color: T.accent },
-  warnBanner: { flexDirection: "row", alignItems: "center", marginHorizontal: 16, marginBottom: 12, backgroundColor: "rgba(251,146,60,0.08)", borderWidth: 1, borderColor: "rgba(251,146,60,0.25)", borderRadius: 14, padding: 12 },
+  warnBanner: { flexDirection: "row", alignItems: "center", marginHorizontal: 16, marginBottom: 12, backgroundColor: "rgba(234,88,12,0.08)", borderWidth: 1, borderColor: "rgba(234,88,12,0.25)", borderRadius: 14, padding: 12 },
   fridgeItem: { flexDirection: "row", alignItems: "center", marginHorizontal: 16, marginBottom: 10, backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderRadius: 14, padding: 14 },
   resultItem: { flexDirection: "row", alignItems: "center", marginHorizontal: 16, marginBottom: 8, backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderRadius: 14, padding: 14 },
   itemName: { fontSize: 15, fontWeight: "600", color: T.text },
@@ -907,34 +934,34 @@ const s = StyleSheet.create({
   inputLabel: { fontSize: 12, color: T.textSoft, marginBottom: 6, fontWeight: "500" },
   input: { backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderRadius: 12, padding: 13, color: T.text, fontSize: 15, marginBottom: 10 },
   btnPrimary: { backgroundColor: T.accent, borderRadius: 14, padding: 15, alignItems: "center", marginBottom: 0 },
-  btnPrimaryText: { color: T.bg, fontSize: 15, fontWeight: "700" },
+  btnPrimaryText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
   btnSecondary: { backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderRadius: 14, padding: 14, alignItems: "center" },
   btnSecondaryText: { color: T.text, fontSize: 15, fontWeight: "600" },
-  pill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, backgroundColor: "rgba(74,222,128,0.1)", borderWidth: 1, borderColor: "rgba(74,222,128,0.2)" },
+  pill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, backgroundColor: "rgba(22,163,74,0.1)", borderWidth: 1, borderColor: "rgba(22,163,74,0.2)" },
   pillText: { fontSize: 12, color: T.accent, fontWeight: "500" },
-  recipeEmojiBox: { width: 56, height: 56, backgroundColor: "rgba(74,222,128,0.1)", borderWidth: 1, borderColor: "rgba(74,222,128,0.2)", borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  recipeEmojiBox: { width: 56, height: 56, backgroundColor: "rgba(22,163,74,0.1)", borderWidth: 1, borderColor: "rgba(22,163,74,0.2)", borderRadius: 14, alignItems: "center", justifyContent: "center" },
   backBtn: { padding: 16, paddingBottom: 0 },
   ingredientRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8 },
   checkBox: { width: 20, height: 20, borderRadius: 6, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  aiBadge: { paddingHorizontal: 10, paddingVertical: 4, backgroundColor: "rgba(74,222,128,0.1)", borderWidth: 1, borderColor: "rgba(74,222,128,0.2)", borderRadius: 8 },
+  aiBadge: { paddingHorizontal: 10, paddingVertical: 4, backgroundColor: "rgba(22,163,74,0.1)", borderWidth: 1, borderColor: "rgba(22,163,74,0.2)", borderRadius: 8 },
   aiBadgeText: { fontSize: 10, color: T.accent, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
   reminderIcon: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  urgentBadge: { paddingHorizontal: 8, paddingVertical: 2, backgroundColor: "rgba(248,113,113,0.1)", borderWidth: 1, borderColor: "rgba(248,113,113,0.2)", borderRadius: 4 },
+  urgentBadge: { paddingHorizontal: 8, paddingVertical: 2, backgroundColor: "rgba(220,38,38,0.1)", borderWidth: 1, borderColor: "rgba(220,38,38,0.2)", borderRadius: 4 },
   urgentText: { fontSize: 10, color: T.danger, fontWeight: "600", letterSpacing: 0.5 },
   dismissBtn: { width: 32, height: 32, backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderRadius: 8, alignItems: "center", justifyContent: "center" },
-  navBar: { flexDirection: "row", backgroundColor: T.surface, borderTopWidth: 1, borderTopColor: T.border, paddingBottom: Platform.OS === "ios" ? 20 : 8, paddingTop: 8 },
+  navBar: { flexDirection: "row", backgroundColor: "#FFFFFF", borderTopWidth: 1, borderTopColor: T.border, paddingBottom: Platform.OS === "ios" ? 20 : 8, paddingTop: 8 },
   navBtn: { flex: 1, alignItems: "center", gap: 3 },
   navLabel: { fontSize: 10, color: T.muted, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: "500" },
   toast: { position: "absolute", bottom: 100, left: 16, right: 16, backgroundColor: T.accent, borderRadius: 14, padding: 14 },
-  toastText: { color: T.bg, fontWeight: "700", fontSize: 14, textAlign: "center" },
+  toastText: { color: "#FFFFFF", fontWeight: "700", fontSize: 14, textAlign: "center" },
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.8)", justifyContent: "flex-end" },
-  modalSheet: { backgroundColor: T.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, paddingBottom: 48, borderWidth: 1, borderColor: T.border },
+  modalSheet: { backgroundColor: "#FFFFFF", borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, paddingBottom: 48, borderWidth: 1, borderColor: T.border },
   sheetHandle: { width: 36, height: 4, backgroundColor: T.border, borderRadius: 99, alignSelf: "center", marginBottom: 20 },
   modeToggle: { flexDirection: "row", marginHorizontal: 16, marginBottom: 16, backgroundColor: T.card, borderRadius: 12, borderWidth: 1, borderColor: T.border, padding: 4, gap: 4 },
   modeBtn: { flex: 1, paddingVertical: 10, borderRadius: 9, alignItems: "center" },
   modeBtnActive: { backgroundColor: T.accent },
   modeBtnText: { fontSize: 13, fontWeight: "600", color: T.textSoft },
-  modeBtnTextActive: { color: T.bg },
-  errorBox: { marginHorizontal: 16, marginBottom: 12, backgroundColor: "rgba(248,113,113,0.08)", borderWidth: 1, borderColor: "rgba(248,113,113,0.25)", borderRadius: 12, padding: 12 },
+  modeBtnTextActive: { color: "#FFFFFF" },
+  errorBox: { marginHorizontal: 16, marginBottom: 12, backgroundColor: "rgba(220,38,38,0.08)", borderWidth: 1, borderColor: "rgba(220,38,38,0.25)", borderRadius: 12, padding: 12 },
   cameraBigBtn: { flexDirection: "row", alignItems: "center", marginHorizontal: 16, marginBottom: 16, backgroundColor: T.accent, borderRadius: 16, padding: 18 },
 });

@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "fridgeai-native",
-    "slug": "fridgeai-native",
+    "name": "ok2eat",
+    "slug": "ok2eat",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -13,12 +13,14 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.gregorygoldberg.fridgeai",
+      "bundleIdentifier": "com.gregorygoldberg.ok2eat",
+      "buildNumber": "2",
       "infoPlist": {
-        "NSCameraUsageDescription": "FridgeAI needs camera access to scan barcodes",
+        "NSCameraUsageDescription": "ok2eat needs camera access to scan barcodes",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
-        }
+        },
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -35,7 +37,13 @@
       [
         "react-native-vision-camera",
         {
-          "cameraPermissionText": "FridgeAI needs camera access to scan barcodes"
+          "cameraPermissionText": "ok2eat needs camera access to scan barcodes"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "sounds": []
         }
       ]
     ]
