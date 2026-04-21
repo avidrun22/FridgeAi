@@ -2,9 +2,14 @@ import { useState, useEffect, useRef } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   StyleSheet, SafeAreaView, StatusBar, Modal, Alert,
-  Animated, Platform, ActivityIndicator, AppState,
+  Animated, Platform, ActivityIndicator, AppState, KeyboardAvoidingView,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import { Linking, Share } from "react-native";
+import { MaterialIcons, Ionicons } from "@expo/vector-icons";
+import * as AppleAuthentication from "expo-apple-authentication";
+import { createClient } from "@supabase/supabase-js";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
 
 // ─── Notification Setup ───────────────────────────────────────────────────────
@@ -67,24 +72,86 @@ async function scheduleDailyReminder() {
 }
 
 async function checkAndNotifyExpiring(items) {
-  for (const item of items) {
-    const days = Math.ceil((new Date(item.expiryDate).getTime() - Date.now()) / 86400000);
-    if (days <= 3) {
-      await scheduleExpiryNotification(item, days);
+  try {
+    // Load already-notified item IDs from storage
+    const stored = await AsyncStorage.getItem("notified_items");
+    const notifiedMap = stored ? JSON.parse(stored) : {};
+    const today = new Date().toDateString();
+    const updated = { ...notifiedMap };
+    let changed = false;
+
+    for (const item of items) {
+      const days = Math.ceil((new Date(item.expiryDate).getTime() - Date.now()) / 86400000);
+      const key = `${item.id}_${today}`;
+      // Only notify if expiring within 3 days AND not already notified today
+      if (days <= 3 && days >= 0 && !notifiedMap[key]) {
+        await scheduleExpiryNotification(item, days);
+        updated[key] = true;
+        changed = true;
+      }
     }
+
+    // Clean up old keys (older than 7 days)
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 7);
+    for (const key of Object.keys(updated)) {
+      const parts = key.split("_");
+      const dateStr = parts.slice(1).join("_");
+      if (new Date(dateStr) < cutoff) delete updated[key];
+    }
+
+    if (changed) await AsyncStorage.setItem("notified_items", JSON.stringify(updated));
+  } catch (e) {
+    console.log("Notification tracking error:", e);
   }
 }
 
-// ─── Supabase Config ──────────────────────────────────────────────────────────
+// ─── Supabase Client ──────────────────────────────────────────────────────────
 const SUPABASE_URL = "https://qemarhvgeuzhlwybmbie.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlbWFyaHZnZXV6aGx3eWJtYmllIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2Njc2NTgsImV4cCI6MjA5MDI0MzY1OH0.ejYeJkucIwAWZ7Rf0hcmpIENSnnmXMh4V_nhjXlDQk4";
-const dbHeaders = { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Prefer": "return=representation" };
 
-async function dbGetItems() { const res = await fetch(`${SUPABASE_URL}/rest/v1/fridge_items?order=created_at.desc`, { headers: dbHeaders }); if (!res.ok) throw new Error("Failed"); return res.json(); }
-async function dbAddItem(item) { const res = await fetch(`${SUPABASE_URL}/rest/v1/fridge_items`, { method: "POST", headers: dbHeaders, body: JSON.stringify({ name: item.name, category: item.category, emoji: item.emoji, quantity: item.quantity || 1, added_date: item.addedDate || new Date().toISOString(), expiry_date: item.expiryDate, barcode: item.barcode || null }) }); if (!res.ok) throw new Error("Failed"); return (await res.json())[0]; }
-async function dbUpdateItem(id, updates) { const res = await fetch(`${SUPABASE_URL}/rest/v1/fridge_items?id=eq.${id}`, { method: "PATCH", headers: dbHeaders, body: JSON.stringify(updates) }); if (!res.ok) throw new Error("Failed"); return (await res.json())[0]; }
-async function dbDeleteItem(id) { await fetch(`${SUPABASE_URL}/rest/v1/fridge_items?id=eq.${id}`, { method: "DELETE", headers: dbHeaders }); }
-function rowToItem(row) { return { id: row.id, name: row.name, category: row.category, emoji: row.emoji, quantity: row.quantity, addedDate: row.added_date, expiryDate: row.expiry_date, barcode: row.barcode }; }
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    storage: AsyncStorage,
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: false,
+  },
+});
+
+async function dbGetItems() {
+  const { data, error } = await supabase.from("fridge_items").select("*").order("created_at", { ascending: false });
+  if (error) throw error;
+  return data;
+}
+
+async function dbAddItem(item) {
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data, error } = await supabase.from("fridge_items").insert({
+    name: item.name, category: item.category, emoji: item.emoji,
+    quantity: item.quantity || 1,
+    added_date: item.addedDate || new Date().toISOString(),
+    expiry_date: item.expiryDate, barcode: item.barcode || null,
+    user_id: user.id, section: item.section || "fridge",
+  }).select().single();
+  if (error) throw error;
+  return data;
+}
+
+async function dbUpdateItem(id, updates) {
+  const { data, error } = await supabase.from("fridge_items").update(updates).eq("id", id).select().single();
+  if (error) throw error;
+  return data;
+}
+
+async function dbDeleteItem(id) {
+  const { error } = await supabase.from("fridge_items").delete().eq("id", id);
+  if (error) throw error;
+}
+
+function rowToItem(row) {
+  return { id: row.id, name: row.name, category: row.category, emoji: row.emoji, quantity: row.quantity, addedDate: row.added_date, expiryDate: row.expiry_date, barcode: row.barcode, section: row.section || "fridge" };
+}
 
 // ─── Open Food Facts ──────────────────────────────────────────────────────────
 const CATEGORY_MAP = { "beverages": "Beverages", "dairies": "Dairy", "dairy": "Dairy", "cheeses": "Dairy", "milks": "Dairy", "yogurts": "Dairy", "meats": "Protein", "poultry": "Protein", "seafood": "Protein", "eggs": "Protein", "fish": "Protein", "fruits": "Produce", "vegetables": "Produce", "fresh": "Produce", "breads": "Dry Goods", "cereals": "Dry Goods", "snacks": "Dry Goods", "pasta": "Dry Goods" };
@@ -158,6 +225,9 @@ function NutritionPanel({ nutrition, grade }) {
           <Text style={{ fontSize: 13, color: T.accent, fontWeight: "600", fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" }}>{round1(row.value)}{row.unit}</Text>
         </View>
       ))}
+      <View style={{ paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: 1, borderTopColor: T.border }}>
+        <Text style={{ fontSize: 10, color: T.muted }}>Source: <Text style={{ color: T.accent, textDecorationLine: "underline" }} onPress={() => require("react-native").Linking.openURL("https://world.openfoodfacts.org")}>Open Food Facts</Text> · Licensed under ODbL</Text>
+      </View>
     </View>
   );
 }
@@ -375,8 +445,7 @@ function CameraScanner({ onCodeDetected, onClose }) {
     return (
       <View style={{ flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center", padding: 32 }}>
         <Text style={{ color: "#fff", fontSize: 18, fontWeight: "700", textAlign: "center", marginBottom: 12 }}>Camera Permission Required</Text>
-        <TouchableOpacity onPress={requestPermission} style={{ backgroundColor: T.accent, borderRadius: 12, padding: 14, paddingHorizontal: 28, marginBottom: 16 }}><Text style={{ color: "#FFFFFF", fontWeight: "700", fontSize: 15 }}>Grant Permission</Text></TouchableOpacity>
-        <TouchableOpacity onPress={onClose}><Text style={{ color: "#aaa", fontSize: 14 }}>Cancel</Text></TouchableOpacity>
+        <TouchableOpacity onPress={requestPermission} style={{ backgroundColor: T.accent, borderRadius: 12, padding: 14, paddingHorizontal: 28, marginBottom: 16 }}><Text style={{ color: "#FFFFFF", fontWeight: "700", fontSize: 15 }}>Continue</Text></TouchableOpacity>
       </View>
     );
   }
@@ -399,22 +468,193 @@ function CameraScanner({ onCodeDetected, onClose }) {
   );
 }
 
+// ─── Auth Screen ──────────────────────────────────────────────────────────────
+function AuthScreen({ onAuth }) {
+  const [mode, setMode] = useState("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleAppleSignIn() {
+    try {
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+      const { error } = await supabase.auth.signInWithIdToken({
+        provider: "apple",
+        token: credential.identityToken,
+      });
+      if (error) throw error;
+    } catch (e) {
+      if (e.code !== "ERR_REQUEST_CANCELED") {
+        Alert.alert("Sign in failed", e.message || "Something went wrong.");
+      }
+    }
+  }
+
+  async function handleAuth() {
+    if (!email.trim() || !password.trim()) { setError("Please enter your email and password."); return; }
+    setLoading(true); setError("");
+    try {
+      if (mode === "login") {
+        const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.auth.signUp({ email: email.trim(), password });
+        if (error) throw error;
+        Alert.alert("Account created!", "You can now sign in with your email and password.");
+        setMode("login");
+      }
+    } catch (e) { setError(e.message || "Something went wrong. Please try again."); }
+    setLoading(false);
+  }
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }}>
+      <StatusBar barStyle="dark-content" backgroundColor={T.bg} />
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: 24 }} keyboardShouldPersistTaps="handled">
+          <View style={{ alignItems: "center", marginBottom: 40 }}>
+            <View style={[s.appLogo, { width: 72, height: 72, borderRadius: 20, marginBottom: 16 }]}>
+              <Text style={{ fontSize: 36 }}>🧊</Text>
+            </View>
+            <Text style={{ fontSize: 32, fontWeight: "800", color: T.accent, letterSpacing: -1 }}>ok2eat</Text>
+            <Text style={{ color: T.textSoft, fontSize: 15, marginTop: 6, textAlign: "center" }}>know before you throw</Text>
+          </View>
+          <View style={[s.card, { padding: 24, marginBottom: 16 }]}>
+            <View style={[s.modeToggle, { marginBottom: 20, marginHorizontal: 0 }]}>
+              <TouchableOpacity style={[s.modeBtn, mode === "login" && s.modeBtnActive]} onPress={() => { setMode("login"); setError(""); }}>
+                <Text style={[s.modeBtnText, mode === "login" && s.modeBtnTextActive]}>Sign In</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[s.modeBtn, mode === "signup" && s.modeBtnActive]} onPress={() => { setMode("signup"); setError(""); }}>
+                <Text style={[s.modeBtnText, mode === "signup" && s.modeBtnTextActive]}>Create Account</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={s.inputLabel}>Email</Text>
+            <TextInput style={s.input} placeholder="you@example.com" placeholderTextColor={T.muted} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} />
+            <Text style={s.inputLabel}>Password</Text>
+            <TextInput style={s.input} placeholder="••••••••" placeholderTextColor={T.muted} value={password} onChangeText={setPassword} secureTextEntry />
+            {error !== "" && <View style={[s.errorBox, { marginBottom: 12 }]}><Text style={{ color: T.danger, fontSize: 13 }}>{error}</Text></View>}
+            <TouchableOpacity style={s.btnPrimary} onPress={handleAuth} disabled={loading}>
+              {loading ? <ActivityIndicator color="#FFFFFF" /> : <Text style={s.btnPrimaryText}>{mode === "login" ? "Sign In" : "Create Account"}</Text>}
+            </TouchableOpacity>
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginVertical: 16 }}>
+            <View style={{ flex: 1, height: 1, backgroundColor: T.border }} />
+            <Text style={{ color: T.muted, fontSize: 12 }}>or</Text>
+            <View style={{ flex: 1, height: 1, backgroundColor: T.border }} />
+          </View>
+          <AppleAuthentication.AppleAuthenticationButton
+            buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+            buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+            cornerRadius={14}
+            style={{ width: "100%", height: 50 }}
+            onPress={handleAppleSignIn}
+          />
+          <Text style={{ color: T.muted, fontSize: 12, textAlign: "center", lineHeight: 18, marginTop: 16 }}>
+            {"Your fridge is private - only you can see your items. By continuing you agree to our privacy policy at ok2eat.com"}
+          </Text>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
 // ─── Fridge Screen ────────────────────────────────────────────────────────────
 function FridgeScreen({ items, onDelete, onAdd, onUpdate, onUse, loading }) {
   const [filter, setFilter] = useState("All");
   const [selectedItem, setSelectedItem] = useState(null);
   const [useItem, setUseItem] = useState(null);
+  const [activeSection, setActiveSection] = useState("fridge");
+  const [sections, setSections] = useState([
+    { id: "fridge", label: "My Fridge", icon: "kitchen" },
+    { id: "cupboard", label: "Cupboard", icon: "shelves" },
+  ]);
+  const [editingSection, setEditingSection] = useState(null);
+  const [editLabel, setEditLabel] = useState("");
   const categories = ["All", "Dairy", "Protein", "Produce", "Dry Goods", "Beverages"];
-  const filtered = filter === "All" ? items : filter === "expiring" ? items.filter(i => daysUntil(i.expiryDate) <= 3) : items.filter(i => i.category === filter);
-  const expiringSoon = items.filter(i => daysUntil(i.expiryDate) <= 3).length;
+  const sectionItems = items.filter(i => (i.section || "fridge") === activeSection);
+  const filtered = filter === "All" ? sectionItems : filter === "expiring" ? sectionItems.filter(i => daysUntil(i.expiryDate) <= 3) : sectionItems.filter(i => i.category === filter);
+  const expiringSoon = sectionItems.filter(i => daysUntil(i.expiryDate) <= 3).length;
+
+  function addSection() {
+    const newId = "section_" + Date.now();
+    setSections(prev => [...prev, { id: newId, label: "New Storage", icon: "inventory-2" }]);
+    setActiveSection(newId);
+  }
+
+  function renameSection(id, newLabel) {
+    setSections(prev => prev.map(s => s.id === id ? { ...s, label: newLabel } : s));
+    setEditingSection(null);
+  }
+
+  function deleteSection(id) {
+    if (sections.length <= 1) return;
+    setSections(prev => prev.filter(s => s.id !== id));
+    setActiveSection("fridge");
+  }
 
   return (
     <>
       <ScrollView style={s.screen} showsVerticalScrollIndicator={false}>
         <View style={s.headerRow}>
-          <View><Text style={s.pageTitle}>My Fridge</Text><Text style={s.pageSubtitle}>{loading ? "Loading..." : `${items.length} items tracked`}</Text></View>
-          <TouchableOpacity style={s.addBtn} onPress={onAdd}><Text style={{ color: T.bg, fontSize: 24, lineHeight: 28 }}>+</Text></TouchableOpacity>
+          <View>
+            <Text style={s.pageTitle}>{sections.find(s => s.id === activeSection)?.label || "My Fridge"}</Text>
+            <Text style={s.pageSubtitle}>{loading ? "Loading..." : `${sectionItems.length} items tracked`}</Text>
+          </View>
         </View>
+        {/* Storage Section Tabs */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ paddingHorizontal: 16, marginBottom: 12 }}>
+          {sections.map(sec => (
+            <TouchableOpacity
+              key={sec.id}
+              onPress={() => { setActiveSection(sec.id); setFilter("All"); }}
+              onLongPress={() => { setEditingSection(sec.id); setEditLabel(sec.label); }}
+              style={{
+                flexDirection: "row", alignItems: "center", gap: 6,
+                paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, marginRight: 8,
+                backgroundColor: activeSection === sec.id ? T.accent : T.card,
+                borderWidth: 1, borderColor: activeSection === sec.id ? T.accent : T.border,
+              }}
+            >
+              <MaterialIcons name={sec.icon} size={16} color={activeSection === sec.id ? "#fff" : T.textSoft} />
+              <Text style={{ fontSize: 13, fontWeight: "600", color: activeSection === sec.id ? "#fff" : T.textSoft }}>{sec.label}</Text>
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity
+            onPress={addSection}
+            style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, marginRight: 8, backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderStyle: "dashed" }}
+          >
+            <MaterialIcons name="add" size={16} color={T.muted} />
+            <Text style={{ fontSize: 13, fontWeight: "600", color: T.muted }}>Add Storage</Text>
+          </TouchableOpacity>
+        </ScrollView>
+
+        {/* Edit section name modal */}
+        {editingSection && (
+          <View style={{ marginHorizontal: 16, marginBottom: 12, backgroundColor: T.card, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: T.border }}>
+            <Text style={[s.inputLabel, { marginBottom: 8 }]}>Rename "{sections.find(s => s.id === editingSection)?.label}"</Text>
+            <TextInput style={[s.input, { marginBottom: 10 }]} value={editLabel} onChangeText={setEditLabel} autoFocus placeholder="e.g. Pantry, Freezer, Garage..." placeholderTextColor={T.muted} />
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <TouchableOpacity style={[s.btnPrimary, { flex: 1 }]} onPress={() => renameSection(editingSection, editLabel)}>
+                <Text style={s.btnPrimaryText}>Save</Text>
+              </TouchableOpacity>
+              {editingSection !== "fridge" && (
+                <TouchableOpacity style={[s.btnSecondary, { flex: 1, borderColor: T.danger + "55" }]} onPress={() => { deleteSection(editingSection); setEditingSection(null); }}>
+                  <Text style={{ color: T.danger, fontWeight: "600" }}>Delete</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity style={[s.btnSecondary, { flex: 1 }]} onPress={() => setEditingSection(null)}>
+                <Text style={s.btnSecondaryText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         <View style={s.statsRow}>
           <TouchableOpacity style={s.statBox} onPress={() => setFilter("All")}>
             <Text style={[s.statNum, { color: T.accent }]}>{items.length}</Text>
@@ -462,6 +702,9 @@ function FridgeScreen({ items, onDelete, onAdd, onUpdate, onUse, loading }) {
       </ScrollView>
       <ItemDetailModal item={selectedItem} visible={!!selectedItem} onClose={() => setSelectedItem(null)} onUpdate={async (id, updates) => { await onUpdate(id, updates); setSelectedItem(null); }} onDelete={(id) => { onDelete(id); setSelectedItem(null); }} onShowUse={(item) => setUseItem(item)} />
       <UseItemModal item={useItem} visible={!!useItem} onClose={() => setUseItem(null)} onUse={(id, newQty) => { onUse(id, newQty); setUseItem(null); }} />
+      <TouchableOpacity style={{ position: "absolute", bottom: 24, right: 20, width: 56, height: 56, borderRadius: 28, backgroundColor: T.accent, alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 8 }} onPress={() => onAdd(activeSection)}>
+        <Text style={{ color: "#FFFFFF", fontSize: 28, lineHeight: 32 }}>+</Text>
+      </TouchableOpacity>
     </>
   );
 }
@@ -732,7 +975,7 @@ function AddModal({ visible, onClose, onAdd }) {
   function handleAdd() {
     if (!name.trim()) return;
     const qty = initialQty && initialUnit ? `${initialQty} ${initialUnit}` : initialQty || "1";
-    onAdd({ name: name.trim(), category, emoji: emojiMap[category], quantity: qty, expiryDate: new Date(Date.now() + 7 * 86400000).toISOString() });
+    onAdd({ name: name.trim(), category, emoji: emojiMap[category], quantity: qty, expiryDate: new Date(Date.now() + 7 * 86400000).toISOString(), section });
     setName(""); setInitialQty(""); setInitialUnit(""); onClose();
   }
 
@@ -759,46 +1002,166 @@ function AddModal({ visible, onClose, onAdd }) {
   );
 }
 
+// ─── Share Screen ─────────────────────────────────────────────────────────────
+function ShareScreen() {
+  const APP_URL = "https://apps.apple.com/us/app/ok2eat/id6761730687";
+
+  async function handleShare() {
+    try {
+      await Share.share({
+        message: "I've been using ok2eat to track my fridge and reduce food waste. Check it out! " + APP_URL,
+        url: APP_URL,
+        title: "Check out ok2eat!",
+      });
+    } catch (e) { console.log(e); }
+  }
+
+  const stats = [
+    { emoji: "🥛", stat: "$1,500+", label: "wasted per household yearly" },
+    { emoji: "🌍", stat: "30%", label: "of all food produced is wasted" },
+    { emoji: "♻️", stat: "#3", label: "cause of greenhouse emissions" },
+  ];
+
+  return (
+    <ScrollView style={s.screen} showsVerticalScrollIndicator={false}>
+      <View style={s.headerRow}>
+        <View><Text style={s.pageTitle}>Share ok2eat</Text><Text style={s.pageSubtitle}>Help friends waste less food</Text></View>
+        <Text style={{ fontSize: 32 }}>↑</Text>
+      </View>
+
+      {/* Main share card */}
+      <View style={[s.card, { margin: 16, marginBottom: 12, overflow: "hidden" }]}>
+        <View style={{ backgroundColor: T.accent, padding: 24, alignItems: "center" }}>
+          <Text style={{ fontSize: 48 }}>🧊</Text>
+          <Text style={{ color: "#fff", fontSize: 24, fontWeight: "800", marginTop: 8, letterSpacing: -0.5 }}>ok2eat</Text>
+          <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 13, marginTop: 4 }}>know before you throw</Text>
+        </View>
+        <View style={{ padding: 20 }}>
+          <Text style={{ color: T.textSoft, fontSize: 14, lineHeight: 22, marginBottom: 20, textAlign: "center" }}>
+            Track your fridge, scan groceries, get AI recipes, and stop throwing food away.
+          </Text>
+          <TouchableOpacity style={s.btnPrimary} onPress={handleShare}>
+            <Text style={s.btnPrimaryText}>📲  Share with Friends</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Impact stats */}
+      <Text style={s.sectionLabel}>// WHY IT MATTERS</Text>
+      {stats.map((s2, i) => (
+        <View key={i} style={[s.fridgeItem, { marginBottom: 8 }]}>
+          <Text style={{ fontSize: 28, width: 44, textAlign: "center" }}>{s2.emoji}</Text>
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={[s.bold, { fontSize: 20, color: T.accent }]}>{s2.stat}</Text>
+            <Text style={{ color: T.textSoft, fontSize: 13, marginTop: 2 }}>{s2.label}</Text>
+          </View>
+        </View>
+      ))}
+
+      {/* Share options */}
+      <Text style={s.sectionLabel}>// OTHER WAYS TO SHARE</Text>
+      <View style={[s.card, { margin: 16, marginBottom: 12, padding: 4 }]}>
+        <TouchableOpacity style={{ flexDirection: "row", alignItems: "center", padding: 14, gap: 14 }}
+          onPress={() => Linking.openURL("mailto:?subject=Check out ok2eat!&body=I've been using ok2eat to track my fridge and stop wasting food. Download it here: https://apps.apple.com/us/app/ok2eat/id6761730687")}>
+          <Text style={{ fontSize: 24 }}>✉️</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={[s.bold, { fontSize: 15 }]}>Share via Email</Text>
+            <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Send to a friend or family member</Text>
+          </View>
+          <Text style={{ color: T.muted, fontSize: 16 }}>›</Text>
+        </TouchableOpacity>
+        <View style={{ height: 1, backgroundColor: T.border, marginHorizontal: 14 }} />
+        <TouchableOpacity style={{ flexDirection: "row", alignItems: "center", padding: 14, gap: 14 }}
+          onPress={() => Linking.openURL("https://apps.apple.com/us/app/ok2eat/id6761730687")}>
+          <Text style={{ fontSize: 24 }}>⭐</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={[s.bold, { fontSize: 15 }]}>Leave a Review</Text>
+            <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Rate ok2eat on the App Store</Text>
+          </View>
+          <Text style={{ color: T.muted, fontSize: 16 }}>›</Text>
+        </TouchableOpacity>
+        <View style={{ height: 1, backgroundColor: T.border, marginHorizontal: 14 }} />
+        <TouchableOpacity style={{ flexDirection: "row", alignItems: "center", padding: 14, gap: 14 }}
+          onPress={() => Linking.openURL("https://ok2eat.com")}>
+          <Text style={{ fontSize: 24 }}>🌐</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={[s.bold, { fontSize: 15 }]}>Visit ok2eat.com</Text>
+            <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Learn more about the app</Text>
+          </View>
+          <Text style={{ color: T.muted, fontSize: 16 }}>›</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={{ height: 32 }} />
+    </ScrollView>
+  );
+}
+
 // ─── Root App ─────────────────────────────────────────────────────────────────
 export default function App() {
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [tab, setTab] = useState("fridge");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
+  const [addSection, setAddSection] = useState("fridge");
   const [toast, setToast] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const toastOpacity = useRef(new Animated.Value(0)).current;
   const appState = useRef(AppState.currentState);
 
+  // ── All hooks must come before any conditional returns ──
+  
+  // Auth state listener
   useEffect(() => {
-    loadItems();
-    setupNotifications();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setAuthLoading(false);
+    });
+    const { data: { subscription: authSub } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      if (!session?.user) setItems([]);
+    });
+    return () => authSub.unsubscribe();
+  }, []);
 
-    // Check for expiring items when app comes to foreground
-    const subscription = AppState.addEventListener("change", nextAppState => {
+  // AppState + notification tap listeners
+  useEffect(() => {
+    const appStateSub = AppState.addEventListener("change", nextAppState => {
       if (appState.current.match(/inactive|background/) && nextAppState === "active") {
         loadItems();
       }
       appState.current = nextAppState;
     });
-
-    // Listen for notification taps
-    const notifSubscription = Notifications.addNotificationResponseReceivedListener(() => {
+    const notifSub = Notifications.addNotificationResponseReceivedListener(() => {
       setTab("reminders");
     });
-
     return () => {
-      subscription.remove();
-      notifSubscription.remove();
+      appStateSub.remove();
+      notifSub.remove();
     };
   }, []);
 
-  // Whenever items load, check for expiring ones and notify
+  // Load items and setup notifications when user logs in
   useEffect(() => {
-    if (items.length > 0 && notificationsEnabled) {
-      checkAndNotifyExpiring(items);
+    if (user) {
+      loadItems();
+      setupNotifications();
     }
+  }, [user]);
+
+  // Check expiring items when app comes to foreground
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", nextState => {
+      if (nextState === "active" && notificationsEnabled && items.length > 0) {
+        checkAndNotifyExpiring(items);
+      }
+    });
+    return () => sub.remove();
   }, [items, notificationsEnabled]);
+
+  // ── Helper functions ──
 
   async function setupNotifications() {
     const granted = await requestNotificationPermission();
@@ -826,36 +1189,48 @@ export default function App() {
     const granted = await requestNotificationPermission();
     if (!granted) { Alert.alert("Permission Required", "Please enable notifications in your iPhone Settings."); return; }
     await Notifications.scheduleNotificationAsync({
-      content: {
-        title: "🧊 FridgeAI Test",
-        body: "Notifications are working! You'll be reminded about expiring items.",
-      },
+      content: { title: "🧊 ok2eat Test", body: "Notifications are working!" },
       trigger: { type: "timeInterval", seconds: 2, repeats: false },
     });
     showToast("Test notification sent!");
   }
 
   async function loadItems() {
-    try { setLoading(true); const rows = await dbGetItems(); setItems(rows.map(rowToItem)); }
-    catch (e) { Alert.alert("Couldn't load fridge", "Check your internet connection."); }
-    finally { setLoading(false); }
+    try {
+      setLoading(true);
+      const rows = await dbGetItems();
+      setItems(rows.map(rowToItem));
+    } catch (e) {
+      Alert.alert("Couldn't load fridge", "Check your internet connection.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   function showToast(msg) {
     setToast(msg);
-    Animated.sequence([Animated.timing(toastOpacity, { toValue: 1, duration: 250, useNativeDriver: true }), Animated.delay(2000), Animated.timing(toastOpacity, { toValue: 0, duration: 300, useNativeDriver: true })]).start();
+    Animated.sequence([
+      Animated.timing(toastOpacity, { toValue: 1, duration: 250, useNativeDriver: true }),
+      Animated.delay(2000),
+      Animated.timing(toastOpacity, { toValue: 0, duration: 300, useNativeDriver: true }),
+    ]).start();
   }
 
   async function handleScanned(product) {
     try {
-      const saved = await dbAddItem({ name: product.name, category: product.category, emoji: product.emoji, quantity: 1, barcode: product.code, addedDate: new Date().toISOString(), expiryDate: new Date(Date.now() + product.defaultExpiry * 86400000).toISOString() });
-      setItems(prev => [rowToItem(saved), ...prev]); showToast(`✅ ${product.name} added!`); setTimeout(() => setTab("fridge"), 1200);
+      const saved = await dbAddItem({ name: product.name, category: product.category, emoji: product.emoji, quantity: 1, barcode: product.code, addedDate: new Date().toISOString(), expiryDate: new Date(Date.now() + product.defaultExpiry * 86400000).toISOString(), section: addSection || "fridge" });
+      setItems(prev => [rowToItem(saved), ...prev]);
+      showToast(`✅ ${product.name} added!`);
+      setTimeout(() => setTab("fridge"), 1200);
     } catch (e) { Alert.alert("Couldn't save item", "Check your connection."); }
   }
 
   async function handleAddManual(data) {
-    try { const saved = await dbAddItem(data); setItems(prev => [rowToItem(saved), ...prev]); showToast(`✅ ${data.name} added!`); }
-    catch (e) { Alert.alert("Couldn't save item", "Check your connection."); }
+    try {
+      const saved = await dbAddItem({ ...data, section: data.section || "fridge" });
+      setItems(prev => [rowToItem(saved), ...prev]);
+      showToast(`✅ ${data.name} added!`);
+    } catch (e) { Alert.alert("Couldn't save item", "Check your connection."); }
   }
 
   async function handleUpdate(id, updates) {
@@ -868,35 +1243,80 @@ export default function App() {
 
   async function handleUse(id, newQty) {
     try {
-      if (newQty === null) { await dbDeleteItem(id); setItems(prev => prev.filter(i => i.id !== id)); showToast("✅ Item fully used and removed!"); }
-      else { await dbUpdateItem(id, { quantity: newQty }); setItems(prev => prev.map(i => i.id === id ? { ...i, quantity: newQty } : i)); showToast(`✅ Updated — ${newQty} remaining`); }
+      if (newQty === null) {
+        await dbDeleteItem(id);
+        setItems(prev => prev.filter(i => i.id !== id));
+        showToast("✅ Item fully used and removed!");
+      } else {
+        await dbUpdateItem(id, { quantity: newQty });
+        setItems(prev => prev.map(i => i.id === id ? { ...i, quantity: newQty } : i));
+        showToast(`✅ Updated — ${newQty} remaining`);
+      }
     } catch (e) { Alert.alert("Couldn't update item", "Check your connection."); }
   }
 
   async function handleDelete(id) {
-    try { await dbDeleteItem(id); setItems(prev => prev.filter(i => i.id !== id)); showToast("🗑️ Item removed"); }
-    catch (e) { Alert.alert("Couldn't delete item", "Check your connection."); }
+    try {
+      await dbDeleteItem(id);
+      setItems(prev => prev.filter(i => i.id !== id));
+      showToast("🗑️ Item removed");
+    } catch (e) { Alert.alert("Couldn't delete item", "Check your connection."); }
   }
 
-  const navItems = [{ id: "fridge", label: "Fridge", icon: "🧊" }, { id: "scan", label: "Add", icon: "📷" }, { id: "recipes", label: "Recipes", icon: "🍳" }, { id: "reminders", label: "Alerts", icon: "🔔" }];
+  // ── Conditional renders after all hooks ──
+
+  if (authLoading) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: T.bg, alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator color={T.accent} size="large" />
+      </SafeAreaView>
+    );
+  }
+
+  if (!user) return <AuthScreen onAuth={setUser} />;
+
+  const navItems = [{ id: "fridge", label: "Fridge", icon: "🧊" }, { id: "recipes", label: "Recipes", icon: "🍳" }, { id: "reminders", label: "Alerts", icon: "🔔" }, { id: "share", label: "Share", icon: "↑" }];
 
   return (
     <SafeAreaView style={s.root}>
       <StatusBar barStyle="dark-content" backgroundColor={T.bg} />
       <View style={s.appBar}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}><View style={s.appLogo}><Text style={{ fontSize: 14 }}>🧊</Text></View><Text style={s.appName}>ok2eat</Text></View>
-        <View style={s.aiBadge}><Text style={s.aiBadgeText}>⚡ LIVE</Text></View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <View style={s.appLogo}><Text style={{ fontSize: 14 }}>🧊</Text></View>
+          <Text style={s.appName}>ok2eat</Text>
+        </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <TouchableOpacity
+            onPress={() => Linking.openURL("mailto:hello@ok2eat.com?subject=ok2eat%20Feedback&body=Hi%20ok2eat%20team%2C%0A%0A")}
+            style={{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: "rgba(22,163,74,0.1)", borderWidth: 1, borderColor: "rgba(22,163,74,0.2)", borderRadius: 8 }}
+          >
+            <Text style={{ fontSize: 10, color: T.accent, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" }}>✉ FEEDBACK</Text>
+          </TouchableOpacity>
+          <View style={s.aiBadge}><Text style={s.aiBadgeText}>⚡ LIVE</Text></View>
+          <TouchableOpacity onPress={() => supabase.auth.signOut()} style={{ paddingHorizontal: 8, paddingVertical: 4 }}>
+            <Text style={{ fontSize: 10, color: T.muted, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" }}>OUT</Text>
+          </TouchableOpacity>
+        </View>
       </View>
       <View style={{ flex: 1 }}>
-        {tab === "fridge" && <FridgeScreen items={items} onDelete={handleDelete} onAdd={() => setShowAdd(true)} onUpdate={handleUpdate} onUse={handleUse} loading={loading} />}
+        {tab === "fridge" && <FridgeScreen items={items} onDelete={handleDelete} onAdd={(section) => { setAddSection(section || "fridge"); setShowAdd(true); }} onUpdate={handleUpdate} onUse={handleUse} loading={loading} />}
         {tab === "scan" && <ScanScreen onScanned={handleScanned} />}
         {tab === "recipes" && <RecipesScreen items={items} />}
         {tab === "reminders" && <RemindersScreen items={items} notificationsEnabled={notificationsEnabled} onToggleNotifications={toggleNotifications} onTestNotification={sendTestNotification} />}
+        {tab === "share" && <ShareScreen />}
       </View>
       {toast !== "" && <Animated.View style={[s.toast, { opacity: toastOpacity }]}><Text style={s.toastText}>{toast}</Text></Animated.View>}
-      <AddModal visible={showAdd} onClose={() => setShowAdd(false)} onAdd={handleAddManual} />
+      <AddModal visible={showAdd} onClose={() => setShowAdd(false)} onAdd={handleAddManual} onGoToScan={() => { setShowAdd(false); setTab("scan"); }} section={addSection} />
       <View style={s.navBar}>
-        {navItems.map(n => (<TouchableOpacity key={n.id} style={s.navBtn} onPress={() => setTab(n.id)}><Text style={{ fontSize: 22 }}>{n.icon}</Text><Text style={[s.navLabel, tab === n.id && { color: T.accent }]}>{n.label}</Text></TouchableOpacity>))}
+        {navItems.map(n => (
+          <TouchableOpacity key={n.id} style={s.navBtn} onPress={() => setTab(n.id)}>
+            {n.id === "fridge" && <MaterialIcons name="kitchen" size={24} color={tab === n.id ? T.accent : T.muted} />}
+            {n.id === "recipes" && <Ionicons name="restaurant-outline" size={24} color={tab === n.id ? T.accent : T.muted} />}
+            {n.id === "reminders" && <Ionicons name="notifications-outline" size={24} color={tab === n.id ? T.accent : T.muted} />}
+            {n.id === "share" && <Ionicons name="share-outline" size={24} color={tab === n.id ? T.accent : T.muted} />}
+            <Text style={[s.navLabel, tab === n.id && { color: T.accent }]}>{n.label}</Text>
+          </TouchableOpacity>
+        ))}
       </View>
     </SafeAreaView>
   );
