@@ -11,6 +11,24 @@ import * as AppleAuthentication from "expo-apple-authentication";
 import { createClient } from "@supabase/supabase-js";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
+import * as ImagePicker from "expo-image-picker";
+import PostHog from "posthog-react-native";
+import { Picker } from "@react-native-picker/picker";
+
+// ─── Analytics ───────────────────────────────────────────────────────────────
+const posthog = new PostHog("phc_szxhjw2eQmYYhNGicX3kmNXxdz47Sj7evqx5Quqw8dTY", { host: "https://app.posthog.com" });
+
+function track(event, properties) {
+  try { posthog.capture(event, properties); } catch (e) { /* analytics should never crash the app */ }
+}
+
+function identifyUser(userId) {
+  try { posthog.identify(userId); } catch (e) { /* noop */ }
+}
+
+function resetAnalytics() {
+  try { posthog.reset(); } catch (e) { /* noop */ }
+}
 
 // ─── Notification Setup ───────────────────────────────────────────────────────
 Notifications.setNotificationHandler({
@@ -158,6 +176,21 @@ const CATEGORY_MAP = { "beverages": "Beverages", "dairies": "Dairy", "dairy": "D
 const EMOJI_MAP = { "Dairy": "🧀", "Protein": "🍗", "Produce": "🥬", "Dry Goods": "🥣", "Beverages": "🍶", "Other": "📦" };
 const EXPIRY_MAP = { "Dairy": 14, "Protein": 3, "Produce": 5, "Dry Goods": 180, "Beverages": 7, "Other": 7 };
 function categorize(tags) { if (!tags) return "Other"; const joined = tags.join(" ").toLowerCase(); for (const [key, val] of Object.entries(CATEGORY_MAP)) { if (joined.includes(key)) return val; } return "Other"; }
+
+const GUESS_MAP = {
+  Dairy: ["milk", "cheese", "yogurt", "butter", "cream", "cottage", "mozzarella", "cheddar", "parmesan", "brie"],
+  Protein: ["chicken", "beef", "pork", "fish", "salmon", "shrimp", "turkey", "egg", "tofu", "steak", "bacon", "sausage", "ham", "lamb", "tuna", "crab"],
+  Produce: ["apple", "banana", "lettuce", "tomato", "onion", "carrot", "potato", "avocado", "pepper", "spinach", "broccoli", "celery", "cucumber", "garlic", "lemon", "lime", "orange", "grape", "berry", "strawberry", "blueberry", "mango", "mushroom", "kale", "corn", "zucchini", "peach", "pear", "melon", "watermelon", "cilantro", "basil", "ginger"],
+  "Dry Goods": ["bread", "pasta", "rice", "cereal", "oat", "flour", "sugar", "cracker", "chip", "granola", "nut", "bean", "tortilla", "bagel"],
+  Beverages: ["juice", "soda", "water", "coffee", "tea", "beer", "wine", "kombucha", "smoothie", "lemonade"],
+};
+function guessCategory(name) {
+  const n = name.toLowerCase();
+  for (const [cat, keywords] of Object.entries(GUESS_MAP)) {
+    if (keywords.some(k => n.includes(k))) return cat;
+  }
+  return "Other";
+}
 
 function productFromOFF(p, barcode) {
   const name = p.product_name_en || p.product_name || "";
@@ -332,6 +365,51 @@ function UseItemModal({ item, visible, onClose, onUse }) {
   );
 }
 
+// ─── Reorder Sheet ──────────────────────────────────────────────────────────
+const RETAILERS = [
+  { id: "amazon", label: "Amazon", color: "#FF9900", url: (name) => `https://www.amazon.com/s?k=${encodeURIComponent(name)}&tag=ok2eat-20` },
+  { id: "target", label: "Target", color: "#CC0000", url: (name) => `https://www.target.com/s?searchTerm=${encodeURIComponent(name)}&afid=ok2eat` },
+  { id: "walmart", label: "Walmart", color: "#0071CE", url: (name) => `https://www.walmart.com/search?q=${encodeURIComponent(name)}&affiliates_id=ok2eat` },
+];
+
+function ReorderSheet({ item, visible, onClose }) {
+  if (!item) return null;
+  function handleOpen(retailer) {
+    Linking.openURL(retailer.url(item.name));
+    track("reorder_tapped", { retailer: retailer.id, item_category: item.category });
+    onClose();
+  }
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <TouchableOpacity style={s.modalOverlay} activeOpacity={1} onPress={onClose}>
+        <TouchableOpacity activeOpacity={1} style={s.modalSheet}>
+          <View style={s.sheetHandle} />
+          <Text style={[s.bold, { fontSize: 18, marginBottom: 4 }]}>Reorder {item.name}</Text>
+          <Text style={{ color: T.textSoft, fontSize: 13, marginBottom: 20 }}>Choose a retailer to reorder</Text>
+          {RETAILERS.map(r => (
+            <TouchableOpacity key={r.id} onPress={() => handleOpen(r)} style={{ flexDirection: "row", alignItems: "center", padding: 14, marginBottom: 8, backgroundColor: r.color + "0D", borderWidth: 1, borderColor: r.color + "33", borderRadius: 14, gap: 12 }}>
+              <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: r.color + "1A", alignItems: "center", justifyContent: "center" }}>
+                <Text style={{ fontSize: 11, fontWeight: "800", color: r.color }}>{r.label.charAt(0)}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[s.bold, { fontSize: 15, color: r.color }]}>{r.label}</Text>
+                <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 1 }}>Search for "{item.name}"</Text>
+              </View>
+              <Text style={{ color: r.color, fontSize: 16 }}>›</Text>
+            </TouchableOpacity>
+          ))}
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+  );
+}
+
+function needsReorder(item) {
+  const qtyNum = parseFloat(String(item.quantity)) || 0;
+  const days = daysUntil(item.expiryDate);
+  return qtyNum <= 1 || days <= 7;
+}
+
 // ─── Item Detail Modal ────────────────────────────────────────────────────────
 function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse }) {
   const [editing, setEditing] = useState(false);
@@ -343,6 +421,7 @@ function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse
   const [nutrition, setNutrition] = useState(null);
   const [nutritionGrade, setNutritionGrade] = useState(null);
   const [ingredients, setIngredients] = useState(null);
+  const [showReorder, setShowReorder] = useState(false);
 
   const categories = ["Dairy", "Protein", "Produce", "Dry Goods", "Beverages", "Other"];
   const emojiMap = { Dairy: "🥛", Protein: "🍗", Produce: "🥬", "Dry Goods": "🥣", Beverages: "🍶", Other: "📦" };
@@ -402,6 +481,12 @@ function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse
                 <View><Text style={[s.bold, { color: T.accent, fontSize: 15 }]}>Use Item</Text><Text style={{ color: T.textSoft, fontSize: 12, marginTop: 1 }}>Track how much you used</Text></View>
               </TouchableOpacity>
             )}
+            {!editing && needsReorder(item) && (
+              <TouchableOpacity style={{ backgroundColor: "rgba(255,153,0,0.08)", borderWidth: 1.5, borderColor: "rgba(255,153,0,0.3)", borderRadius: 14, padding: 16, marginBottom: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 }} onPress={() => setShowReorder(true)}>
+                <Text style={{ fontSize: 20 }}>🛒</Text>
+                <View><Text style={[s.bold, { color: "#FF9900", fontSize: 15 }]}>Reorder</Text><Text style={{ color: T.textSoft, fontSize: 12, marginTop: 1 }}>{daysUntil(item.expiryDate) <= 7 ? "Expiring soon — restock" : "Running low — restock"}</Text></View>
+              </TouchableOpacity>
+            )}
             <View style={[s.card, { padding: 16, marginBottom: 12 }]}>
               <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 12, paddingHorizontal: 0 }]}>DETAILS</Text>
               <View style={{ marginBottom: 12 }}>
@@ -431,6 +516,7 @@ function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse
             </TouchableOpacity>
           </View>
         </ScrollView>
+        <ReorderSheet item={item} visible={showReorder} onClose={() => setShowReorder(false)} />
       </SafeAreaView>
     </Modal>
   );
@@ -484,11 +570,12 @@ function AuthScreen({ onAuth }) {
           AppleAuthentication.AppleAuthenticationScope.EMAIL,
         ],
       });
-      const { error } = await supabase.auth.signInWithIdToken({
+      const { error, data } = await supabase.auth.signInWithIdToken({
         provider: "apple",
         token: credential.identityToken,
       });
       if (error) throw error;
+      if (data?.user) { identifyUser(data.user.id); track("user_signed_in", { method: "apple" }); }
     } catch (e) {
       if (e.code !== "ERR_REQUEST_CANCELED") {
         Alert.alert("Sign in failed", e.message || "Something went wrong.");
@@ -501,11 +588,13 @@ function AuthScreen({ onAuth }) {
     setLoading(true); setError("");
     try {
       if (mode === "login") {
-        const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+        const { error, data } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
         if (error) throw error;
+        if (data?.user) { identifyUser(data.user.id); track("user_signed_in", { method: "email" }); }
       } else {
-        const { error } = await supabase.auth.signUp({ email: email.trim(), password });
+        const { error, data } = await supabase.auth.signUp({ email: email.trim(), password });
         if (error) throw error;
+        if (data?.user) { identifyUser(data.user.id); track("user_signed_up", { method: "email" }); }
         Alert.alert("Account created!", "You can now sign in with your email and password.");
         setMode("login");
       }
@@ -583,8 +672,11 @@ function FridgeScreen({ items, onDelete, onAdd, onUpdate, onUse, loading }) {
 
   function addSection() {
     const newId = "section_" + Date.now();
-    setSections(prev => [...prev, { id: newId, label: "New Storage", icon: "inventory-2" }]);
+    setSections(prev => [...prev, { id: newId, label: "", icon: "inventory-2" }]);
     setActiveSection(newId);
+    setEditingSection(newId);
+    setEditLabel("");
+    track("section_added");
   }
 
   function renameSection(id, newLabel) {
@@ -622,7 +714,7 @@ function FridgeScreen({ items, onDelete, onAdd, onUpdate, onUse, loading }) {
               }}
             >
               <MaterialIcons name={sec.icon} size={16} color={activeSection === sec.id ? "#fff" : T.textSoft} />
-              <Text style={{ fontSize: 13, fontWeight: "600", color: activeSection === sec.id ? "#fff" : T.textSoft }}>{sec.label}</Text>
+              <Text style={{ fontSize: 13, fontWeight: "600", color: activeSection === sec.id ? "#fff" : T.textSoft }}>{sec.label || "Name it..."}</Text>
             </TouchableOpacity>
           ))}
           <TouchableOpacity
@@ -669,16 +761,18 @@ function FridgeScreen({ items, onDelete, onAdd, onUpdate, onUse, loading }) {
             <Text style={s.statLabel}>Categories</Text>
           </TouchableOpacity>
         </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ paddingLeft: 16, marginBottom: 16 }}>
-          {categories.map(c => (<TouchableOpacity key={c} onPress={() => setFilter(c)} style={[s.chip, filter === c && s.chipActive]}><Text style={[s.chipText, filter === c && s.chipTextActive]}>{c}</Text></TouchableOpacity>))}
-        </ScrollView>
+        <View style={{ marginHorizontal: 16, marginBottom: 16, borderWidth: 1, borderColor: T.border, borderRadius: 12, backgroundColor: T.card, overflow: "hidden" }}>
+          <Picker selectedValue={filter} onValueChange={v => setFilter(v)} style={{ color: T.text }} itemStyle={{ fontSize: 15 }}>
+            {categories.map(c => <Picker.Item key={c} label={c === "All" ? "All Categories" : c} value={c} />)}
+          </Picker>
+        </View>
         {expiringSoon > 0 && <View style={s.warnBanner}><Text style={{ fontSize: 18 }}>⚠️</Text><View style={{ marginLeft: 10 }}><Text style={[s.bold, { color: T.warn }]}>Heads up!</Text><Text style={{ color: T.textSoft, fontSize: 12 }}>{expiringSoon} item{expiringSoon > 1 ? "s" : ""} expiring within 3 days</Text></View></View>}
         {loading ? (
           <View style={{ alignItems: "center", padding: 48 }}><ActivityIndicator color={T.accent} size="large" /><Text style={{ color: T.textSoft, marginTop: 12 }}>Loading your fridge...</Text></View>
         ) : (
           <>
             <Text style={s.sectionLabel}>{filter === "expiring" ? "// EXPIRING SOON" : "// CONTENTS · TAP TO VIEW DETAILS"}</Text>
-            {filtered.length === 0 && <View style={{ alignItems: "center", padding: 48 }}><Text style={{ fontSize: 48 }}>🧊</Text><Text style={[s.bold, { fontSize: 18, marginTop: 12 }]}>Your fridge is empty!</Text><Text style={{ color: T.textSoft, fontSize: 14, marginTop: 6 }}>Tap + or use the Add tab.</Text></View>}
+            {filtered.length === 0 && <View style={{ alignItems: "center", padding: 48 }}><Text style={{ fontSize: 48 }}>🧊</Text><Text style={[s.bold, { fontSize: 18, marginTop: 12 }]}>Your fridge is empty!</Text><Text style={{ color: T.textSoft, fontSize: 14, marginTop: 6 }}>Tap + to add your first item.</Text></View>}
             {filtered.map(item => {
               const days = daysUntil(item.expiryDate); const color = expiryColor(days);
               return (
@@ -840,7 +934,9 @@ function RecipesScreen({ items }) {
       const res = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 2000, messages: [{ role: "user", content: `I have: ${items.map(i => i.name).join(", ")}. Suggest 3 recipes. Respond ONLY with JSON array (no markdown): [{"name":"","time":"","difficulty":"","emoji":"","description":"","ingredients":[{"item":"","amount":""}],"instructions":[""],"tip":""}]` }] }) });
       const data = await res.json();
       const text = data.content?.map(b => b.text || "").join("") || "[]";
-      setRecipes(JSON.parse(text.replace(/```json|```/g, "").trim()));
+      const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+      setRecipes(parsed);
+      track("recipe_generated", { count: parsed.length });
     } catch (e) { Alert.alert("Couldn't load AI recipes", "Check your connection."); }
     setLoading(false);
   }
@@ -907,6 +1003,7 @@ function RecipesScreen({ items }) {
 // ─── Reminders Screen ─────────────────────────────────────────────────────────
 function RemindersScreen({ items, notificationsEnabled, onToggleNotifications, onTestNotification }) {
   const [dismissed, setDismissed] = useState([]);
+  const [reorderItem, setReorderItem] = useState(null);
   const autoReminders = items.filter(i => daysUntil(i.expiryDate) <= 3 && !dismissed.includes("auto-" + i.id)).map(i => ({ id: "auto-" + i.id, type: "toss", text: `Check ${i.name}`, detail: `Expires in ${Math.max(0, daysUntil(i.expiryDate))} day(s)`, time: formatDate(i.expiryDate), emoji: i.emoji, urgent: daysUntil(i.expiryDate) <= 1 }));
   const staticReminders = [{ id: "r1", type: "order", text: "Reorder Chicken Breast", detail: "Running low", time: "Friday 10:00 AM", emoji: "🛒", urgent: false }].filter(r => !dismissed.includes(r.id));
   const allReminders = [...autoReminders, ...staticReminders];
@@ -958,13 +1055,299 @@ function RemindersScreen({ items, notificationsEnabled, onToggleNotifications, o
       {urgent.length > 0 && <><Text style={s.sectionLabel}>// URGENT</Text>{urgent.map(r => <ReminderItem key={r.id} r={r} />)}</>}
       {normal.length > 0 && <><Text style={s.sectionLabel}>// UPCOMING</Text>{normal.map(r => <ReminderItem key={r.id} r={r} />)}</>}
       {allReminders.length === 0 && <View style={{ alignItems: "center", padding: 48 }}><Text style={{ fontSize: 48 }}>✅</Text><Text style={[s.bold, { fontSize: 18, marginTop: 12 }]}>All clear!</Text></View>}
+
+      {/* Running Low Section */}
+      {(() => {
+        const lowItems = items.filter(i => { const q = parseFloat(String(i.quantity)) || 0; return q <= 1; });
+        if (lowItems.length === 0) return null;
+        return (
+          <>
+            <Text style={s.sectionLabel}>// RUNNING LOW — REORDER</Text>
+            {lowItems.map(i => (
+              <TouchableOpacity key={"low-" + i.id} style={s.fridgeItem} onPress={() => setReorderItem(i)}>
+                <View style={[s.reminderIcon, { backgroundColor: "rgba(255,153,0,0.1)" }]}><Text style={{ fontSize: 20 }}>{i.emoji}</Text></View>
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={s.bold}>{i.name}</Text>
+                  <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Qty: {i.quantity} · {i.category}</Text>
+                </View>
+                <View style={{ backgroundColor: "rgba(255,153,0,0.1)", borderWidth: 1, borderColor: "rgba(255,153,0,0.3)", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 }}>
+                  <Text style={{ color: "#FF9900", fontSize: 12, fontWeight: "700" }}>🛒 Reorder</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </>
+        );
+      })()}
+
       <View style={{ height: 32 }} />
+      <ReorderSheet item={reorderItem} visible={!!reorderItem} onClose={() => setReorderItem(null)} />
     </ScrollView>
   );
 }
 
+// ─── Receipt Scanner Helper ──────────────────────────────────────────────────
+async function parseReceiptImage(base64) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 2000,
+      messages: [{
+        role: "user",
+        content: [
+          {
+            type: "image",
+            source: { type: "base64", media_type: "image/jpeg", data: base64 },
+          },
+          {
+            type: "text",
+            text: 'Look at this grocery receipt and extract all food items. Return ONLY a JSON array with no markdown: [{"name":"","quantity":"1","category":"","expiry_days":7}]. Use these categories: Dairy, Protein, Produce, Dry Goods, Beverages, Other. For quantity, include the amount and unit if visible (e.g. "2 lbs"). For expiry_days, estimate based on the food type.',
+          },
+        ],
+      }],
+    }),
+  });
+  const data = await res.json();
+  const text = data.content?.map(b => b.text || "").join("") || "[]";
+  return JSON.parse(text.replace(/```json|```/g, "").trim());
+}
+
+// ─── Bulk Add Modal ──────────────────────────────────────────────────────────
+function BulkAddModal({ visible, onClose, onAddItems, section }) {
+  const emptyRow = () => ({ id: Date.now() + Math.random(), name: "", quantity: "1", expiry: "" });
+  const [rows, setRows] = useState([]);
+  const [adding, setAdding] = useState(false);
+  const [scanning, setScanning] = useState(false);
+
+  useEffect(() => {
+    if (visible) setRows([emptyRow(), emptyRow(), emptyRow()]);
+  }, [visible]);
+
+  function updateRow(id, field, value) {
+    setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+  }
+
+  function removeRow(id) {
+    setRows(prev => prev.length <= 1 ? prev : prev.filter(r => r.id !== id));
+  }
+
+  function addRow() {
+    setRows(prev => [...prev, emptyRow()]);
+  }
+
+  function applyReceiptItems(parsed) {
+    const newRows = parsed.map(item => {
+      const cat = guessCategory(item.name) !== "Other" ? guessCategory(item.name) : (item.category || "Other");
+      const days = item.expiry_days || EXPIRY_MAP[cat] || 7;
+      const expiryDate = new Date(Date.now() + days * 86400000);
+      const yyyy = expiryDate.getFullYear();
+      const mm = String(expiryDate.getMonth() + 1).padStart(2, "0");
+      const dd = String(expiryDate.getDate()).padStart(2, "0");
+      return {
+        id: Date.now() + Math.random(),
+        name: item.name || "",
+        quantity: item.quantity || "1",
+        expiry: `${yyyy}-${mm}-${dd}`,
+      };
+    });
+    if (newRows.length > 0) setRows(newRows);
+  }
+
+  async function handleScanReceipt(source) {
+    try {
+      let result;
+      if (source === "camera") {
+        const perm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!perm.granted) {
+          Alert.alert("Permission Required", "Please allow camera access to scan receipts.");
+          return;
+        }
+        result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ["images"],
+          quality: 0.7,
+          base64: true,
+        });
+      } else {
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) {
+          Alert.alert("Permission Required", "Please allow photo library access to upload receipts.");
+          return;
+        }
+        result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ["images"],
+          quality: 0.7,
+          base64: true,
+        });
+      }
+      if (result.canceled || !result.assets?.[0]?.base64) return;
+
+      setScanning(true);
+      const parsed = await parseReceiptImage(result.assets[0].base64);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        applyReceiptItems(parsed);
+        track("receipt_scanned", { source, item_count: parsed.length });
+      } else {
+        Alert.alert("No items found", "Couldn't extract food items from this image. Try a clearer photo.");
+      }
+    } catch (e) {
+      Alert.alert("Scan failed", "Couldn't process the receipt. Check your connection and try again.");
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  const validRows = rows.filter(r => r.name.trim());
+
+  async function handleAddAll() {
+    if (validRows.length === 0) return;
+    setAdding(true);
+    const items = validRows.map(r => {
+      const cat = guessCategory(r.name);
+      const defaultDays = EXPIRY_MAP[cat] || 7;
+      const expiry = r.expiry.trim()
+        ? new Date(r.expiry.trim()).toISOString()
+        : new Date(Date.now() + defaultDays * 86400000).toISOString();
+      return {
+        name: r.name.trim(),
+        category: cat,
+        emoji: EMOJI_MAP[cat],
+        quantity: r.quantity.trim() || "1",
+        expiryDate: expiry,
+        section: section || "fridge",
+      };
+    });
+    await onAddItems(items);
+    setAdding(false);
+    onClose();
+  }
+
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }}>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: T.border, backgroundColor: "#FFFFFF" }}>
+          <TouchableOpacity onPress={onClose}><Text style={{ color: T.accent, fontSize: 15 }}>Cancel</Text></TouchableOpacity>
+          <Text style={[s.bold, { fontSize: 16 }]}>Add Multiple Items</Text>
+          <View style={{ width: 50 }} />
+        </View>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 120 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+
+            {/* Receipt Scanner Buttons */}
+            {scanning ? (
+              <View style={[s.card, { padding: 24, marginBottom: 16, alignItems: "center" }]}>
+                <ActivityIndicator color={T.accent} size="large" />
+                <Text style={[s.bold, { fontSize: 15, marginTop: 12 }]}>Reading receipt...</Text>
+                <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 4 }}>AI is extracting your grocery items</Text>
+              </View>
+            ) : (
+              <View style={{ flexDirection: "row", gap: 10, marginBottom: 16 }}>
+                <TouchableOpacity
+                  style={[s.card, { flex: 1, padding: 14, alignItems: "center", gap: 6 }]}
+                  onPress={() => handleScanReceipt("camera")}
+                >
+                  <Text style={{ fontSize: 28 }}>📷</Text>
+                  <Text style={[s.bold, { fontSize: 13, textAlign: "center" }]}>Scan Receipt</Text>
+                  <Text style={{ color: T.textSoft, fontSize: 11, textAlign: "center" }}>Take a photo</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[s.card, { flex: 1, padding: 14, alignItems: "center", gap: 6 }]}
+                  onPress={() => handleScanReceipt("library")}
+                >
+                  <Text style={{ fontSize: 28 }}>🖼</Text>
+                  <Text style={[s.bold, { fontSize: 13, textAlign: "center" }]}>Upload Receipt</Text>
+                  <Text style={{ color: T.textSoft, fontSize: 11, textAlign: "center" }}>From camera roll</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            <View style={{ backgroundColor: "rgba(22,163,74,0.08)", borderRadius: 12, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: "rgba(22,163,74,0.2)" }}>
+              <Text style={{ color: T.accent, fontSize: 13, fontWeight: "600" }}>Scan a receipt to auto-fill, or type your grocery items below — category and expiry are auto-filled based on the item name.</Text>
+            </View>
+
+            {rows.map((row, index) => {
+              const cat = row.name.trim() ? guessCategory(row.name) : null;
+              return (
+                <View key={row.id} style={[s.card, { padding: 14, marginBottom: 10 }]}>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <Text style={{ fontSize: 20 }}>{cat ? EMOJI_MAP[cat] : "📝"}</Text>
+                      <Text style={{ color: T.textSoft, fontSize: 12, fontWeight: "600" }}>ITEM {index + 1}</Text>
+                      {cat && <View style={s.pill}><Text style={s.pillText}>{cat}</Text></View>}
+                    </View>
+                    {rows.length > 1 && (
+                      <TouchableOpacity onPress={() => removeRow(row.id)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                        <Ionicons name="close-circle" size={22} color={T.muted} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  <TextInput
+                    style={[s.input, { fontSize: 16, fontWeight: "600", marginBottom: 8 }]}
+                    placeholder="Item name (e.g. Chicken breast)"
+                    placeholderTextColor={T.muted}
+                    value={row.name}
+                    onChangeText={v => updateRow(row.id, "name", v)}
+                  />
+                  <View style={{ flexDirection: "row", gap: 10 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.inputLabel}>Quantity</Text>
+                      <TextInput
+                        style={s.input}
+                        placeholder="e.g. 2 lbs"
+                        placeholderTextColor={T.muted}
+                        value={row.quantity}
+                        onChangeText={v => updateRow(row.id, "quantity", v)}
+                      />
+                    </View>
+                    <View style={{ flex: 1.5 }}>
+                      <Text style={s.inputLabel}>Expiry (optional)</Text>
+                      <TextInput
+                        style={s.input}
+                        placeholder="YYYY-MM-DD"
+                        placeholderTextColor={T.muted}
+                        value={row.expiry}
+                        onChangeText={v => updateRow(row.id, "expiry", v)}
+                        keyboardType="numbers-and-punctuation"
+                      />
+                    </View>
+                  </View>
+                  {cat && !row.expiry.trim() && (
+                    <Text style={{ color: T.muted, fontSize: 11, marginTop: -4 }}>Auto-expiry: {EXPIRY_MAP[cat]} days from today</Text>
+                  )}
+                </View>
+              );
+            })}
+
+            <TouchableOpacity onPress={addRow} style={[s.btnSecondary, { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 10, borderStyle: "dashed" }]}>
+              <Ionicons name="add-circle-outline" size={20} color={T.accent} />
+              <Text style={{ color: T.accent, fontSize: 15, fontWeight: "600" }}>Add Another Item</Text>
+            </TouchableOpacity>
+          </ScrollView>
+
+          <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: "#FFFFFF", borderTopWidth: 1, borderTopColor: T.border, padding: 16, paddingBottom: Platform.OS === "ios" ? 34 : 16 }}>
+            <TouchableOpacity
+              style={[s.btnPrimary, validRows.length === 0 && { opacity: 0.5 }]}
+              onPress={handleAddAll}
+              disabled={validRows.length === 0 || adding}
+            >
+              {adding
+                ? <ActivityIndicator color="#FFFFFF" />
+                : <Text style={s.btnPrimaryText}>
+                    {validRows.length === 0
+                      ? "Enter items above"
+                      : `✅  Add ${validRows.length} Item${validRows.length !== 1 ? "s" : ""} to Fridge`}
+                  </Text>
+              }
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
 // ─── Add Item Modal ───────────────────────────────────────────────────────────
-function AddModal({ visible, onClose, onAdd }) {
+function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan }) {
   const [name, setName] = useState("");
   const [category, setCategory] = useState("Other");
   const [initialQty, setInitialQty] = useState("");
@@ -996,6 +1379,14 @@ function AddModal({ visible, onClose, onAdd }) {
             {categories.map(c => (<TouchableOpacity key={c} onPress={() => setCategory(c)} style={[s.chip, category === c && s.chipActive]}><Text style={[s.chipText, category === c && s.chipTextActive]}>{emojiMap[c]} {c}</Text></TouchableOpacity>))}
           </View>
           <TouchableOpacity style={s.btnPrimary} onPress={handleAdd}><Text style={s.btnPrimaryText}>Add to Fridge</Text></TouchableOpacity>
+          <TouchableOpacity style={[s.btnSecondary, { marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }]} onPress={() => { onClose(); setTimeout(() => onGoToScan && onGoToScan(), 350); }}>
+            <Ionicons name="barcode-outline" size={18} color={T.accent} />
+            <Text style={{ color: T.accent, fontSize: 15, fontWeight: "600" }}>Scan Barcode</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[s.btnSecondary, { marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }]} onPress={() => { onClose(); setTimeout(() => onBulkAdd && onBulkAdd(), 350); }}>
+            <Ionicons name="list-outline" size={18} color={T.accent} />
+            <Text style={{ color: T.accent, fontSize: 15, fontWeight: "600" }}>Add Multiple Items</Text>
+          </TouchableOpacity>
         </TouchableOpacity>
       </TouchableOpacity>
     </Modal>
@@ -1008,11 +1399,12 @@ function ShareScreen() {
 
   async function handleShare() {
     try {
-      await Share.share({
+      const result = await Share.share({
         message: "I've been using ok2eat to track my fridge and reduce food waste. Check it out! " + APP_URL,
         url: APP_URL,
         title: "Check out ok2eat!",
       });
+      if (result.action === Share.sharedAction) track("share_tapped");
     } catch (e) { console.log(e); }
   }
 
@@ -1105,6 +1497,7 @@ export default function App() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
+  const [showBulkAdd, setShowBulkAdd] = useState(false);
   const [addSection, setAddSection] = useState("fridge");
   const [toast, setToast] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
@@ -1121,7 +1514,8 @@ export default function App() {
     });
     const { data: { subscription: authSub } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
-      if (!session?.user) setItems([]);
+      if (session?.user) identifyUser(session.user.id);
+      else { setItems([]); resetAnalytics(); }
     });
     return () => authSub.unsubscribe();
   }, []);
@@ -1221,6 +1615,7 @@ export default function App() {
       const saved = await dbAddItem({ name: product.name, category: product.category, emoji: product.emoji, quantity: 1, barcode: product.code, addedDate: new Date().toISOString(), expiryDate: new Date(Date.now() + product.defaultExpiry * 86400000).toISOString(), section: addSection || "fridge" });
       setItems(prev => [rowToItem(saved), ...prev]);
       showToast(`✅ ${product.name} added!`);
+      track("item_scanned", { category: product.category });
       setTimeout(() => setTab("fridge"), 1200);
     } catch (e) { Alert.alert("Couldn't save item", "Check your connection."); }
   }
@@ -1230,7 +1625,22 @@ export default function App() {
       const saved = await dbAddItem({ ...data, section: data.section || "fridge" });
       setItems(prev => [rowToItem(saved), ...prev]);
       showToast(`✅ ${data.name} added!`);
+      track("item_added_manual", { category: data.category });
     } catch (e) { Alert.alert("Couldn't save item", "Check your connection."); }
+  }
+
+  async function handleBulkAdd(itemsList) {
+    try {
+      const saved = [];
+      for (const item of itemsList) {
+        const row = await dbAddItem(item);
+        saved.push(rowToItem(row));
+      }
+      setItems(prev => [...saved, ...prev]);
+      showToast(`✅ ${saved.length} item${saved.length !== 1 ? "s" : ""} added!`);
+      track("item_added_bulk", { count: saved.length });
+      setTab("fridge");
+    } catch (e) { Alert.alert("Couldn't save items", "Check your connection."); }
   }
 
   async function handleUpdate(id, updates) {
@@ -1252,6 +1662,7 @@ export default function App() {
         setItems(prev => prev.map(i => i.id === id ? { ...i, quantity: newQty } : i));
         showToast(`✅ Updated — ${newQty} remaining`);
       }
+      track("item_used", { fully_used: newQty === null });
     } catch (e) { Alert.alert("Couldn't update item", "Check your connection."); }
   }
 
@@ -1260,6 +1671,7 @@ export default function App() {
       await dbDeleteItem(id);
       setItems(prev => prev.filter(i => i.id !== id));
       showToast("🗑️ Item removed");
+      track("item_deleted");
     } catch (e) { Alert.alert("Couldn't delete item", "Check your connection."); }
   }
 
@@ -1306,7 +1718,8 @@ export default function App() {
         {tab === "share" && <ShareScreen />}
       </View>
       {toast !== "" && <Animated.View style={[s.toast, { opacity: toastOpacity }]}><Text style={s.toastText}>{toast}</Text></Animated.View>}
-      <AddModal visible={showAdd} onClose={() => setShowAdd(false)} onAdd={handleAddManual} onGoToScan={() => { setShowAdd(false); setTab("scan"); }} section={addSection} />
+      <AddModal visible={showAdd} onClose={() => setShowAdd(false)} onAdd={handleAddManual} onGoToScan={() => { setShowAdd(false); setTab("scan"); }} section={addSection} onBulkAdd={() => setShowBulkAdd(true)} />
+      <BulkAddModal visible={showBulkAdd} onClose={() => setShowBulkAdd(false)} onAddItems={handleBulkAdd} section={addSection} />
       <View style={s.navBar}>
         {navItems.map(n => (
           <TouchableOpacity key={n.id} style={s.navBtn} onPress={() => setTab(n.id)}>
