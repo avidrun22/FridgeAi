@@ -14,9 +14,10 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.gregorygoldberg.ok2eat",
-      "buildNumber": "3",
+      "buildNumber": "4",
       "infoPlist": {
         "NSCameraUsageDescription": "ok2eat needs camera access to scan barcodes",
+        "NSLocationWhenInUseUsageDescription": "ok2eat does not use your location. This description is required by a third-party library.",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
         },
