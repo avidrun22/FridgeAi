@@ -33,6 +33,9 @@ yarn-error.*
 # local env files
 .env*.local
 
+# automation scripts hold secrets (App Store API key, bot tokens)
+.appstoreconnect/
+
 # typescript
 *.tsbuildinfo
 

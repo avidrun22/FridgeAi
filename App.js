@@ -931,13 +931,36 @@ function RecipesScreen({ items }) {
   async function getAIRecipes() {
     setLoading(true);
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 2000, messages: [{ role: "user", content: `I have: ${items.map(i => i.name).join(", ")}. Suggest 3 recipes. Respond ONLY with JSON array (no markdown): [{"name":"","time":"","difficulty":"","emoji":"","description":"","ingredients":[{"item":"","amount":""}],"instructions":[""],"tip":""}]` }] }) });
-      const data = await res.json();
-      const text = data.content?.map(b => b.text || "").join("") || "[]";
-      const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        Alert.alert("Sign in needed", "Please sign in to generate AI recipes.");
+        setLoading(false);
+        return;
+      }
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/generate-recipes`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ items: items.map(i => i.name) }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (res.status === 429) {
+          Alert.alert("Daily limit reached", data?.error || "Try again tomorrow.");
+        } else {
+          Alert.alert("Couldn't load AI recipes", data?.error || `HTTP ${res.status}`);
+        }
+        setLoading(false);
+        return;
+      }
+      const parsed = Array.isArray(data.recipes) ? data.recipes : [];
       setRecipes(parsed);
       track("recipe_generated", { count: parsed.length });
-    } catch (e) { Alert.alert("Couldn't load AI recipes", "Check your connection."); }
+    } catch (e) {
+      Alert.alert("Couldn't load AI recipes", "Check your connection.");
+    }
     setLoading(false);
   }
 
@@ -1086,31 +1109,28 @@ function RemindersScreen({ items, notificationsEnabled, onToggleNotifications, o
 }
 
 // ─── Receipt Scanner Helper ──────────────────────────────────────────────────
+// Proxies through the Supabase Edge Function `scan-receipt` so the Anthropic
+// API key stays off-device. Requires the user to be signed in.
 async function parseReceiptImage(base64) {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error("Please sign in to scan receipts.");
+
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/scan-receipt`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 2000,
-      messages: [{
-        role: "user",
-        content: [
-          {
-            type: "image",
-            source: { type: "base64", media_type: "image/jpeg", data: base64 },
-          },
-          {
-            type: "text",
-            text: 'Look at this grocery receipt and extract all food items. Return ONLY a JSON array with no markdown: [{"name":"","quantity":"1","category":"","expiry_days":7}]. Use these categories: Dairy, Protein, Produce, Dry Goods, Beverages, Other. For quantity, include the amount and unit if visible (e.g. "2 lbs"). For expiry_days, estimate based on the food type.',
-          },
-        ],
-      }],
-    }),
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({ image: base64 }),
   });
-  const data = await res.json();
-  const text = data.content?.map(b => b.text || "").join("") || "[]";
-  return JSON.parse(text.replace(/```json|```/g, "").trim());
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    if (res.status === 429) throw new Error(data?.error || "Daily scan limit reached.");
+    if (res.status === 401) throw new Error("Please sign in to scan receipts.");
+    throw new Error(data?.error || `Scan failed (HTTP ${res.status}).`);
+  }
+  return Array.isArray(data.items) ? data.items : [];
 }
 
 // ─── Bulk Add Modal ──────────────────────────────────────────────────────────
