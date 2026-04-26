@@ -44,83 +44,25 @@ async function requestNotificationPermission() {
   return status === "granted";
 }
 
-async function scheduleExpiryNotification(item, daysUntilExpiry) {
-  const triggerDate = new Date();
-  triggerDate.setSeconds(triggerDate.getSeconds() + 5); // small delay for immediate
-
-  if (daysUntilExpiry <= 0) {
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: "⚠️ Item Expired",
-        body: `${item.name} has expired — time to toss it!`,
-        data: { itemId: item.id },
-      },
-      trigger: { type: "timeInterval", seconds: 2, repeats: false },
-    });
-  } else if (daysUntilExpiry <= 1) {
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: "🚨 Expires Today!",
-        body: `${item.name} expires today — use it now!`,
-        data: { itemId: item.id },
-      },
-      trigger: { type: "timeInterval", seconds: 2, repeats: false },
-    });
-  } else if (daysUntilExpiry <= 3) {
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: "⏰ Expiring Soon",
-        body: `${item.name} expires in ${daysUntilExpiry} days.`,
-        data: { itemId: item.id },
-      },
-      trigger: { type: "timeInterval", seconds: 2, repeats: false },
-    });
-  }
+// As of v1.0.5 we use a server-driven daily digest instead of per-item local
+// notifications, so this is a no-op kept only so any stale callers still
+// compile. Cancel any leftover schedules from older builds.
+async function cancelLegacyNotifications() {
+  try { await Notifications.cancelAllScheduledNotificationsAsync(); } catch {}
 }
 
-async function scheduleDailyReminder() {
-  await Notifications.cancelAllScheduledNotificationsAsync();
-  await Notifications.scheduleNotificationAsync({
-    content: {
-      title: "🧊 ok2eat Daily Check",
-      body: "Open the app to check what's expiring soon!",
-    },
-    trigger: { type: "daily", hour: 9, minute: 0 },
-  });
-}
-
-async function checkAndNotifyExpiring(items) {
+// Get the Expo push token for this device (returns null if simulator or denied)
+async function getExpoPushToken() {
   try {
-    // Load already-notified item IDs from storage
-    const stored = await AsyncStorage.getItem("notified_items");
-    const notifiedMap = stored ? JSON.parse(stored) : {};
-    const today = new Date().toDateString();
-    const updated = { ...notifiedMap };
-    let changed = false;
-
-    for (const item of items) {
-      const days = Math.ceil((new Date(item.expiryDate).getTime() - Date.now()) / 86400000);
-      const key = `${item.id}_${today}`;
-      // Only notify if expiring within 3 days AND not already notified today
-      if (days <= 3 && days >= 0 && !notifiedMap[key]) {
-        await scheduleExpiryNotification(item, days);
-        updated[key] = true;
-        changed = true;
-      }
-    }
-
-    // Clean up old keys (older than 7 days)
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 7);
-    for (const key of Object.keys(updated)) {
-      const parts = key.split("_");
-      const dateStr = parts.slice(1).join("_");
-      if (new Date(dateStr) < cutoff) delete updated[key];
-    }
-
-    if (changed) await AsyncStorage.setItem("notified_items", JSON.stringify(updated));
+    const Constants = require("expo-constants").default;
+    const projectId =
+      Constants?.expoConfig?.extra?.eas?.projectId ||
+      Constants?.easConfig?.projectId;
+    const tokenData = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
+    return tokenData?.data || null;
   } catch (e) {
-    console.log("Notification tracking error:", e);
+    console.log("Push token error:", e?.message || e);
+    return null;
   }
 }
 
@@ -148,6 +90,7 @@ async function dbAddItem(item) {
   const { data, error } = await supabase.from("fridge_items").insert({
     name: item.name, category: item.category, emoji: item.emoji,
     quantity: item.quantity || 1,
+    unit: item.unit || null,
     added_date: item.addedDate || new Date().toISOString(),
     expiry_date: item.expiryDate, barcode: item.barcode || null,
     user_id: user.id, section: item.section || "fridge",
@@ -168,7 +111,15 @@ async function dbDeleteItem(id) {
 }
 
 function rowToItem(row) {
-  return { id: row.id, name: row.name, category: row.category, emoji: row.emoji, quantity: row.quantity, addedDate: row.added_date, expiryDate: row.expiry_date, barcode: row.barcode, section: row.section || "fridge" };
+  return { id: row.id, name: row.name, category: row.category, emoji: row.emoji, quantity: row.quantity, unit: row.unit || "", addedDate: row.added_date, expiryDate: row.expiry_date, barcode: row.barcode, section: row.section || "fridge" };
+}
+
+// Display helper: "2 lbs", "1 dozen", or just "2" if no unit
+function formatQty(item) {
+  const q = item?.quantity;
+  const u = (item?.unit || "").trim();
+  if (q === undefined || q === null || q === "") return u || "—";
+  return u ? `${q} ${u}` : String(q);
 }
 
 // ─── Open Food Facts ──────────────────────────────────────────────────────────
@@ -416,6 +367,7 @@ function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse
   const [name, setName] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
   const [quantity, setQuantity] = useState("");
+  const [unit, setUnit] = useState("");
   const [category, setCategory] = useState("");
   const [loadingNutrition, setLoadingNutrition] = useState(false);
   const [nutrition, setNutrition] = useState(null);
@@ -429,7 +381,8 @@ function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse
   useEffect(() => {
     if (item && visible) {
       setName(item.name); setExpiryDate(item.expiryDate ? item.expiryDate.split("T")[0] : "");
-      setQuantity(String(item.quantity || 1)); setCategory(item.category || "Other");
+      setQuantity(String(item.quantity || 1)); setUnit(item.unit || "");
+      setCategory(item.category || "Other");
       setNutrition(null); setNutritionGrade(null); setIngredients(null); setEditing(false);
       if (item.barcode) {
         setLoadingNutrition(true);
@@ -446,7 +399,7 @@ function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse
   const color = expiryColor(days);
 
   async function handleSave() {
-    const updates = { name: name.trim(), category, emoji: emojiMap[category] || item.emoji, quantity: quantity || "1", expiry_date: expiryDate ? new Date(expiryDate).toISOString() : item.expiryDate };
+    const updates = { name: name.trim(), category, emoji: emojiMap[category] || item.emoji, quantity: quantity || "1", unit: (unit || "").trim() || null, expiry_date: expiryDate ? new Date(expiryDate).toISOString() : item.expiryDate };
     await onUpdate(item.id, updates); setEditing(false);
   }
 
@@ -494,11 +447,19 @@ function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse
                 {editing ? <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>{categories.map(c => (<TouchableOpacity key={c} onPress={() => setCategory(c)} style={[s.chip, category === c && s.chipActive, { marginRight: 0 }]}><Text style={[s.chipText, category === c && s.chipTextActive]}>{c}</Text></TouchableOpacity>))}</View> : <Text style={{ color: T.text, fontSize: 15 }}>{item.category}</Text>}
               </View>
               <View style={{ flexDirection: "row", gap: 10 }}>
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 0.6 }}>
                   <Text style={s.inputLabel}>Amount</Text>
-                  {editing ? <TextInput style={s.input} value={quantity} onChangeText={setQuantity} placeholder="e.g. 1 gallon" placeholderTextColor={T.muted} /> : <Text style={{ color: T.text, fontSize: 15 }}>{item.quantity}</Text>}
+                  {editing
+                    ? <TextInput style={s.input} value={quantity} onChangeText={setQuantity} placeholder="2" placeholderTextColor={T.muted} keyboardType="decimal-pad" />
+                    : <Text style={{ color: T.text, fontSize: 15 }}>{item.quantity}</Text>}
                 </View>
-                <View style={{ flex: 2 }}>
+                <View style={{ flex: 0.9 }}>
+                  <Text style={s.inputLabel}>Unit</Text>
+                  {editing
+                    ? <UnitPicker value={unit} onChange={setUnit} />
+                    : <Text style={{ color: T.text, fontSize: 15 }}>{item.unit || "—"}</Text>}
+                </View>
+                <View style={{ flex: 1.5 }}>
                   <Text style={s.inputLabel}>Expiry Date</Text>
                   {editing ? <TextInput style={s.input} value={expiryDate} onChangeText={setExpiryDate} placeholder="YYYY-MM-DD" placeholderTextColor={T.muted} /> : <Text style={{ color: T.text, fontSize: 15 }}>{formatDate(item.expiryDate)}</Text>}
                 </View>
@@ -654,11 +615,43 @@ function AuthScreen({ onAuth }) {
 }
 
 // ─── Fridge Screen ────────────────────────────────────────────────────────────
-function FridgeScreen({ items, onDelete, onAdd, onUpdate, onUse, loading }) {
+function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, loading }) {
   const [filter, setFilter] = useState("All");
   const [selectedItem, setSelectedItem] = useState(null);
   const [useItem, setUseItem] = useState(null);
   const [activeSection, setActiveSection] = useState("fridge");
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+
+  function toggleSelected(id) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function exitSelectMode() {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }
+  function selectAllVisible() {
+    setSelectedIds(new Set(filtered.map(i => i.id)));
+  }
+  function confirmBulkDelete() {
+    const count = selectedIds.size;
+    if (count === 0) return;
+    Alert.alert(
+      `Delete ${count} item${count !== 1 ? "s" : ""}?`,
+      "This can't be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: async () => {
+          await onBulkDelete([...selectedIds]);
+          exitSelectMode();
+        } },
+      ]
+    );
+  }
   const [sections, setSections] = useState([
     { id: "fridge", label: "My Fridge", icon: "kitchen" },
     { id: "cupboard", label: "Cupboard", icon: "shelves" },
@@ -667,8 +660,15 @@ function FridgeScreen({ items, onDelete, onAdd, onUpdate, onUse, loading }) {
   const [editLabel, setEditLabel] = useState("");
   const categories = ["All", "Dairy", "Protein", "Produce", "Dry Goods", "Beverages"];
   const sectionItems = items.filter(i => (i.section || "fridge") === activeSection);
-  const filtered = filter === "All" ? sectionItems : filter === "expiring" ? sectionItems.filter(i => daysUntil(i.expiryDate) <= 3) : sectionItems.filter(i => i.category === filter);
-  const expiringSoon = sectionItems.filter(i => daysUntil(i.expiryDate) <= 3).length;
+  const filtered = filter === "All"
+    ? sectionItems
+    : filter === "expiring"
+      ? sectionItems.filter(i => { const d = daysUntil(i.expiryDate); return d > 0 && d <= 3; })
+      : filter === "expired"
+        ? sectionItems.filter(i => daysUntil(i.expiryDate) <= 0)
+        : sectionItems.filter(i => i.category === filter);
+  const expired = sectionItems.filter(i => daysUntil(i.expiryDate) <= 0).length;
+  const expiringSoon = sectionItems.filter(i => { const d = daysUntil(i.expiryDate); return d > 0 && d <= 3; }).length;
 
   function addSection() {
     const newId = "section_" + Date.now();
@@ -756,6 +756,10 @@ function FridgeScreen({ items, onDelete, onAdd, onUpdate, onUse, loading }) {
             <Text style={[s.statNum, { color: expiringSoon > 0 ? T.warn : T.accent }]}>{expiringSoon}</Text>
             <Text style={s.statLabel}>Expiring Soon</Text>
           </TouchableOpacity>
+          <TouchableOpacity style={[s.statBox, filter === "expired" && { borderColor: T.danger, borderWidth: 2 }]} onPress={() => setFilter(filter === "expired" ? "All" : "expired")}>
+            <Text style={[s.statNum, { color: expired > 0 ? T.danger : T.accent }]}>{expired}</Text>
+            <Text style={s.statLabel}>Expired</Text>
+          </TouchableOpacity>
           <TouchableOpacity style={s.statBox} onPress={() => setFilter("All")}>
             <Text style={[s.statNum, { color: T.accent }]}>{[...new Set(items.map(i => i.category))].length}</Text>
             <Text style={s.statLabel}>Categories</Text>
@@ -767,25 +771,61 @@ function FridgeScreen({ items, onDelete, onAdd, onUpdate, onUse, loading }) {
           </Picker>
         </View>
         {expiringSoon > 0 && <View style={s.warnBanner}><Text style={{ fontSize: 18 }}>⚠️</Text><View style={{ marginLeft: 10 }}><Text style={[s.bold, { color: T.warn }]}>Heads up!</Text><Text style={{ color: T.textSoft, fontSize: 12 }}>{expiringSoon} item{expiringSoon > 1 ? "s" : ""} expiring within 3 days</Text></View></View>}
+
+        {/* Multi-select toolbar */}
+        {filtered.length > 0 && (
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 16, marginBottom: 8 }}>
+            {selectMode ? (
+              <>
+                <TouchableOpacity onPress={exitSelectMode}><Text style={{ color: T.accent, fontSize: 14, fontWeight: "600" }}>Cancel</Text></TouchableOpacity>
+                <Text style={{ color: T.textSoft, fontSize: 13 }}>{selectedIds.size} selected</Text>
+                <View style={{ flexDirection: "row", gap: 14 }}>
+                  <TouchableOpacity onPress={selectAllVisible}><Text style={{ color: T.accent, fontSize: 14, fontWeight: "600" }}>Select all</Text></TouchableOpacity>
+                  <TouchableOpacity onPress={confirmBulkDelete} disabled={selectedIds.size === 0}>
+                    <Text style={{ color: selectedIds.size > 0 ? T.danger : T.muted, fontSize: 14, fontWeight: "700" }}>Delete{selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <>
+                <View />
+                <TouchableOpacity onPress={() => setSelectMode(true)}><Text style={{ color: T.accent, fontSize: 14, fontWeight: "600" }}>Select</Text></TouchableOpacity>
+              </>
+            )}
+          </View>
+        )}
         {loading ? (
           <View style={{ alignItems: "center", padding: 48 }}><ActivityIndicator color={T.accent} size="large" /><Text style={{ color: T.textSoft, marginTop: 12 }}>Loading your fridge...</Text></View>
         ) : (
           <>
-            <Text style={s.sectionLabel}>{filter === "expiring" ? "// EXPIRING SOON" : "// CONTENTS · TAP TO VIEW DETAILS"}</Text>
+            <Text style={s.sectionLabel}>{filter === "expiring" ? "// EXPIRING SOON" : filter === "expired" ? "// EXPIRED — REMOVE OR DISCARD" : "// CONTENTS · TAP TO VIEW DETAILS"}</Text>
             {filtered.length === 0 && <View style={{ alignItems: "center", padding: 48 }}><Text style={{ fontSize: 48 }}>🧊</Text><Text style={[s.bold, { fontSize: 18, marginTop: 12 }]}>Your fridge is empty!</Text><Text style={{ color: T.textSoft, fontSize: 14, marginTop: 6 }}>Tap + to add your first item.</Text></View>}
             {filtered.map(item => {
               const days = daysUntil(item.expiryDate); const color = expiryColor(days);
+              const isSelected = selectedIds.has(item.id);
               return (
-                <TouchableOpacity key={item.id} style={s.fridgeItem} onPress={() => setSelectedItem(item)} activeOpacity={0.7}>
-                  <Text style={{ fontSize: 32, width: 44, textAlign: "center" }}>{item.emoji}</Text>
+                <TouchableOpacity
+                  key={item.id}
+                  style={[s.fridgeItem, isSelected && { borderColor: T.accent, borderWidth: 2 }]}
+                  onPress={() => selectMode ? toggleSelected(item.id) : setSelectedItem(item)}
+                  onLongPress={() => { if (!selectMode) { setSelectMode(true); toggleSelected(item.id); } }}
+                  activeOpacity={0.7}
+                >
+                  {selectMode ? (
+                    <View style={{ width: 44, alignItems: "center" }}>
+                      <Ionicons name={isSelected ? "checkmark-circle" : "ellipse-outline"} size={26} color={isSelected ? T.accent : T.muted} />
+                    </View>
+                  ) : (
+                    <Text style={{ fontSize: 32, width: 44, textAlign: "center" }}>{item.emoji}</Text>
+                  )}
                   <View style={{ flex: 1, marginLeft: 12 }}>
                     <Text style={s.itemName} numberOfLines={1}>{item.name}</Text>
-                    <Text style={s.itemMeta}>{item.category} · {item.quantity}</Text>
+                    <Text style={s.itemMeta}>{item.category} · {formatQty(item)}</Text>
                     {item.barcode && <Text style={[s.monoText, { color: T.muted, fontSize: 10, marginTop: 2 }]}>#{item.barcode}</Text>}
                   </View>
                   <View style={{ alignItems: "flex-end", gap: 8 }}>
                     <View style={[s.expiryBadge, { backgroundColor: color + "22", borderColor: color + "55" }]}><Text style={[s.expiryText, { color }]}>{days <= 0 ? "Expired" : days === 1 ? "1 day" : `${days}d`}</Text></View>
-                    <Text style={{ color: T.muted, fontSize: 12 }}>›</Text>
+                    {!selectMode && <Text style={{ color: T.muted, fontSize: 12 }}>›</Text>}
                   </View>
                 </TouchableOpacity>
               );
@@ -1056,8 +1096,8 @@ function RemindersScreen({ items, notificationsEnabled, onToggleNotifications, o
         <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 12, paddingHorizontal: 0 }]}>PUSH NOTIFICATIONS</Text>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
           <View style={{ flex: 1 }}>
-            <Text style={[s.bold, { fontSize: 14 }]}>Daily Check Reminder</Text>
-            <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Reminds you to check your fridge every morning at 9am</Text>
+            <Text style={[s.bold, { fontSize: 14 }]}>Daily Digest</Text>
+            <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>One push at 9am with everything expiring soon or expired. No more per-item spam.</Text>
           </View>
           <TouchableOpacity
             onPress={onToggleNotifications}
@@ -1091,7 +1131,7 @@ function RemindersScreen({ items, notificationsEnabled, onToggleNotifications, o
                 <View style={[s.reminderIcon, { backgroundColor: "rgba(255,153,0,0.1)" }]}><Text style={{ fontSize: 20 }}>{i.emoji}</Text></View>
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <Text style={s.bold}>{i.name}</Text>
-                  <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Qty: {i.quantity} · {i.category}</Text>
+                  <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Qty: {formatQty(i)} · {i.category}</Text>
                 </View>
                 <View style={{ backgroundColor: "rgba(255,153,0,0.1)", borderWidth: 1, borderColor: "rgba(255,153,0,0.3)", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 }}>
                   <Text style={{ color: "#FF9900", fontSize: 12, fontWeight: "700" }}>🛒 Reorder</Text>
@@ -1134,8 +1174,43 @@ async function parseReceiptImage(base64) {
 }
 
 // ─── Bulk Add Modal ──────────────────────────────────────────────────────────
+const UNIT_OPTIONS = ["", "count", "pack", "bunch", "bottle", "can", "box", "bag", "jar", "carton", "gallon", "qt", "pt", "fl oz", "oz", "lb", "kg", "g", "ml", "L", "dozen"];
+
+function UnitPicker({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View>
+      <TouchableOpacity
+        style={[s.input, { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }]}
+        onPress={() => setOpen(true)}
+      >
+        <Text style={{ color: value ? T.text : T.muted, fontSize: 15 }}>{value || "—"}</Text>
+        <Ionicons name="chevron-down" size={16} color={T.muted} />
+      </TouchableOpacity>
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <TouchableOpacity style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", padding: 24 }} activeOpacity={1} onPress={() => setOpen(false)}>
+          <View style={{ backgroundColor: "#FFFFFF", borderRadius: 12, maxHeight: "70%" }}>
+            <ScrollView contentContainerStyle={{ paddingVertical: 8 }}>
+              {UNIT_OPTIONS.map(u => (
+                <TouchableOpacity
+                  key={u || "none"}
+                  style={{ paddingHorizontal: 16, paddingVertical: 12, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
+                  onPress={() => { onChange(u); setOpen(false); }}
+                >
+                  <Text style={{ color: T.text, fontSize: 16 }}>{u || "— (no unit)"}</Text>
+                  {value === u && <Ionicons name="checkmark" size={18} color={T.accent} />}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    </View>
+  );
+}
+
 function BulkAddModal({ visible, onClose, onAddItems, section }) {
-  const emptyRow = () => ({ id: Date.now() + Math.random(), name: "", quantity: "1", expiry: "" });
+  const emptyRow = () => ({ id: Date.now() + Math.random(), name: "", quantity: "1", unit: "", expiry: "" });
   const [rows, setRows] = useState([]);
   const [adding, setAdding] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -1157,20 +1232,32 @@ function BulkAddModal({ visible, onClose, onAddItems, section }) {
   }
 
   function applyReceiptItems(parsed) {
-    const newRows = parsed.map(item => {
-      const cat = guessCategory(item.name) !== "Other" ? guessCategory(item.name) : (item.category || "Other");
-      const days = item.expiry_days || EXPIRY_MAP[cat] || 7;
-      const expiryDate = new Date(Date.now() + days * 86400000);
-      const yyyy = expiryDate.getFullYear();
-      const mm = String(expiryDate.getMonth() + 1).padStart(2, "0");
-      const dd = String(expiryDate.getDate()).padStart(2, "0");
-      return {
-        id: Date.now() + Math.random(),
-        name: item.name || "",
-        quantity: item.quantity || "1",
-        expiry: `${yyyy}-${mm}-${dd}`,
-      };
-    });
+    const newRows = parsed
+      .filter(item => item && typeof item.name === "string" && item.name.trim())
+      .map(item => {
+        const cat = guessCategory(item.name) !== "Other" ? guessCategory(item.name) : (item.category || "Other");
+        // Defensive: receipt parser sometimes returns "fresh" or null for expiry_days
+        const rawDays = item.expiry_days;
+        const days = Number.isFinite(Number(rawDays)) && Number(rawDays) > 0
+          ? Number(rawDays)
+          : (EXPIRY_MAP[cat] || 7);
+        const expiryDate = new Date(Date.now() + days * 86400000);
+        const yyyy = expiryDate.getFullYear();
+        const mm = String(expiryDate.getMonth() + 1).padStart(2, "0");
+        const dd = String(expiryDate.getDate()).padStart(2, "0");
+        // Split "2 lbs" → amount "2", unit "lbs". Falls back to amount only.
+        const qStr = String(item.quantity || "1").trim();
+        const qMatch = qStr.match(/^([\d.]+)\s*(.*)$/);
+        const amount = qMatch ? qMatch[1] : qStr;
+        const unit = qMatch && qMatch[2] ? qMatch[2].trim() : "";
+        return {
+          id: Date.now() + Math.random(),
+          name: item.name.trim(),
+          quantity: amount || "1",
+          unit: unit,
+          expiry: `${yyyy}-${mm}-${dd}`,
+        };
+      });
     if (newRows.length > 0) setRows(newRows);
   }
 
@@ -1225,14 +1312,21 @@ function BulkAddModal({ visible, onClose, onAddItems, section }) {
     const items = validRows.map(r => {
       const cat = guessCategory(r.name);
       const defaultDays = EXPIRY_MAP[cat] || 7;
-      const expiry = r.expiry.trim()
-        ? new Date(r.expiry.trim()).toISOString()
-        : new Date(Date.now() + defaultDays * 86400000).toISOString();
+      // Parse expiry safely; bad strings fall back to default
+      let expiry;
+      const trimmed = (r.expiry || "").trim();
+      const parsed = trimmed ? new Date(trimmed) : null;
+      if (parsed && !Number.isNaN(parsed.getTime())) {
+        expiry = parsed.toISOString();
+      } else {
+        expiry = new Date(Date.now() + defaultDays * 86400000).toISOString();
+      }
       return {
         name: r.name.trim(),
         category: cat,
         emoji: EMOJI_MAP[cat],
-        quantity: r.quantity.trim() || "1",
+        quantity: (r.quantity || "").trim() || "1",
+        unit: (r.unit || "").trim(),
         expiryDate: expiry,
         section: section || "fridge",
       };
@@ -1309,17 +1403,25 @@ function BulkAddModal({ visible, onClose, onAddItems, section }) {
                     onChangeText={v => updateRow(row.id, "name", v)}
                   />
                   <View style={{ flexDirection: "row", gap: 10 }}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.inputLabel}>Quantity</Text>
+                    <View style={{ flex: 0.7 }}>
+                      <Text style={s.inputLabel}>Amount</Text>
                       <TextInput
                         style={s.input}
-                        placeholder="e.g. 2 lbs"
+                        placeholder="2"
                         placeholderTextColor={T.muted}
                         value={row.quantity}
                         onChangeText={v => updateRow(row.id, "quantity", v)}
+                        keyboardType="decimal-pad"
                       />
                     </View>
-                    <View style={{ flex: 1.5 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.inputLabel}>Unit</Text>
+                      <UnitPicker
+                        value={row.unit}
+                        onChange={v => updateRow(row.id, "unit", v)}
+                      />
+                    </View>
+                    <View style={{ flex: 1.4 }}>
                       <Text style={s.inputLabel}>Expiry (optional)</Text>
                       <TextInput
                         style={s.input}
@@ -1565,34 +1667,71 @@ export default function App() {
     }
   }, [user]);
 
-  // Check expiring items when app comes to foreground
-  useEffect(() => {
-    const sub = AppState.addEventListener("change", nextState => {
-      if (nextState === "active" && notificationsEnabled && items.length > 0) {
-        checkAndNotifyExpiring(items);
-      }
-    });
-    return () => sub.remove();
-  }, [items, notificationsEnabled]);
+  // v1.0.5: per-item foreground notifications removed.
+  // The daily digest is sent server-side via the send-daily-digest Edge Function.
 
   // ── Helper functions ──
 
   async function setupNotifications() {
+    // Sweep any leftover per-item schedules from pre-1.0.5 builds.
+    await cancelLegacyNotifications();
     const granted = await requestNotificationPermission();
     setNotificationsEnabled(granted);
+    if (granted) await registerPushTokenWithSupabase();
+  }
+
+  // Save (or refresh) this device's Expo push token into expo_push_tokens
+  // so the server-side digest can target it.
+  async function registerPushTokenWithSupabase() {
+    try {
+      const token = await getExpoPushToken();
+      if (!token) return;
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      await supabase.from("expo_push_tokens").upsert({
+        token,
+        user_id: user.id,
+        platform: Platform.OS,
+        device_name: (typeof Platform !== "undefined" && Platform.constants?.systemName) || Platform.OS,
+        last_seen_at: new Date().toISOString(),
+      }, { onConflict: "token" });
+    } catch (e) {
+      console.log("registerPushToken failed:", e?.message || e);
+    }
   }
 
   async function toggleNotifications() {
     if (notificationsEnabled) {
-      await Notifications.cancelAllScheduledNotificationsAsync();
+      await cancelLegacyNotifications();
+      // Mark notifications disabled in user_settings (digest skipped server-side)
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          await supabase.from("user_settings").upsert({
+            user_id: user.id,
+            notifications_enabled: false,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: "user_id" });
+        }
+      } catch {}
       setNotificationsEnabled(false);
-      showToast("🔕 Daily reminders turned off");
+      showToast("🔕 Daily digest turned off");
     } else {
       const granted = await requestNotificationPermission();
       if (granted) {
-        await scheduleDailyReminder();
+        await registerPushTokenWithSupabase();
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            await supabase.from("user_settings").upsert({
+              user_id: user.id,
+              notifications_enabled: true,
+              updated_at: new Date().toISOString(),
+            }, { onConflict: "user_id" });
+          }
+        } catch {}
         setNotificationsEnabled(true);
-        showToast("🔔 Daily reminders enabled!");
+        showToast("🔔 Daily digest enabled!");
       } else {
         Alert.alert("Permission Required", "Please enable notifications in your iPhone Settings to use this feature.");
       }
@@ -1650,17 +1789,36 @@ export default function App() {
   }
 
   async function handleBulkAdd(itemsList) {
-    try {
-      const saved = [];
-      for (const item of itemsList) {
-        const row = await dbAddItem(item);
-        saved.push(rowToItem(row));
+    if (!itemsList || itemsList.length === 0) return;
+    // Save items in parallel and tolerate partial failure: a malformed
+    // expiry on one row shouldn't lose the other valid rows.
+    const results = await Promise.allSettled(itemsList.map(it => dbAddItem(it)));
+    const saved = [];
+    let failed = 0;
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        saved.push(rowToItem(r.value));
+      } else {
+        failed += 1;
+        console.warn("bulk add item failed:", r.reason?.message || r.reason);
       }
+    }
+    if (saved.length > 0) {
       setItems(prev => [...saved, ...prev]);
+      track("item_added_bulk", { count: saved.length, failed });
+    }
+    if (failed === 0) {
       showToast(`✅ ${saved.length} item${saved.length !== 1 ? "s" : ""} added!`);
-      track("item_added_bulk", { count: saved.length });
       setTab("fridge");
-    } catch (e) { Alert.alert("Couldn't save items", "Check your connection."); }
+    } else if (saved.length === 0) {
+      Alert.alert("Couldn't save items", "Check your connection and try again.");
+    } else {
+      Alert.alert(
+        "Partially saved",
+        `Added ${saved.length} of ${itemsList.length} items. ${failed} couldn't be saved — open them again to retry.`
+      );
+      setTab("fridge");
+    }
   }
 
   async function handleUpdate(id, updates) {
@@ -1684,6 +1842,26 @@ export default function App() {
       }
       track("item_used", { fully_used: newQty === null });
     } catch (e) { Alert.alert("Couldn't update item", "Check your connection."); }
+  }
+
+  async function handleBulkDelete(ids) {
+    if (!ids || ids.length === 0) return;
+    const results = await Promise.allSettled(ids.map(id => dbDeleteItem(id)));
+    const succeededIds = new Set();
+    let failed = 0;
+    results.forEach((r, idx) => {
+      if (r.status === "fulfilled") succeededIds.add(ids[idx]);
+      else failed += 1;
+    });
+    if (succeededIds.size > 0) {
+      setItems(prev => prev.filter(i => !succeededIds.has(i.id)));
+      track("items_bulk_deleted", { count: succeededIds.size, failed });
+    }
+    if (failed === 0) {
+      showToast(`✅ ${succeededIds.size} item${succeededIds.size !== 1 ? "s" : ""} deleted`);
+    } else {
+      Alert.alert("Some items couldn't be deleted", `Removed ${succeededIds.size} of ${ids.length}. Try again on the rest.`);
+    }
   }
 
   async function handleDelete(id) {
@@ -1731,7 +1909,7 @@ export default function App() {
         </View>
       </View>
       <View style={{ flex: 1 }}>
-        {tab === "fridge" && <FridgeScreen items={items} onDelete={handleDelete} onAdd={(section) => { setAddSection(section || "fridge"); setShowAdd(true); }} onUpdate={handleUpdate} onUse={handleUse} loading={loading} />}
+        {tab === "fridge" && <FridgeScreen items={items} onDelete={handleDelete} onBulkDelete={handleBulkDelete} onAdd={(section) => { setAddSection(section || "fridge"); setShowAdd(true); }} onUpdate={handleUpdate} onUse={handleUse} loading={loading} />}
         {tab === "scan" && <ScanScreen onScanned={handleScanned} />}
         {tab === "recipes" && <RecipesScreen items={items} />}
         {tab === "reminders" && <RemindersScreen items={items} notificationsEnabled={notificationsEnabled} onToggleNotifications={toggleNotifications} onTestNotification={sendTestNotification} />}
