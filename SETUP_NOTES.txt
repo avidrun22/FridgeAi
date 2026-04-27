@@ -1,0 +1,10 @@
+ok2eat Development Notes
+========================
+Supabase URL: https://qemarhvgeuzhlwybmbie.supabase.co
+Bundle ID: com.gregorygoldberg.ok2eat
+Apple Team ID: VU4973B972
+Apple Key ID: GJ366X8N5Z
+App Store ID: 6761730687
+App Store URL: https://apps.apple.com/us/app/ok2eat/id6761730687
+Website: https://ok2eat.com
+GitHub: https://github.com/avidrun22/FridgeAi
