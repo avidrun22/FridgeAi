@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ok2eat — A calmer fridge.</title>
+<title>ok2eat — Less waste, more savings.</title>
 <meta name="description" content="ok2eat helps you reduce food waste, save money, and get creative with what's already in your kitchen. Scan, track, cook.">
 <meta name="theme-color" content="#F0EADC">
-<meta property="og:title" content="ok2eat — A calmer fridge.">
-<meta property="og:description" content="Food waste, eliminated. Track. Plan. Cook with what you have.">
+<meta property="og:title" content="ok2eat — Less waste, more savings.">
+<meta property="og:description" content="Less waste, more savings. Track your fridge, get alerts before food expires, and cook from what you already have.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://ok2eat.com">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'%3E%3Crect width='36' height='36' rx='8' fill='%23F0EADC'/%3E%3Cpath fill='%233E721D' d='M35 5.904c2.394 6.042-1.438 20.543-10.5 26.5-9.06 5.957-20.395 3.573-23.097-6.443-1.669-6.186 2.79-10.721 11.851-16.677C22.315 3.327 32.64-.053 35 5.904z'/%3E%3Cpath fill='%23A6D388' d='M19.815 26.578c-5.757 4.013-13.482 3.097-16.29-.934C.718 21.613 4 14.474 9.757 10.463c5.755-4.011 20.258-9.264 23.068-5.234 2.807 4.03-4.825 16.175-13.01 21.349'/%3E%3Cpath fill='%23662113' d='M11.162 12.488c3.48-2.332 7.382-1.495 9.798.995 1.433 1.477-.88 5.382-4.359 7.714-3.478 2.33-7.769 1.763-8.239.731-1.44-3.157-.677-7.109 2.8-9.44z'/%3E%3C/svg%3E">
@@ -701,44 +701,48 @@
     z-index: 1;
   }
 
-  /* Privacy Policy */
+  /* Privacy Policy — kept visually compact; not the focus of the page */
   .privacy-section {
-    padding: 100px 24px;
-    max-width: 760px;
+    padding: 48px 24px 32px;
+    max-width: 720px;
     margin: 0 auto;
-    border-top: 1px solid var(--border);
+    border-top: 1px dashed var(--border);
   }
 
   .privacy-section h2 {
-    font-size: 40px;
-    letter-spacing: -1px;
-    margin-bottom: 8px;
+    font-family: 'DM Mono', monospace;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0;
+    margin-bottom: 4px;
+    color: var(--muted);
+    text-transform: uppercase;
   }
 
   .privacy-date {
     font-family: 'DM Mono', monospace;
-    font-size: 12px;
+    font-size: 11px;
     color: var(--muted);
-    margin-bottom: 40px;
+    margin-bottom: 20px;
   }
 
   .privacy-section h3 {
-    font-size: 18px;
+    font-size: 13px;
     font-weight: 700;
-    color: var(--text);
-    margin: 36px 0 12px;
+    color: var(--text-soft);
+    margin: 20px 0 6px;
   }
 
   .privacy-section p, .privacy-section li {
-    font-size: 15px;
-    color: var(--text-soft);
-    line-height: 1.7;
-    margin-bottom: 12px;
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.6;
+    margin-bottom: 6px;
   }
 
   .privacy-section ul {
-    margin-left: 20px;
-    margin-bottom: 12px;
+    margin-left: 18px;
+    margin-bottom: 6px;
   }
 
   .privacy-section a { color: var(--green); text-decoration: none; }
@@ -871,8 +875,8 @@
   <div class="hero-glow"></div>
   <svg class="hero-mark"><use href="#avocado"/></svg>
   <div class="hero-badge">Now available on iOS</div>
-  <h1>Food waste,<br><span>eliminated.</span></h1>
-  <p class="hero-sub">Track what's in your fridge, scan receipts, and get recipes from what you already have. A calmer kitchen, one less thing to worry about.</p>
+  <h1>Food waste, <span>eliminated.</span></h1>
+  <p class="hero-sub">Track your fridge. Get alerts before food expires. Cook from what you already have. Less waste, more savings — without thinking about it.</p>
   <div class="hero-cta">
     <a href="https://apps.apple.com/us/app/ok2eat/id6761730687" class="btn-primary">Download on the App Store</a>
     <a href="#how" class="btn-secondary">See how it works ↓</a>
@@ -906,8 +910,8 @@
             <div class="phone-stat-label">Expiring</div>
           </div>
           <div class="phone-stat">
-            <div class="phone-stat-num">4</div>
-            <div class="phone-stat-label">Categories</div>
+            <div class="phone-stat-num" style="color:var(--danger);">1</div>
+            <div class="phone-stat-label">Expired</div>
           </div>
         </div>
         <div style="margin-top:12px;font-size:9px;font-family:'DM Mono',monospace;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">// CONTENTS</div>
@@ -969,39 +973,49 @@
 <!-- Features -->
 <section id="features">
   <div class="section-tag">// What you get</div>
-  <h2>Everything you need<br>to waste nothing.</h2>
+  <h2>Everything you need to waste nothing.</h2>
   <p class="section-sub">ok2eat is built around a simple idea — the more you know about what's in your kitchen, the less you'll throw away.</p>
 
   <div class="features-grid">
     <div class="feature-card">
+      <span class="feature-icon">📸</span>
+      <div class="feature-title">Receipt Scanning</div>
+      <div class="feature-desc">Photograph your grocery receipt and ok2eat fills your fridge for you. AI vision reads every item, categorizes it, and sets smart expiry dates — done in seconds, not scans.</div>
+    </div>
+    <div class="feature-card">
       <span class="feature-icon">📷</span>
       <div class="feature-title">Barcode Scanner</div>
-      <div class="feature-desc">Scan any grocery barcode and instantly pull nutrition info, ingredients, and suggested expiry dates from a database of 3 million+ products.</div>
+      <div class="feature-desc">For quick one-off additions. Scan a barcode and pull nutrition info, ingredients, and suggested expiry from a database of 3 million+ products.</div>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">🔔</span>
+      <div class="feature-title">Daily Digest</div>
+      <div class="feature-desc">Get a morning summary by push notification, email, or both — your choice. See what's expiring, what's expired, and what to use first.</div>
     </div>
     <div class="feature-card">
       <span class="feature-icon">⏰</span>
-      <div class="feature-title">Expiry Tracking</div>
-      <div class="feature-desc">Color-coded expiry badges tell you at a glance what needs to be eaten first. Get reminders before things go bad, not after.</div>
+      <div class="feature-title">Smart Expiry Tracking</div>
+      <div class="feature-desc">Color-coded badges tell you at a glance what to eat first. Category-based defaults you can override per item.</div>
     </div>
     <div class="feature-card">
       <span class="feature-icon">🧠</span>
-      <div class="feature-title">AI Recipe Generation</div>
-      <div class="feature-desc">Tap one button and get 3 creative recipes made from exactly what's in your fridge. Full instructions, ingredient amounts, and pro tips included.</div>
+      <div class="feature-title">AI Recipe Ideas</div>
+      <div class="feature-desc">Tap one button. Get 3 creative recipes built from exactly what's in your fridge — with full instructions, ingredient amounts, and pro tips.</div>
     </div>
     <div class="feature-card">
-      <span class="feature-icon">🏷</span>
-      <div class="feature-title">Nutrition Facts</div>
-      <div class="feature-desc">See full nutrition panels for every scanned item — calories, macros, Nutri-Score, and ingredients list, all in one place.</div>
+      <span class="feature-icon">🛒</span>
+      <div class="feature-title">One-Tap Reorder</div>
+      <div class="feature-desc">Items you're running low on surface automatically with quick reorder links to Amazon and other retailers. Restock before you run out — without leaving the app.</div>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">🥫</span>
+      <div class="feature-title">Cupboard + Fridge</div>
+      <div class="feature-desc">Track pantry staples and fridge items side by side, in one place. Different shelf life, same simple interface.</div>
     </div>
     <div class="feature-card">
       <span class="feature-icon">🍽</span>
-      <div class="feature-title">Use Item Tracking</div>
-      <div class="feature-desc">Used half a gallon of milk? Added 2 tbsp of ketchup to a recipe? Log partial usage in any unit and your fridge inventory stays accurate.</div>
-    </div>
-    <div class="feature-card">
-      <span class="feature-icon">👤</span>
-      <div class="feature-title">Private Accounts</div>
-      <div class="feature-desc">Create a free account and your fridge is completely private — only you can see your items. Perfect for households or roommates with separate fridges.</div>
+      <div class="feature-title">Partial Use Tracking</div>
+      <div class="feature-desc">Used half a gallon of milk? Added 2 tbsp of ketchup? Log partial usage in any unit and your inventory stays accurate.</div>
     </div>
   </div>
 </section>
@@ -1011,24 +1025,29 @@
 <!-- How it works -->
 <section id="how">
   <div class="section-tag">// How it works</div>
-  <h2>Three steps.<br>Less waste.</h2>
+  <h2>Four steps. Less waste.</h2>
   <p class="section-sub">Getting started takes less than a minute. No complicated setup, no manual data entry.</p>
 
   <div class="steps">
     <div class="step">
       <div class="step-num">01</div>
-      <div class="step-title">Scan your groceries</div>
-      <div class="step-desc">Point your camera at any barcode as you unpack. ok2eat identifies the product, sets an expiry date, and saves it to your fridge instantly.</div>
+      <div class="step-title">Scan your receipt</div>
+      <div class="step-desc">Photograph your grocery slip when you get home. AI vision reads every item, categorizes it, and sets smart expiry dates. (Or scan barcodes one at a time, or type items in.)</div>
     </div>
     <div class="step">
       <div class="step-num">02</div>
-      <div class="step-title">Track what you have</div>
-      <div class="step-desc">Your fridge shows everything with color-coded expiry. Green means fresh, orange means soon, red means eat today. No guessing.</div>
+      <div class="step-title">Get your morning digest</div>
+      <div class="step-desc">Push notification or email — your choice. See what's expiring, what's expired, and what to use first. No need to open the app to know what's at risk.</div>
     </div>
     <div class="step">
       <div class="step-num">03</div>
-      <div class="step-title">Cook before it expires</div>
-      <div class="step-desc">When something's about to go, tap Generate Recipes and get AI-powered meal ideas built around exactly what you have. Waste nothing.</div>
+      <div class="step-title">Cook from what you have</div>
+      <div class="step-desc">Tap any item for AI-generated recipe ideas built from your actual inventory. Three recipes, full instructions, made from what's in your fridge right now.</div>
+    </div>
+    <div class="step">
+      <div class="step-num">04</div>
+      <div class="step-title">Reorder what's running low</div>
+      <div class="step-desc">Items down to your last unit surface automatically. Tap once to restock from Amazon or your favorite retailer — without leaving the app.</div>
     </div>
   </div>
 </section>
@@ -1038,7 +1057,7 @@
 <!-- Impact -->
 <section id="impact">
   <div class="section-tag">// Why it matters</div>
-  <h2>Good for your wallet.<br>Good for the planet.</h2>
+  <h2>Good for your wallet. Good for the planet.</h2>
   <p class="section-sub">Food waste isn't just an inconvenience — it's one of the biggest environmental and financial problems we face at home.</p>
 
   <div class="impact-grid">
@@ -1066,7 +1085,7 @@
 <div class="cta-section" id="download">
   <svg class="cta-mark"><use href="#avocado"/></svg>
   <div class="section-tag" style="display:inline-block;">// Get started</div>
-  <h2>A calmer fridge.</h2>
+  <h2>Less waste, more savings.</h2>
   <p class="cta-sub">Free to download. No subscription. Just a smarter way to use what you already have.</p>
   <a href="https://apps.apple.com/us/app/ok2eat/id6761730687" class="btn-primary" style="font-size:18px;padding:20px 48px;position:relative;z-index:1;">Download on the App Store</a>
   <p style="margin-top:20px;font-size:12px;color:var(--muted);font-family:'DM Mono',monospace;position:relative;z-index:1;">iOS 15+ required · Free · No ads</p>
@@ -1100,61 +1119,79 @@
 
 <!-- Privacy Policy -->
 <div class="privacy-section" id="privacy">
-  <div class="section-tag">// Legal</div>
   <h2>Privacy Policy</h2>
-  <p class="privacy-date">Last updated: April 4, 2026</p>
+  <p class="privacy-date">Last updated: April 27, 2026</p>
 
-  <p>ok2eat ("we", "us", or "our") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, and safeguard your information when you use the ok2eat mobile application.</p>
+  <p>ok2eat ("we", "us", or "our") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, store, and protect your information when you use the ok2eat mobile application or website.</p>
 
-  <h3>1. Information We Collect</h3>
-  <p>We collect the following information to provide the app's core functionality:</p>
+  <h3>1. Information we collect</h3>
   <ul>
-    <li><strong>Account Information:</strong> Your email address and password (stored securely and encrypted) when you create an account.</li>
-    <li><strong>Fridge Data:</strong> Food items you add, including product names, categories, quantities, expiry dates, and barcodes.</li>
-    <li><strong>Usage Data:</strong> Basic app usage patterns to help us improve the app experience.</li>
+    <li><strong>Account information:</strong> your email address (and a hashed password if using email login), or an Apple Sign In identifier.</li>
+    <li><strong>Fridge data:</strong> items you add, including product names, categories, quantities, expiry dates, and barcodes you scan.</li>
+    <li><strong>Receipt data:</strong> photographs of grocery receipts you upload for AI parsing. Photographs are processed and discarded; only the parsed item data is retained.</li>
+    <li><strong>Usage data:</strong> anonymized analytics about feature usage and crash diagnostics.</li>
   </ul>
 
-  <h3>2. Information We Do Not Collect</h3>
+  <h3>2. Information we do NOT collect or sell</h3>
   <ul>
     <li>We do not collect your precise location.</li>
-    <li>We do not sell your data to third parties.</li>
-    <li>We do not display advertisements.</li>
-    <li>We do not share your personal information with advertisers.</li>
+    <li>We do not sell, rent, or trade your personal information to third parties.</li>
+    <li>We do not display advertisements or share your data with advertisers.</li>
+    <li>We do not access your contacts, photos (beyond receipts you explicitly upload), or other apps.</li>
   </ul>
 
-  <h3>3. How We Use Your Information</h3>
+  <h3>3. How we use your information</h3>
   <ul>
-    <li>To provide and maintain the app's functionality.</li>
-    <li>To authenticate your account and keep your fridge data private.</li>
-    <li>To generate AI-powered recipe suggestions based on your fridge contents.</li>
-    <li>To send expiry notifications if you enable them.</li>
-    <li>To improve and develop new app features.</li>
+    <li>To provide ok2eat's core functionality: tracking your fridge, sending expiry alerts, and generating recipe suggestions.</li>
+    <li>To send the daily digest by push notification or email if you've opted in.</li>
+    <li>To authenticate your account and keep your fridge data private to you.</li>
+    <li>To diagnose bugs and improve product quality.</li>
   </ul>
 
-  <h3>4. Data Storage & Security</h3>
-  <p>Your data is stored securely using Supabase, a SOC 2 compliant cloud database provider. Your password is hashed and never stored in plain text. Your fridge data is protected by Row Level Security — only you can access your own items.</p>
-
-  <h3>5. Third-Party Services</h3>
-  <p>ok2eat uses the following third-party services:</p>
+  <h3>4. Subprocessors</h3>
+  <p>To deliver ok2eat, we rely on the following third-party providers. Each has its own privacy policy.</p>
   <ul>
-    <li><strong>Supabase</strong> — secure user authentication and data storage</li>
-    <li><strong>Open Food Facts</strong> — open-source food product database for barcode scanning</li>
-    <li><strong>Anthropic Claude API</strong> — AI-powered recipe generation</li>
+    <li><strong>Supabase</strong> — database and authentication (US)</li>
+    <li><strong>Anthropic</strong> — AI vision for receipt parsing and recipe generation (US)</li>
+    <li><strong>Resend</strong> — daily email digest delivery (US)</li>
+    <li><strong>Apple Push Notification Service</strong> — push notifications</li>
+    <li><strong>PostHog</strong> — anonymized product analytics (US)</li>
+    <li><strong>Netlify</strong> — website hosting (US)</li>
+    <li><strong>Open Food Facts</strong> — open-source product database queried when you scan a barcode (EU)</li>
   </ul>
-  <p>These services have their own privacy policies and we encourage you to review them.</p>
 
-  <h3>6. Data Retention</h3>
-  <p>Your data is retained for as long as your account is active. You can delete your account and all associated data at any time by contacting us at the email below.</p>
+  <h3>5. Data storage and security</h3>
+  <p>Your data is stored using Supabase, a SOC 2 Type II compliant cloud database. Passwords are hashed using industry-standard algorithms. Your fridge data is protected by Row-Level Security — only you can read or modify your own items. Connections to our servers are encrypted using TLS 1.2 or higher.</p>
 
-  <h3>7. Children's Privacy</h3>
-  <p>ok2eat is not directed to children under the age of 13. We do not knowingly collect personal information from children under 13.</p>
+  <h3>6. Data retention</h3>
+  <p>Account and fridge data are retained for as long as your account is active. If you delete your account, we permanently delete your data within 30 days. Anonymized analytics may be retained longer in aggregate form but cannot be tied back to you.</p>
 
-  <h3>8. Changes to This Policy</h3>
-  <p>We may update this Privacy Policy from time to time. We will notify you of any significant changes by updating the date at the top of this page.</p>
+  <h3>7. Your rights</h3>
+  <p>You have the right to:</p>
+  <ul>
+    <li>Access the personal information we hold about you.</li>
+    <li>Correct inaccurate or incomplete information (most data is editable directly in the app).</li>
+    <li>Delete your account and associated data.</li>
+    <li>Receive your data in a portable format.</li>
+    <li>Withdraw consent for optional processing (such as the email digest).</li>
+    <li>Object to or restrict certain types of processing.</li>
+  </ul>
+  <p>To exercise any of these rights, email <a href="mailto:privacy@ok2eat.com">privacy@ok2eat.com</a>. We will respond within 30 days.</p>
 
-  <h3>9. Contact Us</h3>
-  <p>If you have any questions about this Privacy Policy, please contact us at:<br>
-  <a href="mailto:privacy@ok2eat.com">privacy@ok2eat.com</a></p>
+  <h3>8. California residents (CCPA)</h3>
+  <p>If you reside in California, you have additional rights under the California Consumer Privacy Act, including the right to know what categories of personal information we collect and how we use them, and the right to opt out of the sale of personal information. <strong>We do not sell personal information.</strong></p>
+
+  <h3>9. EU/UK residents (GDPR)</h3>
+  <p>If you reside in the EU or UK, our legal basis for processing your information is your consent (provided when you create an account) and our legitimate interest in providing and improving the service. Your data may be transferred to and stored in the United States; we use Standard Contractual Clauses where required.</p>
+
+  <h3>10. Children's privacy</h3>
+  <p>ok2eat is not directed to children under the age of 13 (or under 16 in the EU). We do not knowingly collect personal information from children. If you believe a child has provided us with information, please contact us and we will delete it.</p>
+
+  <h3>11. Changes to this policy</h3>
+  <p>We may update this Privacy Policy from time to time. The "Last updated" date at the top reflects the most recent change. Material changes will be communicated via email or in-app notice.</p>
+
+  <h3>12. Contact</h3>
+  <p>For privacy questions or to exercise any of the rights described above, email <a href="mailto:privacy@ok2eat.com">privacy@ok2eat.com</a>. For security disclosures, see our <a href="/.well-known/security.txt">security.txt</a>.</p>
 </div>
 
 <!-- Footer -->

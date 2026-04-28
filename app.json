@@ -2,7 +2,7 @@
   "expo": {
     "name": "ok2eat",
     "slug": "ok2eat",
-    "version": "1.0.5",
+    "version": "1.0.7",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -14,7 +14,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.gregorygoldberg.ok2eat",
-      "buildNumber": "6",
+      "buildNumber": "9",
       "infoPlist": {
         "NSCameraUsageDescription": "ok2eat needs camera access to scan barcodes",
         "NSLocationWhenInUseUsageDescription": "ok2eat does not use your location. This description is required by a third-party library.",
@@ -29,7 +29,13 @@
         "backgroundColor": "#F0EADC",
         "foregroundImage": "./assets/adaptive-icon.png"
       },
-      "permissions": ["android.permission.CAMERA", "android.permission.INTERNET"]
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.INTERNET",
+        "android.permission.CAMERA",
+        "android.permission.INTERNET"
+      ],
+      "package": "com.gregorygoldberg.ok2eat"
     },
     "web": {
       "favicon": "./assets/favicon.png"

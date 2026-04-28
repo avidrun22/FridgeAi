@@ -36,6 +36,9 @@ yarn-error.*
 # automation scripts hold secrets (App Store API key, bot tokens)
 .appstoreconnect/
 
+# Supabase CLI local cache
+supabase/.temp/
+
 # typescript
 *.tsbuildinfo
 

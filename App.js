@@ -15,6 +15,16 @@ import * as ImagePicker from "expo-image-picker";
 import PostHog from "posthog-react-native";
 import { Picker } from "@react-native-picker/picker";
 
+// ─── Global font-scaling cap ─────────────────────────────────────────────────
+// iOS Dynamic Type can scale fonts up to 3.5x. Our card-based layouts break
+// past about 1.3x — text spills over flex containers, badges overlap labels,
+// etc. Hard ceiling here lets accessibility users still get larger text but
+// keeps the UI from breaking.
+Text.defaultProps = Text.defaultProps || {};
+Text.defaultProps.maxFontSizeMultiplier = 1.3;
+TextInput.defaultProps = TextInput.defaultProps || {};
+TextInput.defaultProps.maxFontSizeMultiplier = 1.3;
+
 // ─── Analytics ───────────────────────────────────────────────────────────────
 const posthog = new PostHog("phc_szxhjw2eQmYYhNGicX3kmNXxdz47Sj7evqx5Quqw8dTY", { host: "https://app.posthog.com" });
 
@@ -79,6 +89,46 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   },
 });
 
+// ─── App Store update check ──────────────────────────────────────────────────
+// Bump APP_VERSION whenever app.json's expo.version changes. iTunes lookup
+// returns the latest published version of the app; we compare on launch and
+// show a soft prompt if the user is behind.
+const APP_VERSION = "1.0.7";
+const APP_STORE_URL = "https://apps.apple.com/app/id6761730687";
+const ITUNES_LOOKUP_URL = "https://itunes.apple.com/lookup?bundleId=com.gregorygoldberg.ok2eat";
+const APP_STORE_APP_ID = "6761730687"; // Apple's numeric app ID, used for itms:// fallback
+
+// Apple's iTunes Lookup API normalizes "1.0.6" to "1.06" in the `version`
+// field — collapsing the trailing-zero minor segment. Without normalization,
+// a naïve parser treats "1.06" as [1, 6] and "1.0.6" as [1, 0, 6], which
+// makes them unequal. We re-expand any segment that starts with "0" back
+// into its individual digits so both string forms parse identically.
+function _versionParts(v) {
+  return String(v).split(".").flatMap(seg =>
+    seg.length > 1 && seg.startsWith("0") ? seg.split("") : [seg]
+  ).map(n => parseInt(n, 10) || 0);
+}
+
+function compareVersions(a, b) {
+  const pa = _versionParts(a);
+  const pb = _versionParts(b);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const da = pa[i] || 0, db = pb[i] || 0;
+    if (da < db) return -1;
+    if (da > db) return 1;
+  }
+  return 0;
+}
+
+// Render a version string in canonical X.Y.Z form, even if Apple's API
+// returned the flattened "1.06" representation.
+function formatVersion(v) {
+  const parts = _versionParts(v);
+  while (parts.length < 3) parts.push(0);
+  return parts.slice(0, 3).join(".");
+}
+
 async function dbGetItems() {
   const { data, error } = await supabase.from("fridge_items").select("*").order("created_at", { ascending: false });
   if (error) throw error;
@@ -87,13 +137,39 @@ async function dbGetItems() {
 
 async function dbAddItem(item) {
   const { data: { user } } = await supabase.auth.getUser();
+
+  // v1.0.8 — make sure we have a household_id. Items added without it would
+  // be invisible to the new household-scoped RLS policies. ensure_household_for_user
+  // is idempotent on the server.
+  let householdId = item.householdId;
+  if (!householdId) {
+    const { data: hhId, error: rpcErr } = await supabase.rpc("ensure_household_for_user");
+    if (rpcErr) throw rpcErr;
+    householdId = hhId;
+  }
+
+  // Normalize container (v1.0.8). Mirror to section so v1.0.6/v1.0.7
+  // clients reading the old `section` column still see the item.
+  const container = ["fridge", "pantry", "freezer"].includes(item.container)
+    ? item.container
+    : (["fridge", "pantry", "freezer"].includes(item.section) ? item.section : "fridge");
+  const sectionMirror = container === "pantry" ? "cupboard" : container;
+
   const { data, error } = await supabase.from("fridge_items").insert({
     name: item.name, category: item.category, emoji: item.emoji,
     quantity: item.quantity || 1,
     unit: item.unit || null,
     added_date: item.addedDate || new Date().toISOString(),
     expiry_date: item.expiryDate, barcode: item.barcode || null,
-    user_id: user.id, section: item.section || "fridge",
+    user_id: user.id,
+    household_id: householdId,
+    container,
+    section: sectionMirror,
+    // Open/closed expiry tracking
+    is_opened: item.isOpened || false,
+    opened_at: item.openedAt || null,
+    expiry_opened_days: item.expiryOpenedDays || null,
+    expiry_unopened: item.expiryUnopened || null,
   }).select().single();
   if (error) throw error;
   return data;
@@ -111,7 +187,26 @@ async function dbDeleteItem(id) {
 }
 
 function rowToItem(row) {
-  return { id: row.id, name: row.name, category: row.category, emoji: row.emoji, quantity: row.quantity, unit: row.unit || "", addedDate: row.added_date, expiryDate: row.expiry_date, barcode: row.barcode, section: row.section || "fridge" };
+  // v1.0.8 — prefer the new container column; fall back to mapping the legacy
+  // section field for any row not yet backfilled.
+  const container = row.container && ["fridge", "pantry", "freezer"].includes(row.container)
+    ? row.container
+    : (row.section === "cupboard" ? "pantry"
+      : ["fridge", "pantry", "freezer"].includes(row.section) ? row.section
+      : "fridge");
+  return {
+    id: row.id, name: row.name, category: row.category, emoji: row.emoji,
+    quantity: row.quantity, unit: row.unit || "",
+    addedDate: row.added_date, expiryDate: row.expiry_date,
+    barcode: row.barcode,
+    container,
+    section: row.section || "fridge",
+    householdId: row.household_id || null,
+    isOpened: row.is_opened || false,
+    openedAt: row.opened_at || null,
+    expiryOpenedDays: row.expiry_opened_days || null,
+    expiryUnopened: row.expiry_unopened || null,
+  };
 }
 
 // Display helper: "2 lbs", "1 dozen", or just "2" if no unit
@@ -126,6 +221,16 @@ function formatQty(item) {
 const CATEGORY_MAP = { "beverages": "Beverages", "dairies": "Dairy", "dairy": "Dairy", "cheeses": "Dairy", "milks": "Dairy", "yogurts": "Dairy", "meats": "Protein", "poultry": "Protein", "seafood": "Protein", "eggs": "Protein", "fish": "Protein", "fruits": "Produce", "vegetables": "Produce", "fresh": "Produce", "breads": "Dry Goods", "cereals": "Dry Goods", "snacks": "Dry Goods", "pasta": "Dry Goods" };
 const EMOJI_MAP = { "Dairy": "🧀", "Protein": "🍗", "Produce": "🥬", "Dry Goods": "🥣", "Beverages": "🍶", "Other": "📦" };
 const EXPIRY_MAP = { "Dairy": 14, "Protein": 3, "Produce": 5, "Dry Goods": 180, "Beverages": 7, "Other": 7 };
+
+// Categories where the open-vs-closed distinction matters. For packaged
+// goods (canned/jarred/bottled), opening shortens shelf life dramatically;
+// for fresh items (produce, fresh meat, fresh dairy) it's mostly irrelevant.
+const PACKAGED_CATEGORIES = new Set(["Beverages", "Dry Goods", "Other"]);
+const isPackagedCategory = (cat) => PACKAGED_CATEGORIES.has(cat);
+
+// Default once-opened shelf life by category (days). Conservative defaults
+// based on USDA FoodKeeper guidance; the user can override per item.
+const OPENED_DAYS_MAP = { "Beverages": 7, "Dry Goods": 30, "Other": 7 };
 function categorize(tags) { if (!tags) return "Other"; const joined = tags.join(" ").toLowerCase(); for (const [key, val] of Object.entries(CATEGORY_MAP)) { if (joined.includes(key)) return val; } return "Other"; }
 
 const GUESS_MAP = {
@@ -192,11 +297,11 @@ function NutritionPanel({ nutrition, grade }) {
   return (
     <View style={[s.card, { marginBottom: 12, overflow: "hidden" }]}>
       <View style={{ backgroundColor: "rgba(22,163,74,0.08)", padding: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: T.border }}>
-        <View>
+        <View style={{ flex: 1, marginRight: 10 }}>
           <Text style={[s.bold, { fontSize: 14, letterSpacing: 0.5 }]}>NUTRITION FACTS</Text>
-          <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 2 }}>Per serving · {nutrition.serving}</Text>
+          <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 2 }} numberOfLines={1}>Per serving · {nutrition.serving}</Text>
         </View>
-        {grade && (
+        {grade && /^[a-e]$/i.test(grade) && (
           <View style={{ backgroundColor: nutriColor(grade), borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, alignItems: "center" }}>
             <Text style={{ color: "#0A0F0A", fontSize: 10, fontWeight: "700" }}>NUTRI</Text>
             <Text style={{ color: "#0A0F0A", fontSize: 20, fontWeight: "800", lineHeight: 24 }}>{grade.toUpperCase()}</Text>
@@ -317,10 +422,17 @@ function UseItemModal({ item, visible, onClose, onUse }) {
 }
 
 // ─── Reorder Sheet ──────────────────────────────────────────────────────────
+// Affiliate IDs:
+//   Amazon — "ok2eat-20" is a live Associates tag; commissions track in
+//     https://affiliate-program.amazon.com → Reports.
+//   Target & Instacart — affiliate programs run via Impact (impact.com).
+//     Replace afid/aff placeholders with real IDs once Impact applications
+//     are approved. Until then clicks land on the right pages but no
+//     commission accrues.
 const RETAILERS = [
   { id: "amazon", label: "Amazon", color: "#FF9900", url: (name) => `https://www.amazon.com/s?k=${encodeURIComponent(name)}&tag=ok2eat-20` },
   { id: "target", label: "Target", color: "#CC0000", url: (name) => `https://www.target.com/s?searchTerm=${encodeURIComponent(name)}&afid=ok2eat` },
-  { id: "walmart", label: "Walmart", color: "#0071CE", url: (name) => `https://www.walmart.com/search?q=${encodeURIComponent(name)}&affiliates_id=ok2eat` },
+  { id: "instacart", label: "Instacart", color: "#43B02A", url: (name) => `https://www.instacart.com/store/search?k=${encodeURIComponent(name)}&utm_source=ok2eat&utm_medium=affiliate` },
 ];
 
 function ReorderSheet({ item, visible, onClose }) {
@@ -432,6 +544,52 @@ function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse
               <TouchableOpacity style={{ backgroundColor: "rgba(22,163,74,0.12)", borderWidth: 1.5, borderColor: T.accent, borderRadius: 14, padding: 16, marginBottom: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 }} onPress={() => { onClose(); setTimeout(() => onShowUse(item), 350); }}>
                 <Text style={{ fontSize: 20 }}>🍽</Text>
                 <View><Text style={[s.bold, { color: T.accent, fontSize: 15 }]}>Use Item</Text><Text style={{ color: T.textSoft, fontSize: 12, marginTop: 1 }}>Track how much you used</Text></View>
+              </TouchableOpacity>
+            )}
+            {/* Mark-as-opened (only for packaged items not yet opened) */}
+            {!editing && item.expiryOpenedDays && !item.isOpened && (
+              <TouchableOpacity
+                style={{ backgroundColor: "rgba(234,88,12,0.08)", borderWidth: 1.5, borderColor: "rgba(234,88,12,0.3)", borderRadius: 14, padding: 16, marginBottom: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 }}
+                onPress={() => {
+                  Alert.alert("Mark as opened?", `Once opened, ${item.name} should be used within ${item.expiryOpenedDays} days. The expiry will update.`, [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Mark Opened", onPress: () => {
+                        const newExpiry = new Date(Date.now() + item.expiryOpenedDays * 86400000).toISOString();
+                        onUpdate(item.id, { is_opened: true, opened_at: new Date().toISOString(), expiry_date: newExpiry });
+                      } }
+                  ]);
+                }}
+              >
+                <Text style={{ fontSize: 20 }}>🔓</Text>
+                <View>
+                  <Text style={[s.bold, { color: T.warn, fontSize: 15 }]}>Mark as opened</Text>
+                  <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 1 }}>Use within {item.expiryOpenedDays} days once opened</Text>
+                </View>
+              </TouchableOpacity>
+            )}
+            {/* Already-opened indicator + undo */}
+            {!editing && item.isOpened && (
+              <TouchableOpacity
+                style={{ backgroundColor: "rgba(234,88,12,0.05)", borderWidth: 1, borderColor: "rgba(234,88,12,0.2)", borderRadius: 14, padding: 14, marginBottom: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
+                onPress={() => {
+                  Alert.alert("Mark as unopened?", "This restores the original closed-state expiry date.", [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Undo", onPress: () => {
+                        const restored = item.expiryUnopened
+                          ? new Date(item.expiryUnopened).toISOString()
+                          : item.expiryDate;
+                        onUpdate(item.id, { is_opened: false, opened_at: null, expiry_date: restored });
+                      } }
+                  ]);
+                }}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+                  <Text style={{ fontSize: 18 }}>🔓</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[s.bold, { color: T.warn, fontSize: 14 }]}>Opened {item.openedAt ? formatDate(item.openedAt) : "recently"}</Text>
+                    <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 1 }}>Tap to undo</Text>
+                  </View>
+                </View>
               </TouchableOpacity>
             )}
             {!editing && needsReorder(item) && (
@@ -615,7 +773,7 @@ function AuthScreen({ onAuth }) {
 }
 
 // ─── Fridge Screen ────────────────────────────────────────────────────────────
-function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, loading }) {
+function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, loading, householdName, onOpenManageInventory }) {
   const [filter, setFilter] = useState("All");
   const [selectedItem, setSelectedItem] = useState(null);
   const [useItem, setUseItem] = useState(null);
@@ -653,13 +811,14 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
     );
   }
   const [sections, setSections] = useState([
-    { id: "fridge", label: "My Fridge", icon: "kitchen" },
-    { id: "cupboard", label: "Cupboard", icon: "shelves" },
+    { id: "fridge",  label: "Fridge",  icon: "kitchen" },
+    { id: "pantry",  label: "Pantry",  icon: "shelves" },
+    { id: "freezer", label: "Freezer", icon: "ac-unit" },
   ]);
   const [editingSection, setEditingSection] = useState(null);
   const [editLabel, setEditLabel] = useState("");
   const categories = ["All", "Dairy", "Protein", "Produce", "Dry Goods", "Beverages"];
-  const sectionItems = items.filter(i => (i.section || "fridge") === activeSection);
+  const sectionItems = items.filter(i => (i.container || i.section || "fridge") === activeSection);
   const filtered = filter === "All"
     ? sectionItems
     : filter === "expiring"
@@ -694,10 +853,18 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
     <>
       <ScrollView style={s.screen} showsVerticalScrollIndicator={false}>
         <View style={s.headerRow}>
-          <View>
-            <Text style={s.pageTitle}>{sections.find(s => s.id === activeSection)?.label || "My Fridge"}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={s.pageTitle}>{householdName || "My Fridge"}</Text>
             <Text style={s.pageSubtitle}>{loading ? "Loading..." : `${sectionItems.length} items tracked`}</Text>
           </View>
+          {onOpenManageInventory && (
+            <TouchableOpacity
+              onPress={onOpenManageInventory}
+              style={{ paddingHorizontal: 12, paddingVertical: 7, backgroundColor: "rgba(22,163,74,0.1)", borderWidth: 1, borderColor: "rgba(22,163,74,0.2)", borderRadius: 14 }}
+            >
+              <Text style={{ fontSize: 11, color: T.accent, fontWeight: "600" }}>Manage inventory</Text>
+            </TouchableOpacity>
+          )}
         </View>
         {/* Storage Section Tabs */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ paddingHorizontal: 16, marginBottom: 12 }}>
@@ -705,7 +872,6 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
             <TouchableOpacity
               key={sec.id}
               onPress={() => { setActiveSection(sec.id); setFilter("All"); }}
-              onLongPress={() => { setEditingSection(sec.id); setEditLabel(sec.label); }}
               style={{
                 flexDirection: "row", alignItems: "center", gap: 6,
                 paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, marginRight: 8,
@@ -717,13 +883,6 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
               <Text style={{ fontSize: 13, fontWeight: "600", color: activeSection === sec.id ? "#fff" : T.textSoft }}>{sec.label || "Name it..."}</Text>
             </TouchableOpacity>
           ))}
-          <TouchableOpacity
-            onPress={addSection}
-            style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, marginRight: 8, backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderStyle: "dashed" }}
-          >
-            <MaterialIcons name="add" size={16} color={T.muted} />
-            <Text style={{ fontSize: 13, fontWeight: "600", color: T.muted }}>Add Storage</Text>
-          </TouchableOpacity>
         </ScrollView>
 
         {/* Edit section name modal */}
@@ -759,10 +918,6 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
           <TouchableOpacity style={[s.statBox, filter === "expired" && { borderColor: T.danger, borderWidth: 2 }]} onPress={() => setFilter(filter === "expired" ? "All" : "expired")}>
             <Text style={[s.statNum, { color: expired > 0 ? T.danger : T.accent }]}>{expired}</Text>
             <Text style={s.statLabel}>Expired</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={s.statBox} onPress={() => setFilter("All")}>
-            <Text style={[s.statNum, { color: T.accent }]}>{[...new Set(items.map(i => i.category))].length}</Text>
-            <Text style={s.statLabel}>Categories</Text>
           </TouchableOpacity>
         </View>
         <View style={{ marginHorizontal: 16, marginBottom: 16, borderWidth: 1, borderColor: T.border, borderRadius: 12, backgroundColor: T.card, overflow: "hidden" }}>
@@ -850,7 +1005,17 @@ function ScanScreen({ onScanned }) {
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState([]);
   const [selected, setSelected] = useState(null);
+  const [editedExpiryDays, setEditedExpiryDays] = useState("");
+  const [editedOpenedDays, setEditedOpenedDays] = useState("");
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (selected) {
+      setEditedExpiryDays(String(selected.defaultExpiry));
+      // For packaged items, default to OPENED_DAYS_MAP for the category
+      setEditedOpenedDays(isPackagedCategory(selected.category) ? String(OPENED_DAYS_MAP[selected.category] ?? 7) : "");
+    }
+  }, [selected]);
   const [showCamera, setShowCamera] = useState(false);
   const [cameraLooking, setCameraLooking] = useState(false);
   const DEMO_SEARCHES = ["avocado", "greek yogurt", "chicken breast", "almond milk", "sourdough bread"];
@@ -930,17 +1095,74 @@ function ScanScreen({ onScanned }) {
           <View style={[s.card, { padding: 20, marginBottom: 12 }]}>
             <View style={{ alignItems: "center", marginBottom: 16 }}>
               <Text style={{ fontSize: 56 }}>{selected.emoji}</Text>
-              <Text style={[s.bold, { fontSize: 18, textAlign: "center", marginTop: 10, lineHeight: 24 }]}>{selected.name}</Text>
+              <Text style={[s.bold, { fontSize: 18, textAlign: "center", marginTop: 10, lineHeight: 24 }]} numberOfLines={3} adjustsFontSizeToFit>{selected.name}</Text>
               <View style={[s.pill, { marginTop: 10 }]}><Text style={s.pillText}>{selected.category}</Text></View>
             </View>
             <View style={{ backgroundColor: T.surface, borderRadius: 12, padding: 14 }}>
-              <Text style={[s.inputLabel, { marginBottom: 2 }]}>Suggested expiry</Text>
-              <Text style={[s.bold, { fontSize: 18, color: T.accent }]}>{selected.defaultExpiry} days from today</Text>
+              <Text style={[s.inputLabel, { marginBottom: 8 }]}>{isPackagedCategory(selected.category) ? "Expires (unopened)" : "Expires in"}</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <TouchableOpacity
+                  onPress={() => setEditedExpiryDays(d => String(Math.max(1, (parseInt(d, 10) || 0) - 1)))}
+                  style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: T.card, borderWidth: 1, borderColor: T.border, alignItems: "center", justifyContent: "center" }}
+                >
+                  <Text style={{ fontSize: 22, color: T.text, fontWeight: "600" }}>−</Text>
+                </TouchableOpacity>
+                <TextInput
+                  value={editedExpiryDays}
+                  onChangeText={t => setEditedExpiryDays(t.replace(/[^0-9]/g, "").slice(0, 4))}
+                  keyboardType="number-pad"
+                  selectTextOnFocus
+                  style={{ flex: 1, fontSize: 20, fontWeight: "700", color: T.accent, textAlign: "center", borderWidth: 1, borderColor: T.border, borderRadius: 10, paddingVertical: 8, backgroundColor: "#FFFFFF" }}
+                />
+                <TouchableOpacity
+                  onPress={() => setEditedExpiryDays(d => String(Math.min(9999, (parseInt(d, 10) || 0) + 1)))}
+                  style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: T.card, borderWidth: 1, borderColor: T.border, alignItems: "center", justifyContent: "center" }}
+                >
+                  <Text style={{ fontSize: 22, color: T.text, fontWeight: "600" }}>+</Text>
+                </TouchableOpacity>
+                <Text style={{ color: T.textSoft, fontSize: 14, fontWeight: "600" }}>days</Text>
+              </View>
+              <Text style={{ color: T.muted, fontSize: 11, marginTop: 8 }}>Suggested for {selected.category}: {selected.defaultExpiry} days</Text>
+
+              {isPackagedCategory(selected.category) && (
+                <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: T.border }}>
+                  <Text style={[s.inputLabel, { marginBottom: 8 }]}>Once opened, use within</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                    <TouchableOpacity
+                      onPress={() => setEditedOpenedDays(d => String(Math.max(1, (parseInt(d, 10) || 0) - 1)))}
+                      style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: T.card, borderWidth: 1, borderColor: T.border, alignItems: "center", justifyContent: "center" }}
+                    >
+                      <Text style={{ fontSize: 22, color: T.text, fontWeight: "600" }}>−</Text>
+                    </TouchableOpacity>
+                    <TextInput
+                      value={editedOpenedDays}
+                      onChangeText={t => setEditedOpenedDays(t.replace(/[^0-9]/g, "").slice(0, 4))}
+                      keyboardType="number-pad"
+                      selectTextOnFocus
+                      style={{ flex: 1, fontSize: 20, fontWeight: "700", color: T.warn, textAlign: "center", borderWidth: 1, borderColor: T.border, borderRadius: 10, paddingVertical: 8, backgroundColor: "#FFFFFF" }}
+                    />
+                    <TouchableOpacity
+                      onPress={() => setEditedOpenedDays(d => String(Math.min(9999, (parseInt(d, 10) || 0) + 1)))}
+                      style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: T.card, borderWidth: 1, borderColor: T.border, alignItems: "center", justifyContent: "center" }}
+                    >
+                      <Text style={{ fontSize: 22, color: T.text, fontWeight: "600" }}>+</Text>
+                    </TouchableOpacity>
+                    <Text style={{ color: T.textSoft, fontSize: 14, fontWeight: "600" }}>days</Text>
+                  </View>
+                  <Text style={{ color: T.muted, fontSize: 11, marginTop: 8 }}>Applies once you mark this as opened.</Text>
+                </View>
+              )}
             </View>
           </View>
           <NutritionPanel nutrition={selected.nutrition} grade={selected.nutritionGrade} />
           {selected.ingredients && <View style={[s.card, { marginBottom: 12, padding: 14 }]}><Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 8, paddingHorizontal: 0 }]}>INGREDIENTS</Text><Text style={{ color: T.textSoft, fontSize: 12, lineHeight: 18 }}>{selected.ingredients}</Text></View>}
-          <TouchableOpacity style={[s.btnPrimary, { marginBottom: 10 }]} onPress={() => addToFridge(selected)}><Text style={s.btnPrimaryText}>✅  Add to My Fridge</Text></TouchableOpacity>
+          <TouchableOpacity style={[s.btnPrimary, { marginBottom: 10 }]} onPress={() => {
+            const closed = parseInt(editedExpiryDays, 10);
+            const finalClosed = Number.isFinite(closed) && closed > 0 ? closed : selected.defaultExpiry;
+            const opened = parseInt(editedOpenedDays, 10);
+            const finalOpened = isPackagedCategory(selected.category) && Number.isFinite(opened) && opened > 0 ? opened : null;
+            addToFridge({ ...selected, defaultExpiry: finalClosed, openedDays: finalOpened });
+          }}><Text style={s.btnPrimaryText}>✅  Add to My Fridge</Text></TouchableOpacity>
           <TouchableOpacity style={s.btnSecondary} onPress={() => setSelected(null)}><Text style={s.btnSecondaryText}>Choose a Different Result</Text></TouchableOpacity>
         </View>
       )}
@@ -1064,12 +1286,11 @@ function RecipesScreen({ items }) {
 }
 
 // ─── Reminders Screen ─────────────────────────────────────────────────────────
-function RemindersScreen({ items, notificationsEnabled, onToggleNotifications, onTestNotification }) {
+function RemindersScreen({ items, notificationsEnabled, onToggleNotifications, emailDigestEnabled, onToggleEmailDigest }) {
   const [dismissed, setDismissed] = useState([]);
   const [reorderItem, setReorderItem] = useState(null);
   const autoReminders = items.filter(i => daysUntil(i.expiryDate) <= 3 && !dismissed.includes("auto-" + i.id)).map(i => ({ id: "auto-" + i.id, type: "toss", text: `Check ${i.name}`, detail: `Expires in ${Math.max(0, daysUntil(i.expiryDate))} day(s)`, time: formatDate(i.expiryDate), emoji: i.emoji, urgent: daysUntil(i.expiryDate) <= 1 }));
-  const staticReminders = [{ id: "r1", type: "order", text: "Reorder Chicken Breast", detail: "Running low", time: "Friday 10:00 AM", emoji: "🛒", urgent: false }].filter(r => !dismissed.includes(r.id));
-  const allReminders = [...autoReminders, ...staticReminders];
+  const allReminders = [...autoReminders];
   const urgent = allReminders.filter(r => r.urgent);
   const normal = allReminders.filter(r => !r.urgent);
 
@@ -1106,12 +1327,23 @@ function RemindersScreen({ items, notificationsEnabled, onToggleNotifications, o
             <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: "#fff", alignSelf: notificationsEnabled ? "flex-end" : "flex-start" }} />
           </TouchableOpacity>
         </View>
-        <TouchableOpacity
-          style={[s.btnSecondary, { marginBottom: 0 }]}
-          onPress={onTestNotification}
-        >
-          <Text style={s.btnSecondaryText}>🔔  Send Test Notification</Text>
-        </TouchableOpacity>
+      </View>
+
+      {/* Email Digest Card */}
+      <View style={[s.card, { marginHorizontal: 16, padding: 16, marginBottom: 12 }]}>
+        <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 12, paddingHorizontal: 0 }]}>EMAIL DIGEST</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <View style={{ flex: 1 }}>
+            <Text style={[s.bold, { fontSize: 14 }]}>Daily Email</Text>
+            <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Same digest, in your inbox. Useful when you forget to check the app. Sent to your account email.</Text>
+          </View>
+          <TouchableOpacity
+            onPress={onToggleEmailDigest}
+            style={{ width: 50, height: 28, borderRadius: 14, backgroundColor: emailDigestEnabled ? T.accent : T.border, justifyContent: "center", padding: 3, marginLeft: 12 }}
+          >
+            <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: "#fff", alignSelf: emailDigestEnabled ? "flex-end" : "flex-start" }} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={s.statsRow}>{[{ num: urgent.length, label: "Urgent", color: T.danger }, { num: allReminders.filter(r => r.type === "order").length, label: "Reorder", color: T.accent }, { num: allReminders.filter(r => r.type === "toss").length, label: "Toss", color: T.warn }].map(st => (<View key={st.label} style={s.statBox}><Text style={[s.statNum, { color: st.color }]}>{st.num}</Text><Text style={s.statLabel}>{st.label}</Text></View>))}</View>
@@ -1468,6 +1700,467 @@ function BulkAddModal({ visible, onClose, onAddItems, section }) {
   );
 }
 
+// ─── Household Onboarding Modal (v1.0.8) ──────────────────────────────────────
+//
+// Two-step intro: name your household → pick first container. Shown once per
+// user, gated by user_settings.has_seen_household_onboarding. Existing testers
+// see it on the v1.0.8 update; new users see it after first sign-in. The
+// chosen container is informational for v1.0.8 (all items still default to
+// 'fridge') but is stored as a default so future "add item" prompts can
+// pre-select it.
+const ONBOARDING_DEFAULT_CONTAINER_KEY = "ok2eat:default_container";
+
+function OnboardingModal({ visible, initialName, onComplete }) {
+  const [step, setStep] = useState(1);
+  const [name, setName] = useState(initialName || "My household");
+  const [container, setContainer] = useState("fridge");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      setStep(1);
+      setName(initialName || "My household");
+      setContainer("fridge");
+      setSaving(false);
+    }
+  }, [visible, initialName]);
+
+  const containers = [
+    { id: "fridge",  label: "Fridge",  hint: "Dairy, produce, leftovers" },
+    { id: "pantry",  label: "Pantry",  hint: "Dry goods, canned" },
+    { id: "freezer", label: "Freezer", hint: "Frozen meats, ice cream" },
+  ];
+
+  async function finish() {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not signed in");
+
+      // Make sure they have a household (idempotent for existing users)
+      const { data: hhId, error: rpcErr } = await supabase.rpc("ensure_household_for_user");
+      if (rpcErr) throw rpcErr;
+
+      // Update household name if they typed one
+      const trimmed = (name || "").trim();
+      if (hhId && trimmed) {
+        await supabase.from("households").update({ name: trimmed }).eq("id", hhId);
+      }
+
+      // Mark onboarding seen
+      await supabase.from("user_settings").upsert({
+        user_id: user.id,
+        has_seen_household_onboarding: true,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id" });
+
+      // Remember the chosen default container for future add flows
+      try { await AsyncStorage.setItem(ONBOARDING_DEFAULT_CONTAINER_KEY, container); } catch {}
+
+      track("household_onboarding_completed", { container });
+      onComplete({ householdId: hhId, householdName: trimmed, defaultContainer: container });
+    } catch (e) {
+      Alert.alert("Setup error", e?.message || "Couldn't save your setup. Please try again.");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent={false}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }}>
+        <View style={{ flex: 1, padding: 20, justifyContent: "space-between" }}>
+          <View>
+            <Text style={{ fontSize: 12, color: T.accent, fontWeight: "600", marginBottom: 14 }}>
+              Step {step} of 2
+            </Text>
+
+            {step === 1 ? (
+              <>
+                <Text style={{ fontSize: 24, fontWeight: "800", color: T.text, letterSpacing: -0.5 }}>
+                  Name your household
+                </Text>
+                <Text style={{ fontSize: 13, color: T.textSoft, marginTop: 6, marginBottom: 22 }}>
+                  You can invite others later. One household per person.
+                </Text>
+                <Text style={s.inputLabel}>Household name</Text>
+                <TextInput
+                  style={s.input}
+                  value={name}
+                  onChangeText={setName}
+                  placeholder='e.g. "The Goldbergs", "Apt 4B"'
+                  placeholderTextColor={T.muted}
+                  autoCapitalize="words"
+                  maxLength={60}
+                />
+                <Text style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
+                  Examples: "Smith Family", "Jess + Greg"
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text style={{ fontSize: 24, fontWeight: "800", color: T.text, letterSpacing: -0.5 }}>
+                  Where will you start?
+                </Text>
+                <Text style={{ fontSize: 13, color: T.textSoft, marginTop: 6, marginBottom: 22 }}>
+                  Pick one. You can add more later in Manage Inventory.
+                </Text>
+                {containers.map(c => {
+                  const selected = container === c.id;
+                  return (
+                    <TouchableOpacity
+                      key={c.id}
+                      onPress={() => setContainer(c.id)}
+                      style={{
+                        flexDirection: "row", alignItems: "center", padding: 14,
+                        backgroundColor: T.card,
+                        borderWidth: selected ? 2 : 1,
+                        borderColor: selected ? T.accent : T.border,
+                        borderRadius: 14, marginBottom: 10,
+                      }}
+                    >
+                      <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(22,163,74,0.1)", alignItems: "center", justifyContent: "center" }}>
+                        <Text style={{ fontSize: 14, fontWeight: "700", color: T.accent }}>{c.label[0]}</Text>
+                      </View>
+                      <View style={{ marginLeft: 12, flex: 1 }}>
+                        <Text style={{ fontSize: 15, fontWeight: "600", color: T.text }}>{c.label}</Text>
+                        <Text style={{ fontSize: 12, color: T.textSoft, marginTop: 2 }}>{c.hint}</Text>
+                      </View>
+                      {selected && (
+                        <Ionicons name="checkmark-circle" size={22} color={T.accent} />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </>
+            )}
+          </View>
+
+          <View>
+            {step === 1 ? (
+              <>
+                <TouchableOpacity
+                  style={[s.btnPrimary, (!name.trim() || saving) && { opacity: 0.5 }]}
+                  disabled={!name.trim() || saving}
+                  onPress={() => setStep(2)}
+                >
+                  <Text style={s.btnPrimaryText}>Continue</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <TouchableOpacity
+                  style={[s.btnPrimary, saving && { opacity: 0.6 }]}
+                  disabled={saving}
+                  onPress={finish}
+                >
+                  <Text style={s.btnPrimaryText}>{saving ? "Saving…" : "Get started"}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{ alignItems: "center", paddingVertical: 12, marginTop: 6 }}
+                  onPress={() => setStep(1)}
+                  disabled={saving}
+                >
+                  <Text style={{ color: T.textSoft, fontSize: 14 }}>Back</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
+// ─── Container helpers (v1.0.8) ───────────────────────────────────────────────
+const CONTAINERS = [
+  { id: "fridge",  label: "Fridge",  hint: "Dairy, produce, leftovers" },
+  { id: "pantry",  label: "Pantry",  hint: "Dry goods, canned" },
+  { id: "freezer", label: "Freezer", hint: "Frozen meats, ice cream" },
+];
+const CONTAINER_LABEL = { fridge: "Fridge", pantry: "Pantry", freezer: "Freezer" };
+
+// ─── Shopping list helpers (v1.0.8) ───────────────────────────────────────────
+// Local-only for v1.0.8 — stored as a JSON array under one AsyncStorage key.
+// Each entry: { id, name, checked }. We can graduate to a Supabase table in
+// v1.0.9 once we know what users actually do with it.
+const SHOPPING_LIST_KEY = "ok2eat:shopping_list:v1";
+async function loadShoppingList() {
+  try {
+    const raw = await AsyncStorage.getItem(SHOPPING_LIST_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
+}
+async function saveShoppingList(list) {
+  try { await AsyncStorage.setItem(SHOPPING_LIST_KEY, JSON.stringify(list)); } catch {}
+}
+
+// ─── Manage Inventory Modal (v1.0.8) ──────────────────────────────────────────
+// Shows the household name, the three containers with item counts, and the
+// member list. Members come from the list_household_members RPC because RLS
+// only lets a user read their own household_members row.
+function ManageInventoryModal({ visible, onClose, items, householdName, onOpenInvite }) {
+  const [members, setMembers] = useState([]);
+  const [loadingMembers, setLoadingMembers] = useState(false);
+
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    (async () => {
+      setLoadingMembers(true);
+      try {
+        const { data, error } = await supabase.rpc("list_household_members");
+        if (!cancelled) setMembers(error ? [] : (data || []));
+      } catch { if (!cancelled) setMembers([]); }
+      finally { if (!cancelled) setLoadingMembers(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [visible]);
+
+  const counts = { fridge: 0, pantry: 0, freezer: 0 };
+  for (const i of items || []) {
+    const c = i.container || "fridge";
+    if (counts[c] !== undefined) counts[c] += 1;
+  }
+
+  function initials(email) {
+    if (!email) return "·";
+    const local = email.split("@")[0];
+    return (local[0] || "?").toUpperCase();
+  }
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent={false}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }}>
+        <View style={{ flexDirection: "row", alignItems: "center", padding: 16, borderBottomWidth: 1, borderBottomColor: T.border }}>
+          <TouchableOpacity onPress={onClose} style={{ paddingRight: 14, paddingVertical: 4 }}>
+            <Ionicons name="chevron-back" size={24} color={T.accent} />
+          </TouchableOpacity>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 17, fontWeight: "700", color: T.text }}>Manage inventory</Text>
+            <Text style={{ fontSize: 12, color: T.textSoft, marginTop: 2 }}>
+              {householdName || "Your household"} · {members.length || 1} {members.length === 1 ? "member" : "members"}
+            </Text>
+          </View>
+        </View>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }}>
+          <Text style={s.sectionLabel}>// CONTAINERS</Text>
+          {CONTAINERS.map(c => (
+            <View key={c.id} style={{ flexDirection: "row", alignItems: "center", padding: 14, backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderRadius: 14, marginBottom: 10, marginHorizontal: 16 }}>
+              <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(22,163,74,0.1)", alignItems: "center", justifyContent: "center" }}>
+                <Text style={{ fontSize: 14, fontWeight: "700", color: T.accent }}>{c.label[0]}</Text>
+              </View>
+              <View style={{ marginLeft: 12, flex: 1 }}>
+                <Text style={{ fontSize: 15, fontWeight: "600", color: T.text }}>{c.label}</Text>
+                <Text style={{ fontSize: 12, color: T.textSoft, marginTop: 2 }}>
+                  {counts[c.id]} {counts[c.id] === 1 ? "item" : "items"}
+                </Text>
+              </View>
+            </View>
+          ))}
+
+          <Text style={[s.sectionLabel, { marginTop: 8 }]}>// MEMBERS</Text>
+          <View style={{ marginHorizontal: 16 }}>
+            {loadingMembers ? (
+              <View style={{ padding: 16, alignItems: "center" }}>
+                <ActivityIndicator color={T.accent} size="small" />
+              </View>
+            ) : members.length === 0 ? (
+              <View style={{ padding: 14, backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderRadius: 14 }}>
+                <Text style={{ fontSize: 13, color: T.textSoft }}>Just you for now — invite someone to share your fridge.</Text>
+              </View>
+            ) : (
+              members.map(m => (
+                <View key={m.user_id} style={{ flexDirection: "row", alignItems: "center", padding: 14, backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderRadius: 14, marginBottom: 8 }}>
+                  <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(22,163,74,0.1)", alignItems: "center", justifyContent: "center" }}>
+                    <Text style={{ fontSize: 12, fontWeight: "700", color: T.accent }}>{initials(m.email)}</Text>
+                  </View>
+                  <View style={{ marginLeft: 12, flex: 1 }}>
+                    <Text style={{ fontSize: 14, fontWeight: "600", color: T.text }}>{m.email}</Text>
+                    <Text style={{ fontSize: 11, color: T.textSoft, marginTop: 2 }}>
+                      {m.is_owner ? "Owner" : "Member"}
+                    </Text>
+                  </View>
+                </View>
+              ))
+            )}
+            <TouchableOpacity
+              style={[s.btnPrimary, { marginTop: 8 }]}
+              onPress={() => { onClose(); setTimeout(onOpenInvite, 250); }}
+            >
+              <Text style={s.btnPrimaryText}>Invite a family member</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={{ height: 32 }} />
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
+// ─── Invite Household Modal (v1.0.8) ──────────────────────────────────────────
+// The "share fridge" flow. Two halves: generate an invite code (calls
+// create_household_invite RPC) and redeem one (calls redeem_household_invite).
+// Codes are 6 chars, valid 7 days. Joining replaces the user's current
+// household — we warn before redeeming.
+function InviteHouseholdModal({ visible, onClose, householdId, householdName, onJoined }) {
+  const [code, setCode] = useState(null);
+  const [generating, setGenerating] = useState(false);
+  const [redeemInput, setRedeemInput] = useState("");
+  const [redeeming, setRedeeming] = useState(false);
+
+  useEffect(() => {
+    if (!visible) { setCode(null); setRedeemInput(""); }
+  }, [visible]);
+
+  async function generateCode() {
+    if (!householdId) return;
+    setGenerating(true);
+    try {
+      const { data, error } = await supabase.rpc("create_household_invite", { p_household_id: householdId });
+      if (error) throw error;
+      setCode(data);
+      track("household_invite_created");
+    } catch (e) {
+      Alert.alert("Couldn't create invite", e?.message || "Try again in a moment.");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function handleShareCode() {
+    if (!code) return;
+    try {
+      await Share.share({
+        message: `Join my ok2eat household with code: ${code}\n\nDownload ok2eat: https://apps.apple.com/us/app/ok2eat/id6761730687`,
+      });
+    } catch {}
+  }
+
+  async function copyCode() {
+    if (!code) return;
+    try {
+      const Clipboard = (await import("expo-clipboard").catch(() => null))?.default;
+      if (Clipboard?.setStringAsync) await Clipboard.setStringAsync(code);
+      Alert.alert("Copied", "Invite code copied to clipboard.");
+    } catch {
+      Alert.alert("Copy", "Long-press the code to copy.");
+    }
+  }
+
+  function confirmRedeem() {
+    const trimmed = (redeemInput || "").trim().toUpperCase();
+    if (trimmed.length !== 6) {
+      Alert.alert("Invalid code", "Codes are 6 characters.");
+      return;
+    }
+    Alert.alert(
+      "Join this household?",
+      "You'll lose access to your current household and its items. This can't be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Join", style: "destructive", onPress: () => doRedeem(trimmed) },
+      ],
+    );
+  }
+
+  async function doRedeem(trimmed) {
+    setRedeeming(true);
+    try {
+      const { data: newHhId, error } = await supabase.rpc("redeem_household_invite", { p_code: trimmed });
+      if (error) throw error;
+      track("household_invite_redeemed");
+      onJoined?.(newHhId);
+      onClose();
+    } catch (e) {
+      Alert.alert("Couldn't join", e?.message || "Check the code and try again.");
+    } finally {
+      setRedeeming(false);
+    }
+  }
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent={false}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }}>
+        <View style={{ flexDirection: "row", alignItems: "center", padding: 16, borderBottomWidth: 1, borderBottomColor: T.border }}>
+          <TouchableOpacity onPress={onClose} style={{ paddingRight: 14, paddingVertical: 4 }}>
+            <Ionicons name="chevron-back" size={24} color={T.accent} />
+          </TouchableOpacity>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 17, fontWeight: "700", color: T.text }}>Invite a family member</Text>
+            <Text style={{ fontSize: 12, color: T.textSoft, marginTop: 2 }}>Equal access — they see and edit everything.</Text>
+          </View>
+        </View>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }}>
+          <Text style={s.sectionLabel}>// YOUR INVITE CODE</Text>
+          <View style={[s.card, { padding: 22, alignItems: "center", marginHorizontal: 16, marginBottom: 12 }]}>
+            {code ? (
+              <>
+                <Text selectable style={[s.monoText, { fontSize: 28, fontWeight: "700", color: T.text, letterSpacing: 4, marginBottom: 6 }]}>
+                  {code}
+                </Text>
+                <Text style={{ fontSize: 11, color: T.textSoft }}>Expires in 7 days</Text>
+              </>
+            ) : (
+              <Text style={{ fontSize: 13, color: T.textSoft, textAlign: "center" }}>
+                Generate a 6-character code and share it with someone in your household.
+              </Text>
+            )}
+          </View>
+
+          {code ? (
+            <View style={{ flexDirection: "row", gap: 10, marginHorizontal: 16, marginBottom: 12 }}>
+              <TouchableOpacity style={[s.btnSecondary, { flex: 1 }]} onPress={copyCode}>
+                <Text style={s.btnSecondaryText}>Copy code</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[s.btnPrimary, { flex: 1 }]} onPress={handleShareCode}>
+                <Text style={s.btnPrimaryText}>Share link</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={[s.btnPrimary, { marginHorizontal: 16, marginBottom: 12, opacity: generating ? 0.6 : 1 }]}
+              disabled={generating}
+              onPress={generateCode}
+            >
+              <Text style={s.btnPrimaryText}>{generating ? "Generating…" : "Generate invite code"}</Text>
+            </TouchableOpacity>
+          )}
+
+          <Text style={[s.sectionLabel, { marginTop: 8 }]}>// HAVE A CODE?</Text>
+          <View style={{ flexDirection: "row", gap: 8, marginHorizontal: 16 }}>
+            <TextInput
+              style={[s.input, { flex: 1, marginBottom: 0, letterSpacing: 2, textTransform: "uppercase" }]}
+              value={redeemInput}
+              onChangeText={t => setRedeemInput(t.toUpperCase())}
+              placeholder="ENTER CODE"
+              placeholderTextColor={T.muted}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              maxLength={6}
+            />
+            <TouchableOpacity
+              style={[s.btnPrimary, { paddingHorizontal: 18, opacity: redeeming || redeemInput.trim().length !== 6 ? 0.5 : 1 }]}
+              disabled={redeeming || redeemInput.trim().length !== 6}
+              onPress={confirmRedeem}
+            >
+              <Text style={s.btnPrimaryText}>{redeeming ? "…" : "Join"}</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={{ fontSize: 11, color: T.muted, marginTop: 8, marginHorizontal: 16 }}>
+            Joining replaces your current household.
+          </Text>
+
+          <View style={{ height: 32 }} />
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
 // ─── Add Item Modal ───────────────────────────────────────────────────────────
 function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan }) {
   const [name, setName] = useState("");
@@ -1516,97 +2209,315 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan }) {
 }
 
 // ─── Share Screen ─────────────────────────────────────────────────────────────
-function ShareScreen() {
+function ShareScreen({ householdName, memberCount, onOpenInvite }) {
   const APP_URL = "https://apps.apple.com/us/app/ok2eat/id6761730687";
 
-  async function handleShare() {
+  async function handleShareApp() {
     try {
       const result = await Share.share({
         message: "I've been using ok2eat to track my fridge and reduce food waste. Check it out! " + APP_URL,
         url: APP_URL,
         title: "Check out ok2eat!",
       });
-      if (result.action === Share.sharedAction) track("share_tapped");
+      if (result.action === Share.sharedAction) track("share_app_tapped");
     } catch (e) { console.log(e); }
   }
-
-  const stats = [
-    { emoji: "🥛", stat: "$1,500+", label: "wasted per household yearly" },
-    { emoji: "🌍", stat: "30%", label: "of all food produced is wasted" },
-    { emoji: "♻️", stat: "#3", label: "cause of greenhouse emissions" },
-  ];
 
   return (
     <ScrollView style={s.screen} showsVerticalScrollIndicator={false}>
       <View style={s.headerRow}>
-        <View><Text style={s.pageTitle}>Share ok2eat</Text><Text style={s.pageSubtitle}>Help friends waste less food</Text></View>
-        <Text style={{ fontSize: 32 }}>↑</Text>
-      </View>
-
-      {/* Main share card */}
-      <View style={[s.card, { margin: 16, marginBottom: 12, overflow: "hidden" }]}>
-        <View style={{ backgroundColor: T.accent, padding: 24, alignItems: "center" }}>
-          <Text style={{ fontSize: 48 }}>🧊</Text>
-          <Text style={{ color: "#fff", fontSize: 24, fontWeight: "800", marginTop: 8, letterSpacing: -0.5 }}>ok2eat</Text>
-          <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 13, marginTop: 4 }}>know before you throw</Text>
-        </View>
-        <View style={{ padding: 20 }}>
-          <Text style={{ color: T.textSoft, fontSize: 14, lineHeight: 22, marginBottom: 20, textAlign: "center" }}>
-            Track your fridge, scan groceries, get AI recipes, and stop throwing food away.
-          </Text>
-          <TouchableOpacity style={s.btnPrimary} onPress={handleShare}>
-            <Text style={s.btnPrimaryText}>📲  Share with Friends</Text>
-          </TouchableOpacity>
+        <View>
+          <Text style={s.pageTitle}>Share</Text>
+          <Text style={s.pageSubtitle}>Tell friends about ok2eat or invite family to your fridge.</Text>
         </View>
       </View>
 
-      {/* Impact stats */}
-      <Text style={s.sectionLabel}>// WHY IT MATTERS</Text>
-      {stats.map((s2, i) => (
-        <View key={i} style={[s.fridgeItem, { marginBottom: 8 }]}>
-          <Text style={{ fontSize: 28, width: 44, textAlign: "center" }}>{s2.emoji}</Text>
-          <View style={{ flex: 1, marginLeft: 12 }}>
-            <Text style={[s.bold, { fontSize: 20, color: T.accent }]}>{s2.stat}</Text>
-            <Text style={{ color: T.textSoft, fontSize: 13, marginTop: 2 }}>{s2.label}</Text>
+      {/* PRIMARY — spread the word */}
+      <Text style={s.sectionLabel}>// SPREAD THE WORD</Text>
+      <View style={[s.card, { marginHorizontal: 16, marginBottom: 16, padding: 4 }]}>
+        <TouchableOpacity style={{ flexDirection: "row", alignItems: "center", padding: 14, gap: 14 }} onPress={handleShareApp}>
+          <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(22,163,74,0.1)", alignItems: "center", justifyContent: "center" }}>
+            <Ionicons name="share-outline" size={20} color={T.accent} />
           </View>
-        </View>
-      ))}
-
-      {/* Share options */}
-      <Text style={s.sectionLabel}>// OTHER WAYS TO SHARE</Text>
-      <View style={[s.card, { margin: 16, marginBottom: 12, padding: 4 }]}>
-        <TouchableOpacity style={{ flexDirection: "row", alignItems: "center", padding: 14, gap: 14 }}
-          onPress={() => Linking.openURL("mailto:?subject=Check out ok2eat!&body=I've been using ok2eat to track my fridge and stop wasting food. Download it here: https://apps.apple.com/us/app/ok2eat/id6761730687")}>
-          <Text style={{ fontSize: 24 }}>✉️</Text>
           <View style={{ flex: 1 }}>
-            <Text style={[s.bold, { fontSize: 15 }]}>Share via Email</Text>
-            <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Send to a friend or family member</Text>
+            <Text style={[s.bold, { fontSize: 15 }]}>Share the app</Text>
+            <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Send a link to friends</Text>
           </View>
           <Text style={{ color: T.muted, fontSize: 16 }}>›</Text>
         </TouchableOpacity>
         <View style={{ height: 1, backgroundColor: T.border, marginHorizontal: 14 }} />
-        <TouchableOpacity style={{ flexDirection: "row", alignItems: "center", padding: 14, gap: 14 }}
-          onPress={() => Linking.openURL("https://apps.apple.com/us/app/ok2eat/id6761730687")}>
-          <Text style={{ fontSize: 24 }}>⭐</Text>
+        <TouchableOpacity
+          style={{ flexDirection: "row", alignItems: "center", padding: 14, gap: 14 }}
+          onPress={() => { track("review_link_tapped"); Linking.openURL(APP_URL); }}
+        >
+          <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(234,88,12,0.1)", alignItems: "center", justifyContent: "center" }}>
+            <Ionicons name="star-outline" size={20} color={T.warn} />
+          </View>
           <View style={{ flex: 1 }}>
-            <Text style={[s.bold, { fontSize: 15 }]}>Leave a Review</Text>
-            <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Rate ok2eat on the App Store</Text>
+            <Text style={[s.bold, { fontSize: 15 }]}>Leave a review</Text>
+            <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Help others find ok2eat</Text>
           </View>
           <Text style={{ color: T.muted, fontSize: 16 }}>›</Text>
         </TouchableOpacity>
         <View style={{ height: 1, backgroundColor: T.border, marginHorizontal: 14 }} />
-        <TouchableOpacity style={{ flexDirection: "row", alignItems: "center", padding: 14, gap: 14 }}
-          onPress={() => Linking.openURL("https://ok2eat.com")}>
-          <Text style={{ fontSize: 24 }}>🌐</Text>
+        <TouchableOpacity
+          style={{ flexDirection: "row", alignItems: "center", padding: 14, gap: 14 }}
+          onPress={() => { track("website_link_tapped"); Linking.openURL("https://ok2eat.com"); }}
+        >
+          <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(33,99,219,0.1)", alignItems: "center", justifyContent: "center" }}>
+            <Ionicons name="globe-outline" size={20} color="#2563EB" />
+          </View>
           <View style={{ flex: 1 }}>
             <Text style={[s.bold, { fontSize: 15 }]}>Visit ok2eat.com</Text>
-            <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Learn more about the app</Text>
+            <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Tips, recipes, FAQ</Text>
           </View>
           <Text style={{ color: T.muted, fontSize: 16 }}>›</Text>
         </TouchableOpacity>
+      </View>
+
+      {/* SECONDARY — your household */}
+      <Text style={s.sectionLabel}>// YOUR HOUSEHOLD</Text>
+      <View style={[s.card, { marginHorizontal: 16, marginBottom: 16, padding: 4 }]}>
+        <TouchableOpacity
+          style={{ flexDirection: "row", alignItems: "center", padding: 14, gap: 14 }}
+          onPress={onOpenInvite}
+        >
+          <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(22,163,74,0.1)", alignItems: "center", justifyContent: "center" }}>
+            <Ionicons name="person-add-outline" size={20} color={T.accent} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[s.bold, { fontSize: 15 }]}>Invite a family member</Text>
+            <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Share your fridge with someone you live with</Text>
+          </View>
+          <Text style={{ color: T.muted, fontSize: 16 }}>›</Text>
+        </TouchableOpacity>
+        <View style={{ height: 1, backgroundColor: T.border, marginHorizontal: 14 }} />
+        <View style={{ flexDirection: "row", alignItems: "center", padding: 14, gap: 10 }}>
+          <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: "rgba(22,163,74,0.1)", alignItems: "center", justifyContent: "center" }}>
+            <Ionicons name="home-outline" size={14} color={T.accent} />
+          </View>
+          <Text style={{ flex: 1, fontSize: 13, color: T.textSoft }} numberOfLines={1}>
+            {householdName || "Your household"} · {memberCount} {memberCount === 1 ? "member" : "members"}
+          </Text>
+        </View>
       </View>
 
       <View style={{ height: 32 }} />
+    </ScrollView>
+  );
+}
+
+// ─── Plan Screen (v1.0.8) ─────────────────────────────────────────────────────
+// Replaces the AI Recipes screen. Two sections:
+//   1. Recipe ideas — search-link cards (AllRecipes / NYT Cooking / Epicurious)
+//      seeded from the user's top fridge ingredients. No AI calls; this saves
+//      tokens AND avoids per-user Anthropic costs.
+//   2. Shopping list — local-only for v1.0.8, persisted via AsyncStorage.
+//      Manual add + check-off. Auto-suggest from low inventory is on the
+//      v1.0.9 roadmap.
+function PlanScreen({ items }) {
+  const [list, setList] = useState([]);
+  const [adding, setAdding] = useState("");
+  const [showOrderSheet, setShowOrderSheet] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const stored = await loadShoppingList();
+      setList(stored);
+    })();
+  }, []);
+
+  function persist(next) {
+    setList(next);
+    saveShoppingList(next);
+  }
+
+  function addItem() {
+    const trimmed = (adding || "").trim();
+    if (!trimmed) return;
+    const next = [...list, { id: String(Date.now()), name: trimmed, checked: false }];
+    persist(next);
+    setAdding("");
+    track("shopping_list_item_added");
+  }
+
+  function toggle(id) {
+    persist(list.map(i => i.id === id ? { ...i, checked: !i.checked } : i));
+  }
+
+  function remove(id) {
+    persist(list.filter(i => i.id !== id));
+  }
+
+  function clearChecked() {
+    const removed = list.filter(i => i.checked).length;
+    if (!removed) return;
+    persist(list.filter(i => !i.checked));
+    track("shopping_list_cleared", { count: removed });
+  }
+
+  // Items that would actually go into the order — anything not yet checked.
+  const unchecked = list.filter(i => !i.checked);
+  const orderQuery = unchecked.map(i => i.name).join(" ").trim();
+
+  function handleOrderRetailer(retailer) {
+    if (!orderQuery) return;
+    Linking.openURL(retailer.url(orderQuery));
+    track("shopping_list_order_tapped", { retailer: retailer.id, item_count: unchecked.length });
+    setShowOrderSheet(false);
+  }
+
+  // Pull top 3 ingredients from the fridge (most recently added, fresh ones)
+  const ingredients = (items || [])
+    .filter(i => daysUntil(i.expiryDate) > 0)
+    .slice(0, 3)
+    .map(i => i.name)
+    .filter(Boolean);
+  const seedQuery = ingredients.join(" ").trim();
+  const recipeSources = seedQuery
+    ? [
+        { label: "AllRecipes",  url: `https://www.allrecipes.com/search?q=${encodeURIComponent(seedQuery)}` },
+        { label: "NYT Cooking", url: `https://cooking.nytimes.com/search?q=${encodeURIComponent(seedQuery)}` },
+        { label: "Epicurious",  url: `https://www.epicurious.com/search/${encodeURIComponent(seedQuery)}` },
+      ]
+    : [];
+
+  return (
+    <ScrollView style={s.screen} showsVerticalScrollIndicator={false}>
+      <View style={s.headerRow}>
+        <View>
+          <Text style={s.pageTitle}>Plan</Text>
+          <Text style={s.pageSubtitle}>Recipes from your fridge · shopping list</Text>
+        </View>
+      </View>
+
+      <Text style={s.sectionLabel}>// RECIPE IDEAS</Text>
+      {recipeSources.length > 0 ? (
+        <>
+          <Text style={{ fontSize: 11, color: T.textSoft, marginHorizontal: 16, marginBottom: 8 }}>
+            Based on {ingredients.join(", ")}
+          </Text>
+          <View style={{ marginHorizontal: 16, marginBottom: 16 }}>
+            {recipeSources.map((src, i) => (
+              <TouchableOpacity
+                key={src.label}
+                style={[s.card, { padding: 14, marginBottom: 8, flexDirection: "row", alignItems: "center" }]}
+                onPress={() => { track("plan_recipe_link_tapped", { source: src.label }); Linking.openURL(src.url); }}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.bold, { fontSize: 14 }]}>{src.label}</Text>
+                  <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Search results for your fridge</Text>
+                </View>
+                <Ionicons name="open-outline" size={18} color={T.accent} />
+              </TouchableOpacity>
+            ))}
+          </View>
+        </>
+      ) : (
+        <View style={[s.card, { marginHorizontal: 16, marginBottom: 16, padding: 16 }]}>
+          <Text style={{ fontSize: 13, color: T.textSoft }}>
+            Add some items to your fridge and we'll suggest recipes based on what you have.
+          </Text>
+        </View>
+      )}
+
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginBottom: 10, marginTop: 8 }}>
+        <Text style={[s.sectionLabel, { paddingHorizontal: 0, marginBottom: 0 }]}>// SHOPPING LIST</Text>
+        {list.some(i => i.checked) && (
+          <TouchableOpacity onPress={clearChecked}>
+            <Text style={{ fontSize: 12, color: T.accent, fontWeight: "600" }}>Clear checked</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      <View style={{ marginHorizontal: 16 }}>
+        {list.length === 0 ? (
+          <View style={[s.card, { padding: 14, marginBottom: 8 }]}>
+            <Text style={{ fontSize: 13, color: T.textSoft }}>Nothing on the list yet. Add an item below.</Text>
+          </View>
+        ) : (
+          list.map(item => (
+            <View
+              key={item.id}
+              style={[s.card, { flexDirection: "row", alignItems: "center", padding: 12, marginBottom: 6 }]}
+            >
+              <TouchableOpacity onPress={() => toggle(item.id)} style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: item.checked ? T.accent : T.border, backgroundColor: item.checked ? T.accent : "transparent", alignItems: "center", justifyContent: "center", marginRight: 12 }}>
+                {item.checked && <Ionicons name="checkmark" size={14} color="#fff" />}
+              </TouchableOpacity>
+              <Text style={{ flex: 1, fontSize: 14, color: item.checked ? T.muted : T.text, textDecorationLine: item.checked ? "line-through" : "none" }}>
+                {item.name}
+              </Text>
+              <TouchableOpacity onPress={() => remove(item.id)} style={{ padding: 6 }}>
+                <Ionicons name="close" size={16} color={T.muted} />
+              </TouchableOpacity>
+            </View>
+          ))
+        )}
+
+        <View style={{ flexDirection: "row", alignItems: "center", marginTop: 8, gap: 8 }}>
+          <TextInput
+            style={[s.input, { flex: 1, marginBottom: 0 }]}
+            placeholder="Add an item…"
+            placeholderTextColor={T.muted}
+            value={adding}
+            onChangeText={setAdding}
+            onSubmitEditing={addItem}
+            returnKeyType="done"
+          />
+          <TouchableOpacity
+            style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: T.accent, alignItems: "center", justifyContent: "center", opacity: adding.trim() ? 1 : 0.4 }}
+            onPress={addItem}
+            disabled={!adding.trim()}
+          >
+            <Ionicons name="add" size={22} color="#fff" />
+          </TouchableOpacity>
+        </View>
+
+        {unchecked.length > 0 && (
+          <TouchableOpacity
+            style={[s.btnPrimary, { marginTop: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }]}
+            onPress={() => setShowOrderSheet(true)}
+          >
+            <Ionicons name="bag-handle-outline" size={18} color="#fff" />
+            <Text style={s.btnPrimaryText}>
+              Order {unchecked.length} {unchecked.length === 1 ? "item" : "items"}
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      <View style={{ height: 32 }} />
+
+      {/* Retailer picker — searches for all unchecked items in one go */}
+      <Modal visible={showOrderSheet} transparent animationType="slide" onRequestClose={() => setShowOrderSheet(false)}>
+        <TouchableOpacity style={s.modalOverlay} activeOpacity={1} onPress={() => setShowOrderSheet(false)}>
+          <TouchableOpacity activeOpacity={1} style={s.modalSheet}>
+            <View style={s.sheetHandle} />
+            <Text style={[s.bold, { fontSize: 18, marginBottom: 4 }]}>Order shopping list</Text>
+            <Text style={{ color: T.textSoft, fontSize: 13, marginBottom: 16 }} numberOfLines={2}>
+              Searching for: {unchecked.map(i => i.name).join(", ")}
+            </Text>
+            {RETAILERS.map(r => (
+              <TouchableOpacity
+                key={r.id}
+                onPress={() => handleOrderRetailer(r)}
+                style={{ flexDirection: "row", alignItems: "center", padding: 14, marginBottom: 8, backgroundColor: r.color + "0D", borderWidth: 1, borderColor: r.color + "33", borderRadius: 14, gap: 12 }}
+              >
+                <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: r.color + "1A", alignItems: "center", justifyContent: "center" }}>
+                  <Text style={{ fontSize: 11, fontWeight: "800", color: r.color }}>{r.label.charAt(0)}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.bold, { fontSize: 15, color: r.color }]}>{r.label}</Text>
+                  <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 1 }}>
+                    Find {unchecked.length} {unchecked.length === 1 ? "item" : "items"} on {r.label}
+                  </Text>
+                </View>
+                <Text style={{ color: r.color, fontSize: 16 }}>›</Text>
+              </TouchableOpacity>
+            ))}
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </ScrollView>
   );
 }
@@ -1623,6 +2534,16 @@ export default function App() {
   const [addSection, setAddSection] = useState("fridge");
   const [toast, setToast] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [emailDigestEnabled, setEmailDigestEnabled] = useState(true);
+  const [updateInfo, setUpdateInfo] = useState(null);
+  // v1.0.8 — shared household state
+  const [householdId, setHouseholdId] = useState(null);
+  const [householdName, setHouseholdName] = useState("");
+  const [defaultContainer, setDefaultContainer] = useState("fridge");
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showManageInventory, setShowManageInventory] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
+  const [memberCount, setMemberCount] = useState(1);
   const toastOpacity = useRef(new Animated.Value(0)).current;
   const appState = useRef(AppState.currentState);
 
@@ -1659,11 +2580,39 @@ export default function App() {
     };
   }, []);
 
+  // Check for App Store update once per session, deferred slightly so it
+  // doesn't compete with auth/load on cold start. Soft prompt: user can
+  // dismiss and we re-check on the next launch.
+  useEffect(() => {
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        const resp = await fetch(ITUNES_LOOKUP_URL);
+        const data = await resp.json();
+        if (cancelled) return;
+        if (!data?.results?.length) return;
+        const latest = data.results[0].version;
+        if (compareVersions(APP_VERSION, latest) < 0) {
+          setUpdateInfo({
+            current: APP_VERSION,
+            latest,
+            url: data.results[0].trackViewUrl || APP_STORE_URL,
+          });
+        }
+      } catch {
+        // Network or parse error — silently no-op; we'll try again next launch
+      }
+    }, 2000);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, []);
+
   // Load items and setup notifications when user logs in
   useEffect(() => {
     if (user) {
       loadItems();
       setupNotifications();
+      loadEmailDigestSetting();
+      loadHouseholdState();
     }
   }, [user]);
 
@@ -1738,15 +2687,79 @@ export default function App() {
     }
   }
 
-  async function sendTestNotification() {
-    const granted = await requestNotificationPermission();
-    if (!granted) { Alert.alert("Permission Required", "Please enable notifications in your iPhone Settings."); return; }
-    await Notifications.scheduleNotificationAsync({
-      content: { title: "🧊 ok2eat Test", body: "Notifications are working!" },
-      trigger: { type: "timeInterval", seconds: 2, repeats: false },
-    });
-    showToast("Test notification sent!");
+  // Read the user's current email_digest_enabled flag from user_settings.
+  // If no row exists yet, default to true (matches the SQL column default).
+  async function loadEmailDigestSetting() {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data, error } = await supabase
+        .from("user_settings")
+        .select("email_digest_enabled")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (error || !data) {
+        setEmailDigestEnabled(true);
+        return;
+      }
+      setEmailDigestEnabled(data.email_digest_enabled !== false);
+    } catch {}
   }
+
+  async function toggleEmailDigest() {
+    const next = !emailDigestEnabled;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        await supabase.from("user_settings").upsert({
+          user_id: user.id,
+          email_digest_enabled: next,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "user_id" });
+      }
+    } catch {}
+    setEmailDigestEnabled(next);
+    showToast(next ? "📧 Email digest enabled!" : "📭 Email digest turned off");
+  }
+
+  // v1.0.8 — Loads household membership and onboarding state for the signed-in
+  // user. Idempotent: ensure_household_for_user is a server-side RPC that
+  // returns the existing household or creates one. We then read the household
+  // name (for Manage Inventory) and the has_seen_household_onboarding flag
+  // (which gates the 2-step intro modal). Default container preference comes
+  // from AsyncStorage so we can pre-select it on the next add.
+  async function loadHouseholdState() {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: hhId, error: rpcErr } = await supabase.rpc("ensure_household_for_user");
+      if (rpcErr) { console.warn("ensure_household_for_user failed:", rpcErr.message); return; }
+      setHouseholdId(hhId);
+
+      const [{ data: hh }, { data: settings }, { data: memberRows }] = await Promise.all([
+        supabase.from("households").select("name").eq("id", hhId).maybeSingle(),
+        supabase.from("user_settings").select("has_seen_household_onboarding").eq("user_id", user.id).maybeSingle(),
+        supabase.rpc("list_household_members"),
+      ]);
+      if (hh?.name) setHouseholdName(hh.name);
+      if (Array.isArray(memberRows)) setMemberCount(memberRows.length || 1);
+
+      try {
+        const stored = await AsyncStorage.getItem(ONBOARDING_DEFAULT_CONTAINER_KEY);
+        if (stored && ["fridge", "pantry", "freezer"].includes(stored)) {
+          setDefaultContainer(stored);
+        }
+      } catch {}
+
+      if (!settings?.has_seen_household_onboarding) {
+        setShowOnboarding(true);
+      }
+    } catch (e) {
+      console.warn("loadHouseholdState error:", e?.message || e);
+    }
+  }
+
 
   async function loadItems() {
     try {
@@ -1771,7 +2784,22 @@ export default function App() {
 
   async function handleScanned(product) {
     try {
-      const saved = await dbAddItem({ name: product.name, category: product.category, emoji: product.emoji, quantity: 1, barcode: product.code, addedDate: new Date().toISOString(), expiryDate: new Date(Date.now() + product.defaultExpiry * 86400000).toISOString(), section: addSection || "fridge" });
+      const expiryDateIso = new Date(Date.now() + product.defaultExpiry * 86400000).toISOString();
+      // For packaged items, we also store the once-opened shelf life in days
+      // and snapshot the unopened expiry so "Mark as opened" / undo work cleanly.
+      const expiryUnopenedDate = expiryDateIso.slice(0, 10); // YYYY-MM-DD for the date column
+      const saved = await dbAddItem({
+        name: product.name, category: product.category, emoji: product.emoji,
+        quantity: 1, barcode: product.code,
+        addedDate: new Date().toISOString(),
+        expiryDate: expiryDateIso,
+        section: addSection || "fridge",
+        // Open/closed expiry
+        isOpened: false,
+        openedAt: null,
+        expiryOpenedDays: product.openedDays || null,
+        expiryUnopened: expiryUnopenedDate,
+      });
       setItems(prev => [rowToItem(saved), ...prev]);
       showToast(`✅ ${product.name} added!`);
       track("item_scanned", { category: product.category });
@@ -1781,7 +2809,17 @@ export default function App() {
 
   async function handleAddManual(data) {
     try {
-      const saved = await dbAddItem({ ...data, section: data.section || "fridge" });
+      // Snapshot expiry_unopened for manual adds so the open/close feature
+      // also works when items are typed in by hand.
+      const expiryUnopened = data.expiryDate ? data.expiryDate.slice(0, 10) : null;
+      const saved = await dbAddItem({
+        ...data,
+        section: data.section || "fridge",
+        isOpened: data.isOpened || false,
+        openedAt: data.openedAt || null,
+        expiryOpenedDays: data.expiryOpenedDays || null,
+        expiryUnopened: data.expiryUnopened || expiryUnopened,
+      });
       setItems(prev => [rowToItem(saved), ...prev]);
       showToast(`✅ ${data.name} added!`);
       track("item_added_manual", { category: data.category });
@@ -1824,7 +2862,20 @@ export default function App() {
   async function handleUpdate(id, updates) {
     try {
       await dbUpdateItem(id, updates);
-      setItems(prev => prev.map(i => i.id === id ? { ...i, name: updates.name || i.name, category: updates.category || i.category, emoji: updates.emoji || i.emoji, quantity: updates.quantity || i.quantity, expiryDate: updates.expiry_date || i.expiryDate } : i));
+      setItems(prev => prev.map(i => i.id === id ? {
+        ...i,
+        name: updates.name || i.name,
+        category: updates.category || i.category,
+        emoji: updates.emoji || i.emoji,
+        quantity: updates.quantity || i.quantity,
+        unit: updates.unit !== undefined ? updates.unit : i.unit,
+        expiryDate: updates.expiry_date || i.expiryDate,
+        // Open/closed fields — explicit undefined check so we can write null/false
+        isOpened: updates.is_opened !== undefined ? updates.is_opened : i.isOpened,
+        openedAt: updates.opened_at !== undefined ? updates.opened_at : i.openedAt,
+        expiryOpenedDays: updates.expiry_opened_days !== undefined ? updates.expiry_opened_days : i.expiryOpenedDays,
+        expiryUnopened: updates.expiry_unopened !== undefined ? updates.expiry_unopened : i.expiryUnopened,
+      } : i));
       showToast("✅ Item updated!");
     } catch (e) { Alert.alert("Couldn't update item", "Check your connection."); }
   }
@@ -1885,7 +2936,7 @@ export default function App() {
 
   if (!user) return <AuthScreen onAuth={setUser} />;
 
-  const navItems = [{ id: "fridge", label: "Fridge", icon: "🧊" }, { id: "recipes", label: "Recipes", icon: "🍳" }, { id: "reminders", label: "Alerts", icon: "🔔" }, { id: "share", label: "Share", icon: "↑" }];
+  const navItems = [{ id: "fridge", label: "Fridge" }, { id: "reminders", label: "Alerts" }, { id: "plan", label: "Plan" }, { id: "share", label: "Share" }];
 
   return (
     <SafeAreaView style={s.root}>
@@ -1897,33 +2948,99 @@ export default function App() {
         </View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <TouchableOpacity
-            onPress={() => Linking.openURL("mailto:hello@ok2eat.com?subject=ok2eat%20Feedback&body=Hi%20ok2eat%20team%2C%0A%0A")}
-            style={{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: "rgba(22,163,74,0.1)", borderWidth: 1, borderColor: "rgba(22,163,74,0.2)", borderRadius: 8 }}
+            onPress={() => Linking.openURL("mailto:support@ok2eat.com?subject=ok2eat%20Feedback&body=Hi%20ok2eat%20team%2C%0A%0A")}
+            style={{ paddingHorizontal: 10, paddingVertical: 6, backgroundColor: "rgba(22,163,74,0.1)", borderWidth: 1, borderColor: "rgba(22,163,74,0.2)", borderRadius: 8 }}
           >
-            <Text style={{ fontSize: 10, color: T.accent, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" }}>✉ FEEDBACK</Text>
+            <Text style={{ fontSize: 12, color: T.accent, fontWeight: "600" }}>Feedback</Text>
           </TouchableOpacity>
-          <View style={s.aiBadge}><Text style={s.aiBadgeText}>⚡ LIVE</Text></View>
-          <TouchableOpacity onPress={() => supabase.auth.signOut()} style={{ paddingHorizontal: 8, paddingVertical: 4 }}>
-            <Text style={{ fontSize: 10, color: T.muted, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" }}>OUT</Text>
+          <TouchableOpacity onPress={() => supabase.auth.signOut()} style={{ paddingHorizontal: 10, paddingVertical: 6 }}>
+            <Ionicons name="log-out-outline" size={20} color={T.muted} />
           </TouchableOpacity>
         </View>
       </View>
       <View style={{ flex: 1 }}>
-        {tab === "fridge" && <FridgeScreen items={items} onDelete={handleDelete} onBulkDelete={handleBulkDelete} onAdd={(section) => { setAddSection(section || "fridge"); setShowAdd(true); }} onUpdate={handleUpdate} onUse={handleUse} loading={loading} />}
+        {tab === "fridge" && <FridgeScreen items={items} onDelete={handleDelete} onBulkDelete={handleBulkDelete} onAdd={(section) => { setAddSection(section || "fridge"); setShowAdd(true); }} onUpdate={handleUpdate} onUse={handleUse} loading={loading} householdName={householdName} onOpenManageInventory={() => setShowManageInventory(true)} />}
         {tab === "scan" && <ScanScreen onScanned={handleScanned} />}
-        {tab === "recipes" && <RecipesScreen items={items} />}
-        {tab === "reminders" && <RemindersScreen items={items} notificationsEnabled={notificationsEnabled} onToggleNotifications={toggleNotifications} onTestNotification={sendTestNotification} />}
-        {tab === "share" && <ShareScreen />}
+        {tab === "plan" && <PlanScreen items={items} />}
+        {tab === "reminders" && <RemindersScreen items={items} notificationsEnabled={notificationsEnabled} onToggleNotifications={toggleNotifications} emailDigestEnabled={emailDigestEnabled} onToggleEmailDigest={toggleEmailDigest} />}
+        {tab === "share" && <ShareScreen householdName={householdName} memberCount={memberCount} onOpenInvite={() => setShowInvite(true)} />}
       </View>
       {toast !== "" && <Animated.View style={[s.toast, { opacity: toastOpacity }]}><Text style={s.toastText}>{toast}</Text></Animated.View>}
       <AddModal visible={showAdd} onClose={() => setShowAdd(false)} onAdd={handleAddManual} onGoToScan={() => { setShowAdd(false); setTab("scan"); }} section={addSection} onBulkAdd={() => setShowBulkAdd(true)} />
+      <OnboardingModal
+        visible={showOnboarding}
+        initialName={householdName}
+        onComplete={({ householdName: newName, defaultContainer: dc }) => {
+          if (newName) setHouseholdName(newName);
+          if (dc) setDefaultContainer(dc);
+          setShowOnboarding(false);
+          showToast("👋 You're all set!");
+        }}
+      />
+      <ManageInventoryModal
+        visible={showManageInventory}
+        items={items}
+        householdName={householdName}
+        onClose={() => setShowManageInventory(false)}
+        onOpenInvite={() => setShowInvite(true)}
+      />
+      <InviteHouseholdModal
+        visible={showInvite}
+        householdId={householdId}
+        householdName={householdName}
+        onClose={() => setShowInvite(false)}
+        onJoined={() => {
+          // Refresh state after joining a new household
+          loadHouseholdState();
+          loadItems();
+          showToast("✓ Joined household");
+        }}
+      />
       <BulkAddModal visible={showBulkAdd} onClose={() => setShowBulkAdd(false)} onAddItems={handleBulkAdd} section={addSection} />
+
+      <Modal
+        visible={updateInfo !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setUpdateInfo(null)}
+      >
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <View style={{ backgroundColor: T.surface, borderRadius: 16, padding: 32, alignItems: "center", maxWidth: 360, width: "100%" }}>
+            <Text style={{ fontSize: 56, marginBottom: 12 }}>🥑</Text>
+            <Text style={{ fontSize: 22, fontWeight: "700", color: T.text, marginBottom: 8, textAlign: "center" }}>
+              Update available
+            </Text>
+            <Text style={{ fontSize: 14, color: T.textSoft, textAlign: "center", lineHeight: 20, marginBottom: 24 }}>
+              ok2eat {formatVersion(updateInfo?.latest || "")} is now on the App Store.{"\n"}You're on {formatVersion(updateInfo?.current || "")}.
+            </Text>
+            <TouchableOpacity
+              style={{ backgroundColor: T.accent, paddingHorizontal: 32, paddingVertical: 14, borderRadius: 10, marginBottom: 8, width: "100%", alignItems: "center" }}
+              onPress={() => {
+                track("update_prompt_accepted", { from: updateInfo?.current, to: updateInfo?.latest });
+                if (updateInfo?.url) Linking.openURL(updateInfo.url);
+                setUpdateInfo(null);
+              }}
+            >
+              <Text style={{ color: "#FFFFFF", fontWeight: "700", fontSize: 16 }}>Update Now</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => {
+                track("update_prompt_dismissed", { from: updateInfo?.current, to: updateInfo?.latest });
+                setUpdateInfo(null);
+              }}
+              style={{ paddingVertical: 12 }}
+            >
+              <Text style={{ color: T.muted, fontSize: 14 }}>Maybe later</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
       <View style={s.navBar}>
         {navItems.map(n => (
           <TouchableOpacity key={n.id} style={s.navBtn} onPress={() => setTab(n.id)}>
             {n.id === "fridge" && <MaterialIcons name="kitchen" size={24} color={tab === n.id ? T.accent : T.muted} />}
-            {n.id === "recipes" && <Ionicons name="restaurant-outline" size={24} color={tab === n.id ? T.accent : T.muted} />}
             {n.id === "reminders" && <Ionicons name="notifications-outline" size={24} color={tab === n.id ? T.accent : T.muted} />}
+            {n.id === "plan" && <Ionicons name="list-outline" size={24} color={tab === n.id ? T.accent : T.muted} />}
             {n.id === "share" && <Ionicons name="share-outline" size={24} color={tab === n.id ? T.accent : T.muted} />}
             <Text style={[s.navLabel, tab === n.id && { color: T.accent }]}>{n.label}</Text>
           </TouchableOpacity>
@@ -1980,7 +3097,7 @@ const s = StyleSheet.create({
   urgentBadge: { paddingHorizontal: 8, paddingVertical: 2, backgroundColor: "rgba(220,38,38,0.1)", borderWidth: 1, borderColor: "rgba(220,38,38,0.2)", borderRadius: 4 },
   urgentText: { fontSize: 10, color: T.danger, fontWeight: "600", letterSpacing: 0.5 },
   dismissBtn: { width: 32, height: 32, backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderRadius: 8, alignItems: "center", justifyContent: "center" },
-  navBar: { flexDirection: "row", backgroundColor: "#FFFFFF", borderTopWidth: 1, borderTopColor: T.border, paddingBottom: Platform.OS === "ios" ? 20 : 8, paddingTop: 8 },
+  navBar: { flexDirection: "row", backgroundColor: "#FFFFFF", borderTopWidth: 1, borderTopColor: T.border, paddingBottom: 8, paddingTop: 8 },
   navBtn: { flex: 1, alignItems: "center", gap: 3 },
   navLabel: { fontSize: 10, color: T.muted, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: "500" },
   toast: { position: "absolute", bottom: 100, left: 16, right: 16, backgroundColor: T.accent, borderRadius: 14, padding: 14 },
