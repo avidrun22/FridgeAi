@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* App-wide base styles */
+html, body, #root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  background: #F7FAF7;
+  color: #111827;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Killing the jankiest mobile-Safari behaviors when used as a PWA-ish app */
+input, textarea, button { font-family: inherit; }
+button { cursor: pointer; }
