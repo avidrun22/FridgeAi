@@ -429,10 +429,19 @@ function UseItemModal({ item, visible, onClose, onUse }) {
 //     Replace afid/aff placeholders with real IDs once Impact applications
 //     are approved. Until then clicks land on the right pages but no
 //     commission accrues.
+// Order matters — the first retailer appears first in every reorder sheet
+// and the shopping-list "Order N items" picker. Reordered 2026-04-28 after
+// payout research: Target paid $0 on grocery, Amazon Associates is minimal
+// for food. Instacart (Impact) is the strongest payout for groceries;
+// Walmart (also Impact) is the second-best for groceries. Amazon stays in
+// the middle for non-grocery / pantry-staple longtail.
 const RETAILERS = [
-  { id: "amazon", label: "Amazon", color: "#FF9900", url: (name) => `https://www.amazon.com/s?k=${encodeURIComponent(name)}&tag=ok2eat-20` },
-  { id: "target", label: "Target", color: "#CC0000", url: (name) => `https://www.target.com/s?searchTerm=${encodeURIComponent(name)}&afid=ok2eat` },
   { id: "instacart", label: "Instacart", color: "#43B02A", url: (name) => `https://www.instacart.com/store/search?k=${encodeURIComponent(name)}&utm_source=ok2eat&utm_medium=affiliate` },
+  { id: "amazon",    label: "Amazon",    color: "#FF9900", url: (name) => `https://www.amazon.com/s?k=${encodeURIComponent(name)}&tag=ok2eat-20` },
+  // Walmart affiliate runs through Impact (same platform as Instacart). The
+  // utm params below are placeholders until Greg's Impact application is
+  // approved and we get the real Walmart tracking ID — replace then.
+  { id: "walmart",   label: "Walmart",   color: "#0071CE", url: (name) => `https://www.walmart.com/search?q=${encodeURIComponent(name)}&utm_source=ok2eat&utm_medium=affiliate` },
 ];
 
 function ReorderSheet({ item, visible, onClose }) {
@@ -511,7 +520,10 @@ function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse
   const color = expiryColor(days);
 
   async function handleSave() {
-    const updates = { name: name.trim(), category, emoji: emojiMap[category] || item.emoji, quantity: quantity || "1", unit: (unit || "").trim() || null, expiry_date: expiryDate ? new Date(expiryDate).toISOString() : item.expiryDate };
+    // quantity is an integer column — coerce, default to 1 if blank/garbage
+    const parsedQty = parseInt(String(quantity || "").trim(), 10);
+    const safeQty = Number.isFinite(parsedQty) && parsedQty > 0 ? parsedQty : 1;
+    const updates = { name: name.trim(), category, emoji: emojiMap[category] || item.emoji, quantity: safeQty, unit: (unit || "").trim() || null, expiry_date: expiryDate ? new Date(expiryDate).toISOString() : item.expiryDate };
     await onUpdate(item.id, updates); setEditing(false);
   }
 
@@ -1406,7 +1418,22 @@ async function parseReceiptImage(base64) {
 }
 
 // ─── Bulk Add Modal ──────────────────────────────────────────────────────────
-const UNIT_OPTIONS = ["", "count", "pack", "bunch", "bottle", "can", "box", "bag", "jar", "carton", "gallon", "qt", "pt", "fl oz", "oz", "lb", "kg", "g", "ml", "L", "dozen"];
+// Ordered for the picker: blank ("no unit") first, then most-common, then
+// US weight, metric weight, US volume, metric volume, packaged containers,
+// and the grouped units last. Anything stored in fridge_items.unit that
+// doesn't match a chip stays as-is — UnitPicker shows the raw value.
+const UNIT_OPTIONS = [
+  "",
+  "count",
+  // weight (US then metric)
+  "oz", "lb", "g", "kg",
+  // volume (US then metric)
+  "fl oz", "cup", "pt", "qt", "gallon", "ml", "L",
+  // packaged containers
+  "pack", "box", "jar", "can", "bottle", "carton", "bag",
+  // grouped
+  "bunch", "dozen",
+];
 
 function UnitPicker({ value, onChange }) {
   const [open, setOpen] = useState(false);
@@ -2162,7 +2189,7 @@ function InviteHouseholdModal({ visible, onClose, householdId, householdName, on
 }
 
 // ─── Add Item Modal ───────────────────────────────────────────────────────────
-function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan }) {
+function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, section }) {
   const [name, setName] = useState("");
   const [category, setCategory] = useState("Other");
   const [initialQty, setInitialQty] = useState("");
@@ -2172,8 +2199,21 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan }) {
 
   function handleAdd() {
     if (!name.trim()) return;
-    const qty = initialQty && initialUnit ? `${initialQty} ${initialUnit}` : initialQty || "1";
-    onAdd({ name: name.trim(), category, emoji: emojiMap[category], quantity: qty, expiryDate: new Date(Date.now() + 7 * 86400000).toISOString(), section });
+    // Quantity is an integer column on fridge_items; unit is its own text
+    // column. Don't concat them into one field — that's the long-standing
+    // "invalid input syntax for integer" bug. Default to 1 if blank/garbage.
+    const parsed = parseInt((initialQty || "").trim(), 10);
+    const quantity = Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+    const unit = (initialUnit || "").trim() || null;
+    onAdd({
+      name: name.trim(),
+      category,
+      emoji: emojiMap[category],
+      quantity,
+      unit,
+      expiryDate: new Date(Date.now() + 7 * 86400000).toISOString(),
+      section,
+    });
     setName(""); setInitialQty(""); setInitialUnit(""); onClose();
   }
 
@@ -2186,8 +2226,14 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan }) {
           <Text style={s.inputLabel}>Item name *</Text>
           <TextInput style={s.input} placeholder="e.g. Almond Butter" placeholderTextColor={T.muted} value={name} onChangeText={setName} />
           <View style={{ flexDirection: "row", gap: 10 }}>
-            <View style={{ flex: 1 }}><Text style={s.inputLabel}>Amount</Text><TextInput style={s.input} placeholder="e.g. 1" placeholderTextColor={T.muted} value={initialQty} onChangeText={setInitialQty} keyboardType="decimal-pad" /></View>
-            <View style={{ flex: 1 }}><Text style={s.inputLabel}>Unit</Text><TextInput style={s.input} placeholder="e.g. gallon" placeholderTextColor={T.muted} value={initialUnit} onChangeText={setInitialUnit} autoCapitalize="none" /></View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.inputLabel}>Amount</Text>
+              <TextInput style={s.input} placeholder="e.g. 1" placeholderTextColor={T.muted} value={initialQty} onChangeText={setInitialQty} keyboardType="number-pad" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.inputLabel}>Unit</Text>
+              <UnitPicker value={initialUnit} onChange={setInitialUnit} />
+            </View>
           </View>
           <Text style={[s.inputLabel, { marginTop: 4 }]}>Category</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
@@ -2804,7 +2850,10 @@ export default function App() {
       showToast(`✅ ${product.name} added!`);
       track("item_scanned", { category: product.category });
       setTimeout(() => setTab("fridge"), 1200);
-    } catch (e) { Alert.alert("Couldn't save item", "Check your connection."); }
+    } catch (e) {
+      console.warn("handleScanned save failed:", e?.message || e);
+      Alert.alert("Couldn't save item", e?.message || "Check your connection.");
+    }
   }
 
   async function handleAddManual(data) {
@@ -2823,7 +2872,10 @@ export default function App() {
       setItems(prev => [rowToItem(saved), ...prev]);
       showToast(`✅ ${data.name} added!`);
       track("item_added_manual", { category: data.category });
-    } catch (e) { Alert.alert("Couldn't save item", "Check your connection."); }
+    } catch (e) {
+      console.warn("handleAddManual save failed:", e?.message || e);
+      Alert.alert("Couldn't save item", e?.message || "Check your connection.");
+    }
   }
 
   async function handleBulkAdd(itemsList) {
