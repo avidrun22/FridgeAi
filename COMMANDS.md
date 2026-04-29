@@ -12,8 +12,10 @@ This file is the canonical reference. The `/help` command in the bot mirrors it.
 
 | Command | What it does |
 |---|---|
-| `/deploy [msg]` | Deploys the current `ok2eat.html` to **ok2eat.com** via the Netlify API. Optional message becomes the deploy title. ~15 seconds. |
+| `/deploy [msg]` | Deploys the current `ok2eat.html` + everything under `blog/` (excluding `blog/drafts/`) to **ok2eat.com** via the Netlify API. Optional message becomes the deploy title. ~15 seconds. |
 | `/idea <text>` | Appends a new item to the **Inbox** section of `BACKLOG.md` with today's date. Triage later from the doc. |
+
+> **Writing a blog post?** The full draft → preview → publish workflow lives at [`blog/HOWTO.md`](blog/HOWTO.md). Anything in `blog/drafts/` is excluded from `/deploy` so you can iterate locally without going live.
 
 ## 📊 Status checks
 

@@ -864,8 +864,8 @@
     <li><a href="#features">Features</a></li>
     <li><a href="#how">How it works</a></li>
     <li><a href="#impact">Impact</a></li>
+    <li><a href="/blog/">Blog</a></li>
     <li><a href="#support">Support</a></li>
-    <li><a href="#privacy">Privacy</a></li>
     <li><a href="https://apps.apple.com/us/app/ok2eat/id6761730687" class="nav-cta">Download</a></li>
   </ul>
 </nav>
@@ -1194,6 +1194,21 @@
   <p>For privacy questions or to exercise any of the rights described above, email <a href="mailto:privacy@ok2eat.com">privacy@ok2eat.com</a>. For security disclosures, see our <a href="/.well-known/security.txt">security.txt</a>.</p>
 </div>
 
+<!-- Newsletter signup -->
+<section style="max-width:680px;margin:0 auto;padding:24px;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:36px 32px;text-align:center;">
+    <h3 style="font-size:24px;font-weight:700;letter-spacing:-0.4px;margin-bottom:8px;">Get the ok2eat newsletter</h3>
+    <p style="color:var(--text-soft);font-size:15px;max-width:460px;margin:0 auto 20px;">Two short emails a week, Tuesdays and Thursdays. Personal notes on cutting food waste, lowering grocery bills, and cooking from what's in your fridge.</p>
+    <form class="signup-form" data-newsletter style="display:flex;gap:8px;max-width:440px;margin:0 auto;flex-wrap:wrap;justify-content:center;">
+      <input type="email" name="email" placeholder="you@example.com" required autocomplete="email"
+             style="flex:1;min-width:220px;background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:12px 18px;font-size:15px;color:var(--text);font-family:inherit;outline:none;">
+      <button type="submit" style="background:var(--green);color:#fff;border:none;border-radius:100px;padding:12px 22px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;">Subscribe</button>
+    </form>
+    <p style="color:var(--muted);font-size:12px;margin-top:14px;">No spam, no upsells, easy unsubscribe.</p>
+    <p data-newsletter-msg style="margin-top:14px;font-size:14px;font-weight:500;min-height:1.5em;"></p>
+  </div>
+</section>
+
 <!-- Footer -->
 <footer>
   <div class="footer-logo"><svg><use href="#avocado"/></svg> ok2eat</div>
@@ -1222,6 +1237,7 @@
 <script>
   document.getElementById("year").textContent = new Date().getFullYear();
 </script>
+<script src="/blog/newsletter.js" defer></script>
 
 </body>
 </html>

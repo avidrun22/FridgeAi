@@ -93,7 +93,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 // Bump APP_VERSION whenever app.json's expo.version changes. iTunes lookup
 // returns the latest published version of the app; we compare on launch and
 // show a soft prompt if the user is behind.
-const APP_VERSION = "1.0.7";
+const APP_VERSION = "1.0.8";
 const APP_STORE_URL = "https://apps.apple.com/app/id6761730687";
 const ITUNES_LOOKUP_URL = "https://itunes.apple.com/lookup?bundleId=com.gregorygoldberg.ok2eat";
 const APP_STORE_APP_ID = "6761730687"; // Apple's numeric app ID, used for itms:// fallback
