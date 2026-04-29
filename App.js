@@ -93,7 +93,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 // Bump APP_VERSION whenever app.json's expo.version changes. iTunes lookup
 // returns the latest published version of the app; we compare on launch and
 // show a soft prompt if the user is behind.
-const APP_VERSION = "1.0.8";
+const APP_VERSION = "1.0.9";
 const APP_STORE_URL = "https://apps.apple.com/app/id6761730687";
 const ITUNES_LOOKUP_URL = "https://itunes.apple.com/lookup?bundleId=com.gregorygoldberg.ok2eat";
 const APP_STORE_APP_ID = "6761730687"; // Apple's numeric app ID, used for itms:// fallback
@@ -222,15 +222,19 @@ const CATEGORY_MAP = { "beverages": "Beverages", "dairies": "Dairy", "dairy": "D
 const EMOJI_MAP = { "Dairy": "🧀", "Protein": "🍗", "Produce": "🥬", "Dry Goods": "🥣", "Beverages": "🍶", "Other": "📦" };
 const EXPIRY_MAP = { "Dairy": 14, "Protein": 3, "Produce": 5, "Dry Goods": 180, "Beverages": 7, "Other": 7 };
 
-// Categories where the open-vs-closed distinction matters. For packaged
-// goods (canned/jarred/bottled), opening shortens shelf life dramatically;
-// for fresh items (produce, fresh meat, fresh dairy) it's mostly irrelevant.
-const PACKAGED_CATEGORIES = new Set(["Beverages", "Dry Goods", "Other"]);
+// Categories where the open-vs-closed distinction matters. v1.0.9 expanded
+// this to include Protein (canned tuna, jerky, packaged deli, etc.) — Greg's
+// mental model is "fresh = Dairy + Produce; everything else gets dual
+// closed/opened expiry by default." Users can still leave the opened-days
+// blank for items where the distinction is meaningless (a fresh chicken
+// breast in plastic wrap doesn't really have an "opened" shelf life).
+const FRESH_CATEGORIES = new Set(["Dairy", "Produce"]);
+const PACKAGED_CATEGORIES = new Set(["Protein", "Beverages", "Dry Goods", "Other"]);
 const isPackagedCategory = (cat) => PACKAGED_CATEGORIES.has(cat);
 
 // Default once-opened shelf life by category (days). Conservative defaults
 // based on USDA FoodKeeper guidance; the user can override per item.
-const OPENED_DAYS_MAP = { "Beverages": 7, "Dry Goods": 30, "Other": 7 };
+const OPENED_DAYS_MAP = { "Protein": 3, "Beverages": 7, "Dry Goods": 30, "Other": 7 };
 function categorize(tags) { if (!tags) return "Other"; const joined = tags.join(" ").toLowerCase(); for (const [key, val] of Object.entries(CATEGORY_MAP)) { if (joined.includes(key)) return val; } return "Other"; }
 
 const GUESS_MAP = {
@@ -785,6 +789,43 @@ function AuthScreen({ onAuth }) {
 }
 
 // ─── Fridge Screen ────────────────────────────────────────────────────────────
+// v1.0.9 — compact replacement for the iOS Picker that was eating ~150px of
+// vertical space on the fridge screen. Same behavior, ~36px tall, modal opens
+// only on tap. Same pattern as UnitPicker.
+function CategoryFilterButton({ value, options, onChange }) {
+  const [open, setOpen] = useState(false);
+  const label = value === "All" ? "All Categories" : value;
+  return (
+    <View>
+      <TouchableOpacity
+        style={[s.input, { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 0 }]}
+        onPress={() => setOpen(true)}
+      >
+        <Text style={{ color: T.text, fontSize: 15, fontWeight: "500" }}>{label}</Text>
+        <Ionicons name="chevron-down" size={16} color={T.muted} />
+      </TouchableOpacity>
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <TouchableOpacity style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", padding: 24 }} activeOpacity={1} onPress={() => setOpen(false)}>
+          <View style={{ backgroundColor: "#FFFFFF", borderRadius: 12, maxHeight: "70%" }}>
+            <ScrollView contentContainerStyle={{ paddingVertical: 8 }}>
+              {options.map(opt => (
+                <TouchableOpacity
+                  key={opt}
+                  style={{ paddingHorizontal: 16, paddingVertical: 14, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
+                  onPress={() => { onChange(opt); setOpen(false); }}
+                >
+                  <Text style={{ color: T.text, fontSize: 16 }}>{opt === "All" ? "All Categories" : opt}</Text>
+                  {value === opt && <Ionicons name="checkmark" size={18} color={T.accent} />}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    </View>
+  );
+}
+
 function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, loading, householdName, onOpenManageInventory }) {
   const [filter, setFilter] = useState("All");
   const [selectedItem, setSelectedItem] = useState(null);
@@ -932,10 +973,12 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
             <Text style={s.statLabel}>Expired</Text>
           </TouchableOpacity>
         </View>
-        <View style={{ marginHorizontal: 16, marginBottom: 16, borderWidth: 1, borderColor: T.border, borderRadius: 12, backgroundColor: T.card, overflow: "hidden" }}>
-          <Picker selectedValue={filter} onValueChange={v => setFilter(v)} style={{ color: T.text }} itemStyle={{ fontSize: 15 }}>
-            {categories.map(c => <Picker.Item key={c} label={c === "All" ? "All Categories" : c} value={c} />)}
-          </Picker>
+        <View style={{ marginHorizontal: 16, marginBottom: 16 }}>
+          <CategoryFilterButton
+            value={filter}
+            options={categories}
+            onChange={setFilter}
+          />
         </View>
         {expiringSoon > 0 && <View style={s.warnBanner}><Text style={{ fontSize: 18 }}>⚠️</Text><View style={{ marginLeft: 10 }}><Text style={[s.bold, { color: T.warn }]}>Heads up!</Text><Text style={{ color: T.textSoft, fontSize: 12 }}>{expiringSoon} item{expiringSoon > 1 ? "s" : ""} expiring within 3 days</Text></View></View>}
 
@@ -1324,13 +1367,18 @@ function RemindersScreen({ items, notificationsEnabled, onToggleNotifications, e
     <ScrollView style={s.screen} showsVerticalScrollIndicator={false}>
       <View style={s.headerRow}><View><Text style={s.pageTitle}>Reminders</Text><Text style={s.pageSubtitle}>{allReminders.length} active</Text></View></View>
 
-      {/* Notification Settings Card */}
+      {/* Reminders — push + email channels combined into one card so the
+          "wait, are these the same thing?" confusion goes away. v1.0.9. */}
       <View style={[s.card, { margin: 16, padding: 16, marginBottom: 12 }]}>
-        <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 12, paddingHorizontal: 0 }]}>PUSH NOTIFICATIONS</Text>
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 14, paddingHorizontal: 0 }]}>REMINDERS</Text>
+        <Text style={{ color: T.textSoft, fontSize: 12, marginBottom: 14 }}>
+          One daily summary of what's expiring soon or already expired — at 9am. Pick where you want it.
+        </Text>
+
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
           <View style={{ flex: 1 }}>
-            <Text style={[s.bold, { fontSize: 14 }]}>Daily Digest</Text>
-            <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>One push at 9am with everything expiring soon or expired. No more per-item spam.</Text>
+            <Text style={[s.bold, { fontSize: 14 }]}>Push to phone</Text>
+            <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>iPhone notification with the day's summary.</Text>
           </View>
           <TouchableOpacity
             onPress={onToggleNotifications}
@@ -1339,15 +1387,13 @@ function RemindersScreen({ items, notificationsEnabled, onToggleNotifications, e
             <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: "#fff", alignSelf: notificationsEnabled ? "flex-end" : "flex-start" }} />
           </TouchableOpacity>
         </View>
-      </View>
 
-      {/* Email Digest Card */}
-      <View style={[s.card, { marginHorizontal: 16, padding: 16, marginBottom: 12 }]}>
-        <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 12, paddingHorizontal: 0 }]}>EMAIL DIGEST</Text>
+        <View style={{ height: 1, backgroundColor: T.border, marginBottom: 14 }} />
+
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
           <View style={{ flex: 1 }}>
-            <Text style={[s.bold, { fontSize: 14 }]}>Daily Email</Text>
-            <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Same digest, in your inbox. Useful when you forget to check the app. Sent to your account email.</Text>
+            <Text style={[s.bold, { fontSize: 14 }]}>Email to inbox</Text>
+            <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Same summary, sent to your account email.</Text>
           </View>
           <TouchableOpacity
             onPress={onToggleEmailDigest}
@@ -1571,7 +1617,7 @@ function BulkAddModal({ visible, onClose, onAddItems, section }) {
     const items = validRows.map(r => {
       const cat = guessCategory(r.name);
       const defaultDays = EXPIRY_MAP[cat] || 7;
-      // Parse expiry safely; bad strings fall back to default
+      // Parse expiry safely; bad strings fall back to category default
       let expiry;
       const trimmed = (r.expiry || "").trim();
       const parsed = trimmed ? new Date(trimmed) : null;
@@ -1580,14 +1626,25 @@ function BulkAddModal({ visible, onClose, onAddItems, section }) {
       } else {
         expiry = new Date(Date.now() + defaultDays * 86400000).toISOString();
       }
+      // v1.0.9 — quantity is an integer column; coerce to int with fallback
+      // to 1. Same fix that landed in AddModal earlier.
+      const parsedQty = parseInt((r.quantity || "").trim(), 10);
+      const quantity = Number.isFinite(parsedQty) && parsedQty > 0 ? parsedQty : 1;
+      // For packaged categories, default-to-closed and stash opened-days +
+      // expiry-unopened so "Mark as opened" works on these rows later.
+      const packaged = isPackagedCategory(cat);
       return {
         name: r.name.trim(),
         category: cat,
         emoji: EMOJI_MAP[cat],
-        quantity: (r.quantity || "").trim() || "1",
-        unit: (r.unit || "").trim(),
+        quantity,
+        unit: (r.unit || "").trim() || null,
         expiryDate: expiry,
         section: section || "fridge",
+        isOpened: false,
+        openedAt: null,
+        expiryOpenedDays: packaged ? (OPENED_DAYS_MAP[cat] || 7) : null,
+        expiryUnopened: packaged ? expiry.slice(0, 10) : null,
       };
     });
     await onAddItems(items);
@@ -1738,16 +1795,25 @@ function BulkAddModal({ visible, onClose, onAddItems, section }) {
 const ONBOARDING_DEFAULT_CONTAINER_KEY = "ok2eat:default_container";
 
 function OnboardingModal({ visible, initialName, onComplete }) {
-  const [step, setStep] = useState(1);
+  // v1.0.9 — `phase` replaces a numeric step. Forks early between joining
+  // an existing household and creating a new one, so users with an invite
+  // code don't get stuck creating a junk household first.
+  //   "fork"      — initial choice between join / create
+  //   "join"      — enter invite code
+  //   "name"      — name your new household (create path, step 1)
+  //   "container" — pick first container (create path, step 2)
+  const [phase, setPhase] = useState("fork");
   const [name, setName] = useState(initialName || "My household");
   const [container, setContainer] = useState("fridge");
+  const [joinCode, setJoinCode] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (visible) {
-      setStep(1);
+      setPhase("fork");
       setName(initialName || "My household");
       setContainer("fridge");
+      setJoinCode("");
       setSaving(false);
     }
   }, [visible, initialName]);
@@ -1758,37 +1824,55 @@ function OnboardingModal({ visible, initialName, onComplete }) {
     { id: "freezer", label: "Freezer", hint: "Frozen meats, ice cream" },
   ];
 
-  async function finish() {
+  async function markOnboarded() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error("Not signed in");
+    await supabase.from("user_settings").upsert({
+      user_id: user.id,
+      has_seen_household_onboarding: true,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "user_id" });
+    return user;
+  }
+
+  async function finishCreate() {
     if (saving) return;
     setSaving(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not signed in");
-
-      // Make sure they have a household (idempotent for existing users)
+      await markOnboarded();
       const { data: hhId, error: rpcErr } = await supabase.rpc("ensure_household_for_user");
       if (rpcErr) throw rpcErr;
 
-      // Update household name if they typed one
       const trimmed = (name || "").trim();
       if (hhId && trimmed) {
         await supabase.from("households").update({ name: trimmed }).eq("id", hhId);
       }
-
-      // Mark onboarding seen
-      await supabase.from("user_settings").upsert({
-        user_id: user.id,
-        has_seen_household_onboarding: true,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: "user_id" });
-
-      // Remember the chosen default container for future add flows
       try { await AsyncStorage.setItem(ONBOARDING_DEFAULT_CONTAINER_KEY, container); } catch {}
 
-      track("household_onboarding_completed", { container });
+      track("household_onboarding_completed", { path: "create", container });
       onComplete({ householdId: hhId, householdName: trimmed, defaultContainer: container });
     } catch (e) {
       Alert.alert("Setup error", e?.message || "Couldn't save your setup. Please try again.");
+      setSaving(false);
+    }
+  }
+
+  async function finishJoin() {
+    if (saving) return;
+    const trimmed = (joinCode || "").trim().toUpperCase();
+    if (trimmed.length !== 6) {
+      Alert.alert("Invalid code", "Invite codes are 6 characters.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const { data: hhId, error: rpcErr } = await supabase.rpc("redeem_household_invite", { p_code: trimmed });
+      if (rpcErr) throw rpcErr;
+      await markOnboarded();
+      track("household_onboarding_completed", { path: "join" });
+      onComplete({ householdId: hhId });
+    } catch (e) {
+      Alert.alert("Couldn't join", e?.message || "Check the code and try again.");
       setSaving(false);
     }
   }
@@ -1798,12 +1882,89 @@ function OnboardingModal({ visible, initialName, onComplete }) {
       <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }}>
         <View style={{ flex: 1, padding: 20, justifyContent: "space-between" }}>
           <View>
-            <Text style={{ fontSize: 12, color: T.accent, fontWeight: "600", marginBottom: 14 }}>
-              Step {step} of 2
-            </Text>
-
-            {step === 1 ? (
+            {phase === "fork" && (
               <>
+                <Text style={{ fontSize: 12, color: T.accent, fontWeight: "600", marginBottom: 14 }}>
+                  Welcome to ok2eat
+                </Text>
+                <Text style={{ fontSize: 24, fontWeight: "800", color: T.text, letterSpacing: -0.5 }}>
+                  Let's get you set up
+                </Text>
+                <Text style={{ fontSize: 13, color: T.textSoft, marginTop: 6, marginBottom: 28 }}>
+                  Joining someone else's fridge, or starting your own?
+                </Text>
+
+                <TouchableOpacity
+                  onPress={() => setPhase("join")}
+                  style={{
+                    flexDirection: "row", alignItems: "center", padding: 16,
+                    backgroundColor: T.card, borderWidth: 1, borderColor: T.border,
+                    borderRadius: 14, marginBottom: 12,
+                  }}
+                >
+                  <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: "rgba(22,163,74,0.1)", alignItems: "center", justifyContent: "center" }}>
+                    <Ionicons name="key-outline" size={20} color={T.accent} />
+                  </View>
+                  <View style={{ marginLeft: 14, flex: 1 }}>
+                    <Text style={{ fontSize: 15, fontWeight: "700", color: T.text }}>I have an invite code</Text>
+                    <Text style={{ fontSize: 12, color: T.textSoft, marginTop: 2 }}>Join an existing shared fridge</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={T.muted} />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => setPhase("name")}
+                  style={{
+                    flexDirection: "row", alignItems: "center", padding: 16,
+                    backgroundColor: T.card, borderWidth: 1, borderColor: T.border,
+                    borderRadius: 14,
+                  }}
+                >
+                  <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: "rgba(22,163,74,0.1)", alignItems: "center", justifyContent: "center" }}>
+                    <Ionicons name="home-outline" size={20} color={T.accent} />
+                  </View>
+                  <View style={{ marginLeft: 14, flex: 1 }}>
+                    <Text style={{ fontSize: 15, fontWeight: "700", color: T.text }}>Start a new household</Text>
+                    <Text style={{ fontSize: 12, color: T.textSoft, marginTop: 2 }}>You can invite family later</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={T.muted} />
+                </TouchableOpacity>
+              </>
+            )}
+
+            {phase === "join" && (
+              <>
+                <Text style={{ fontSize: 12, color: T.accent, fontWeight: "600", marginBottom: 14 }}>
+                  Join a household
+                </Text>
+                <Text style={{ fontSize: 24, fontWeight: "800", color: T.text, letterSpacing: -0.5 }}>
+                  Enter your invite code
+                </Text>
+                <Text style={{ fontSize: 13, color: T.textSoft, marginTop: 6, marginBottom: 22 }}>
+                  Six characters. Whoever invited you sent it via text, email, or a link.
+                </Text>
+                <Text style={s.inputLabel}>Invite code</Text>
+                <TextInput
+                  style={[s.input, { letterSpacing: 4, textTransform: "uppercase", fontSize: 18, fontWeight: "700" }]}
+                  value={joinCode}
+                  onChangeText={t => setJoinCode(t.toUpperCase())}
+                  placeholder="ABC123"
+                  placeholderTextColor={T.muted}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  maxLength={6}
+                />
+                <Text style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
+                  No code yet? Tap Back and start your own household.
+                </Text>
+              </>
+            )}
+
+            {phase === "name" && (
+              <>
+                <Text style={{ fontSize: 12, color: T.accent, fontWeight: "600", marginBottom: 14 }}>
+                  Step 1 of 2
+                </Text>
                 <Text style={{ fontSize: 24, fontWeight: "800", color: T.text, letterSpacing: -0.5 }}>
                   Name your household
                 </Text>
@@ -1824,8 +1985,13 @@ function OnboardingModal({ visible, initialName, onComplete }) {
                   Examples: "Smith Family", "Jess + Greg"
                 </Text>
               </>
-            ) : (
+            )}
+
+            {phase === "container" && (
               <>
+                <Text style={{ fontSize: 12, color: T.accent, fontWeight: "600", marginBottom: 14 }}>
+                  Step 2 of 2
+                </Text>
                 <Text style={{ fontSize: 24, fontWeight: "800", color: T.text, letterSpacing: -0.5 }}>
                   Where will you start?
                 </Text>
@@ -1864,28 +2030,62 @@ function OnboardingModal({ visible, initialName, onComplete }) {
           </View>
 
           <View>
-            {step === 1 ? (
+            {phase === "fork" && (
+              <Text style={{ textAlign: "center", color: T.muted, fontSize: 12, paddingVertical: 12 }}>
+                You can switch later from the Share tab.
+              </Text>
+            )}
+
+            {phase === "join" && (
+              <>
+                <TouchableOpacity
+                  style={[s.btnPrimary, (joinCode.trim().length !== 6 || saving) && { opacity: 0.5 }]}
+                  disabled={joinCode.trim().length !== 6 || saving}
+                  onPress={finishJoin}
+                >
+                  <Text style={s.btnPrimaryText}>{saving ? "Joining…" : "Join household"}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{ alignItems: "center", paddingVertical: 12, marginTop: 6 }}
+                  onPress={() => setPhase("fork")}
+                  disabled={saving}
+                >
+                  <Text style={{ color: T.textSoft, fontSize: 14 }}>Back</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {phase === "name" && (
               <>
                 <TouchableOpacity
                   style={[s.btnPrimary, (!name.trim() || saving) && { opacity: 0.5 }]}
                   disabled={!name.trim() || saving}
-                  onPress={() => setStep(2)}
+                  onPress={() => setPhase("container")}
                 >
                   <Text style={s.btnPrimaryText}>Continue</Text>
                 </TouchableOpacity>
+                <TouchableOpacity
+                  style={{ alignItems: "center", paddingVertical: 12, marginTop: 6 }}
+                  onPress={() => setPhase("fork")}
+                  disabled={saving}
+                >
+                  <Text style={{ color: T.textSoft, fontSize: 14 }}>Back</Text>
+                </TouchableOpacity>
               </>
-            ) : (
+            )}
+
+            {phase === "container" && (
               <>
                 <TouchableOpacity
                   style={[s.btnPrimary, saving && { opacity: 0.6 }]}
                   disabled={saving}
-                  onPress={finish}
+                  onPress={finishCreate}
                 >
                   <Text style={s.btnPrimaryText}>{saving ? "Saving…" : "Get started"}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={{ alignItems: "center", paddingVertical: 12, marginTop: 6 }}
-                  onPress={() => setStep(1)}
+                  onPress={() => setPhase("name")}
                   disabled={saving}
                 >
                   <Text style={{ color: T.textSoft, fontSize: 14 }}>Back</Text>
@@ -2061,8 +2261,14 @@ function InviteHouseholdModal({ visible, onClose, householdId, householdName, on
   async function handleShareCode() {
     if (!code) return;
     try {
+      // Link recipients to the ok2eat.com/join landing page with the code as
+      // a query param. The page displays the code prominently, has an App
+      // Store install button, and walks them through "Share → Invite a
+      // family member → enter code" if they already have the app. Much
+      // clearer than just dumping a 6-char string in their inbox.
+      const joinUrl = `https://ok2eat.com/join?code=${code}`;
       await Share.share({
-        message: `Join my ok2eat household with code: ${code}\n\nDownload ok2eat: https://apps.apple.com/us/app/ok2eat/id6761730687`,
+        message: `Join my ok2eat household — your invite code is ${code}.\n\nTap to start: ${joinUrl}`,
       });
     } catch {}
   }
@@ -2188,66 +2394,158 @@ function InviteHouseholdModal({ visible, onClose, householdId, householdName, on
   );
 }
 
+// Compact +/- stepper used by AddModal for editable expiry-day inputs.
+// Min/max clamp to keep nonsense out of the int column.
+function DayStepper({ value, onChange, min = 0, max = 365, label, suffix = "days" }) {
+  const set = (v) => onChange(Math.max(min, Math.min(max, v)));
+  return (
+    <View style={{ marginBottom: 12 }}>
+      {label && <Text style={[s.inputLabel, { marginBottom: 6 }]}>{label}</Text>}
+      <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderRadius: 12, paddingVertical: 4, paddingHorizontal: 6 }}>
+        <TouchableOpacity onPress={() => set(value - 1)} style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}>
+          <Ionicons name="remove" size={20} color={value <= min ? T.muted : T.accent} />
+        </TouchableOpacity>
+        <View style={{ flex: 1, alignItems: "center" }}>
+          <Text style={{ fontSize: 16, fontWeight: "700", color: T.text }}>{value}</Text>
+          <Text style={{ fontSize: 11, color: T.textSoft, marginTop: -2 }}>{suffix}</Text>
+        </View>
+        <TouchableOpacity onPress={() => set(value + 1)} style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}>
+          <Ionicons name="add" size={20} color={value >= max ? T.muted : T.accent} />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 // ─── Add Item Modal ───────────────────────────────────────────────────────────
 function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, section }) {
   const [name, setName] = useState("");
   const [category, setCategory] = useState("Other");
   const [initialQty, setInitialQty] = useState("");
   const [initialUnit, setInitialUnit] = useState("");
+  // v1.0.9 — expiration is now editable in the form. closedDays = days from
+  // today the item lasts UNOPENED (or just "lasts" for fresh items).
+  // openedDays = how many days after opening the item is still good. Both
+  // default from category maps; user can override.
+  const [closedDays, setClosedDays] = useState(EXPIRY_MAP["Other"] || 7);
+  const [openedDays, setOpenedDays] = useState(OPENED_DAYS_MAP["Other"] || 7);
   const categories = ["Dairy", "Protein", "Produce", "Dry Goods", "Beverages", "Other"];
   const emojiMap = { Dairy: "🥛", Protein: "🍗", Produce: "🥬", "Dry Goods": "🥣", Beverages: "🍶", Other: "📦" };
 
+  // Reset all fields when the modal opens. Avoids stale state from a prior add.
+  useEffect(() => {
+    if (visible) {
+      setName(""); setCategory("Other"); setInitialQty(""); setInitialUnit("");
+      setClosedDays(EXPIRY_MAP["Other"] || 7);
+      setOpenedDays(OPENED_DAYS_MAP["Other"] || 7);
+    }
+  }, [visible]);
+
+  // When the user picks a different category, snap the day defaults to that
+  // category's typical shelf life so they don't have to remember it.
+  function handleCategoryChange(c) {
+    setCategory(c);
+    setClosedDays(EXPIRY_MAP[c] || 7);
+    setOpenedDays(OPENED_DAYS_MAP[c] || 7);
+  }
+
   function handleAdd() {
     if (!name.trim()) return;
-    // Quantity is an integer column on fridge_items; unit is its own text
-    // column. Don't concat them into one field — that's the long-standing
-    // "invalid input syntax for integer" bug. Default to 1 if blank/garbage.
     const parsed = parseInt((initialQty || "").trim(), 10);
     const quantity = Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
     const unit = (initialUnit || "").trim() || null;
+
+    // Closed-expiry date = today + closedDays. We always store this as the
+    // active expiry (default-to-closed per spec). For packaged categories
+    // we ALSO store opened-shelf-life days + a snapshot of the closed expiry
+    // so "Mark as opened" / "Undo" round-trips cleanly later.
+    const expiryDateIso = new Date(Date.now() + closedDays * 86400000).toISOString();
+    const packaged = isPackagedCategory(category);
+
     onAdd({
       name: name.trim(),
       category,
       emoji: emojiMap[category],
       quantity,
       unit,
-      expiryDate: new Date(Date.now() + 7 * 86400000).toISOString(),
+      expiryDate: expiryDateIso,
       section,
+      isOpened: false,
+      openedAt: null,
+      expiryOpenedDays: packaged ? openedDays : null,
+      expiryUnopened: packaged ? expiryDateIso.slice(0, 10) : null,
     });
-    setName(""); setInitialQty(""); setInitialUnit(""); onClose();
+    onClose();
   }
+
+  const packaged = isPackagedCategory(category);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={s.modalOverlay} activeOpacity={1} onPress={onClose}>
         <TouchableOpacity activeOpacity={1} style={s.modalSheet}>
-          <View style={s.sheetHandle} />
-          <Text style={[s.bold, { fontSize: 20, marginBottom: 20 }]}>Add Item Manually</Text>
-          <Text style={s.inputLabel}>Item name *</Text>
-          <TextInput style={s.input} placeholder="e.g. Almond Butter" placeholderTextColor={T.muted} value={name} onChangeText={setName} />
-          <View style={{ flexDirection: "row", gap: 10 }}>
-            <View style={{ flex: 1 }}>
-              <Text style={s.inputLabel}>Amount</Text>
-              <TextInput style={s.input} placeholder="e.g. 1" placeholderTextColor={T.muted} value={initialQty} onChangeText={setInitialQty} keyboardType="number-pad" />
+          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <View style={s.sheetHandle} />
+            <Text style={[s.bold, { fontSize: 20, marginBottom: 20 }]}>Add Item Manually</Text>
+
+            <Text style={s.inputLabel}>Item name *</Text>
+            <TextInput style={s.input} placeholder="e.g. Almond Butter" placeholderTextColor={T.muted} value={name} onChangeText={setName} />
+
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.inputLabel}>Amount</Text>
+                <TextInput style={s.input} placeholder="e.g. 1" placeholderTextColor={T.muted} value={initialQty} onChangeText={setInitialQty} keyboardType="number-pad" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.inputLabel}>Unit</Text>
+                <UnitPicker value={initialUnit} onChange={setInitialUnit} />
+              </View>
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={s.inputLabel}>Unit</Text>
-              <UnitPicker value={initialUnit} onChange={setInitialUnit} />
+
+            <Text style={[s.inputLabel, { marginTop: 4 }]}>Category</Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+              {categories.map(c => (
+                <TouchableOpacity key={c} onPress={() => handleCategoryChange(c)} style={[s.chip, category === c && s.chipActive]}>
+                  <Text style={[s.chipText, category === c && s.chipTextActive]}>{emojiMap[c]} {c}</Text>
+                </TouchableOpacity>
+              ))}
             </View>
-          </View>
-          <Text style={[s.inputLabel, { marginTop: 4 }]}>Category</Text>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
-            {categories.map(c => (<TouchableOpacity key={c} onPress={() => setCategory(c)} style={[s.chip, category === c && s.chipActive]}><Text style={[s.chipText, category === c && s.chipTextActive]}>{emojiMap[c]} {c}</Text></TouchableOpacity>))}
-          </View>
-          <TouchableOpacity style={s.btnPrimary} onPress={handleAdd}><Text style={s.btnPrimaryText}>Add to Fridge</Text></TouchableOpacity>
-          <TouchableOpacity style={[s.btnSecondary, { marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }]} onPress={() => { onClose(); setTimeout(() => onGoToScan && onGoToScan(), 350); }}>
-            <Ionicons name="barcode-outline" size={18} color={T.accent} />
-            <Text style={{ color: T.accent, fontSize: 15, fontWeight: "600" }}>Scan Barcode</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[s.btnSecondary, { marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }]} onPress={() => { onClose(); setTimeout(() => onBulkAdd && onBulkAdd(), 350); }}>
-            <Ionicons name="list-outline" size={18} color={T.accent} />
-            <Text style={{ color: T.accent, fontSize: 15, fontWeight: "600" }}>Add Multiple Items</Text>
-          </TouchableOpacity>
+
+            <DayStepper
+              value={closedDays}
+              onChange={setClosedDays}
+              min={1}
+              label={packaged ? "Lasts (unopened)" : "Lasts"}
+              suffix="days from today"
+            />
+
+            {packaged && (
+              <DayStepper
+                value={openedDays}
+                onChange={setOpenedDays}
+                min={1}
+                label="Once opened, lasts"
+                suffix="more days"
+              />
+            )}
+
+            <Text style={{ fontSize: 11, color: T.muted, marginBottom: 14 }}>
+              {packaged
+                ? "Item starts as unopened. Tap \"Mark as opened\" later to switch to the shorter shelf life."
+                : "Fresh items don't change after opening — same expiry either way."}
+            </Text>
+
+            <TouchableOpacity style={s.btnPrimary} onPress={handleAdd}><Text style={s.btnPrimaryText}>Add to Fridge</Text></TouchableOpacity>
+            <TouchableOpacity style={[s.btnSecondary, { marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }]} onPress={() => { onClose(); setTimeout(() => onGoToScan && onGoToScan(), 350); }}>
+              <Ionicons name="barcode-outline" size={18} color={T.accent} />
+              <Text style={{ color: T.accent, fontSize: 15, fontWeight: "600" }}>Scan Barcode</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.btnSecondary, { marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }]} onPress={() => { onClose(); setTimeout(() => onBulkAdd && onBulkAdd(), 350); }}>
+              <Ionicons name="list-outline" size={18} color={T.accent} />
+              <Text style={{ color: T.accent, fontSize: 15, fontWeight: "600" }}>Add Multiple Items</Text>
+            </TouchableOpacity>
+            <View style={{ height: 16 }} />
+          </ScrollView>
         </TouchableOpacity>
       </TouchableOpacity>
     </Modal>
@@ -2361,45 +2659,110 @@ function ShareScreen({ householdName, memberCount, onOpenInvite }) {
 //   2. Shopping list — local-only for v1.0.8, persisted via AsyncStorage.
 //      Manual add + check-off. Auto-suggest from low inventory is on the
 //      v1.0.9 roadmap.
-function PlanScreen({ items }) {
+function PlanScreen({ items, householdId }) {
   const [list, setList] = useState([]);
   const [adding, setAdding] = useState("");
   const [showOrderSheet, setShowOrderSheet] = useState(false);
+  const [loadingList, setLoadingList] = useState(true);
 
-  useEffect(() => {
-    (async () => {
-      const stored = await loadShoppingList();
-      setList(stored);
-    })();
-  }, []);
-
-  function persist(next) {
-    setList(next);
-    saveShoppingList(next);
+  // v1.0.9 — shopping list is now server-side, scoped by household_id, so all
+  // members of a household see the same list. Uses Supabase row-level
+  // security (the `members read/insert/update/delete shopping list` policies)
+  // for access control. Optimistic UI: update local state first, then call
+  // Supabase. If a write fails we refetch to recover the canonical state.
+  async function refetch() {
+    if (!householdId) { setList([]); setLoadingList(false); return; }
+    try {
+      const { data, error } = await supabase
+        .from("shopping_list_items")
+        .select("id, name, checked, created_at")
+        .eq("household_id", householdId)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      setList((data || []).map(r => ({ id: r.id, name: r.name, checked: !!r.checked })));
+    } catch (e) {
+      console.warn("[plan] refetch shopping list failed:", e?.message || e);
+    } finally {
+      setLoadingList(false);
+    }
   }
 
-  function addItem() {
+  useEffect(() => { refetch(); }, [householdId]);
+
+  async function addItem() {
     const trimmed = (adding || "").trim();
-    if (!trimmed) return;
-    const next = [...list, { id: String(Date.now()), name: trimmed, checked: false }];
-    persist(next);
+    if (!trimmed || !householdId) return;
     setAdding("");
-    track("shopping_list_item_added");
+    // Optimistic insert — temp id replaced after the server returns the real one.
+    const tempId = "temp-" + Date.now();
+    setList(prev => [...prev, { id: tempId, name: trimmed, checked: false }]);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data, error } = await supabase
+        .from("shopping_list_items")
+        .insert({
+          household_id: householdId,
+          name: trimmed,
+          created_by: user?.id || null,
+        })
+        .select("id, name, checked")
+        .single();
+      if (error) throw error;
+      // Swap the temp row out for the real one
+      setList(prev => prev.map(i => i.id === tempId ? { id: data.id, name: data.name, checked: !!data.checked } : i));
+      track("shopping_list_item_added");
+    } catch (e) {
+      console.warn("[plan] add failed:", e?.message || e);
+      setList(prev => prev.filter(i => i.id !== tempId));
+      Alert.alert("Couldn't add to list", "Try again in a moment.");
+    }
   }
 
-  function toggle(id) {
-    persist(list.map(i => i.id === id ? { ...i, checked: !i.checked } : i));
+  async function toggle(id) {
+    const item = list.find(i => i.id === id);
+    if (!item) return;
+    const nextChecked = !item.checked;
+    // Optimistic toggle
+    setList(prev => prev.map(i => i.id === id ? { ...i, checked: nextChecked } : i));
+    try {
+      const { error } = await supabase
+        .from("shopping_list_items")
+        .update({ checked: nextChecked })
+        .eq("id", id);
+      if (error) throw error;
+    } catch (e) {
+      console.warn("[plan] toggle failed:", e?.message || e);
+      // Revert
+      setList(prev => prev.map(i => i.id === id ? { ...i, checked: !nextChecked } : i));
+    }
   }
 
-  function remove(id) {
-    persist(list.filter(i => i.id !== id));
+  async function remove(id) {
+    const removed = list.find(i => i.id === id);
+    setList(prev => prev.filter(i => i.id !== id));
+    try {
+      const { error } = await supabase.from("shopping_list_items").delete().eq("id", id);
+      if (error) throw error;
+    } catch (e) {
+      console.warn("[plan] remove failed:", e?.message || e);
+      // Re-add on failure so the user doesn't lose the row
+      if (removed) setList(prev => [...prev, removed]);
+    }
   }
 
-  function clearChecked() {
-    const removed = list.filter(i => i.checked).length;
-    if (!removed) return;
-    persist(list.filter(i => !i.checked));
-    track("shopping_list_cleared", { count: removed });
+  async function clearChecked() {
+    const checkedItems = list.filter(i => i.checked);
+    if (checkedItems.length === 0) return;
+    const ids = checkedItems.map(i => i.id);
+    setList(prev => prev.filter(i => !i.checked));
+    try {
+      const { error } = await supabase.from("shopping_list_items").delete().in("id", ids);
+      if (error) throw error;
+      track("shopping_list_cleared", { count: ids.length });
+    } catch (e) {
+      console.warn("[plan] clearChecked failed:", e?.message || e);
+      refetch(); // recover canonical state
+    }
   }
 
   // Items that would actually go into the order — anything not yet checked.
@@ -2779,17 +3142,47 @@ export default function App() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data: hhId, error: rpcErr } = await supabase.rpc("ensure_household_for_user");
-      if (rpcErr) { console.warn("ensure_household_for_user failed:", rpcErr.message); return; }
-      setHouseholdId(hhId);
+      // v1.0.9 — defer household auto-creation until the user finishes
+      // onboarding. New users with an invite code shouldn't end up with a
+      // junk household that gets abandoned the moment they redeem. We only
+      // auto-create for users who have ALREADY onboarded (safety net for
+      // edge-case states), or who have an existing membership.
+      const { data: settings } = await supabase
+        .from("user_settings")
+        .select("has_seen_household_onboarding")
+        .eq("user_id", user.id)
+        .maybeSingle();
 
-      const [{ data: hh }, { data: settings }, { data: memberRows }] = await Promise.all([
-        supabase.from("households").select("name").eq("id", hhId).maybeSingle(),
-        supabase.from("user_settings").select("has_seen_household_onboarding").eq("user_id", user.id).maybeSingle(),
-        supabase.rpc("list_household_members"),
-      ]);
-      if (hh?.name) setHouseholdName(hh.name);
-      if (Array.isArray(memberRows)) setMemberCount(memberRows.length || 1);
+      const hasOnboarded = !!settings?.has_seen_household_onboarding;
+
+      // Check if they already have a membership (from a prior install or
+      // having been added/redeemed earlier).
+      const { data: existingMember } = await supabase
+        .from("household_members")
+        .select("household_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      let hhId = existingMember?.household_id || null;
+
+      if (!hhId && hasOnboarded) {
+        // Edge case: user finished onboarding before but doesn't currently
+        // have a household. Re-create one for them so the app keeps working.
+        const { data: newHh, error: rpcErr } = await supabase.rpc("ensure_household_for_user");
+        if (!rpcErr) hhId = newHh;
+      }
+
+      if (hhId) setHouseholdId(hhId);
+
+      // Read household name + member count only if a household exists
+      if (hhId) {
+        const [{ data: hh }, { data: memberRows }] = await Promise.all([
+          supabase.from("households").select("name").eq("id", hhId).maybeSingle(),
+          supabase.rpc("list_household_members"),
+        ]);
+        if (hh?.name) setHouseholdName(hh.name);
+        if (Array.isArray(memberRows)) setMemberCount(memberRows.length || 1);
+      }
 
       try {
         const stored = await AsyncStorage.getItem(ONBOARDING_DEFAULT_CONTAINER_KEY);
@@ -2798,7 +3191,7 @@ export default function App() {
         }
       } catch {}
 
-      if (!settings?.has_seen_household_onboarding) {
+      if (!hasOnboarded) {
         setShowOnboarding(true);
       }
     } catch (e) {
@@ -3013,7 +3406,7 @@ export default function App() {
       <View style={{ flex: 1 }}>
         {tab === "fridge" && <FridgeScreen items={items} onDelete={handleDelete} onBulkDelete={handleBulkDelete} onAdd={(section) => { setAddSection(section || "fridge"); setShowAdd(true); }} onUpdate={handleUpdate} onUse={handleUse} loading={loading} householdName={householdName} onOpenManageInventory={() => setShowManageInventory(true)} />}
         {tab === "scan" && <ScanScreen onScanned={handleScanned} />}
-        {tab === "plan" && <PlanScreen items={items} />}
+        {tab === "plan" && <PlanScreen items={items} householdId={householdId} />}
         {tab === "reminders" && <RemindersScreen items={items} notificationsEnabled={notificationsEnabled} onToggleNotifications={toggleNotifications} emailDigestEnabled={emailDigestEnabled} onToggleEmailDigest={toggleEmailDigest} />}
         {tab === "share" && <ShareScreen householdName={householdName} memberCount={memberCount} onOpenInvite={() => setShowInvite(true)} />}
       </View>
@@ -3022,10 +3415,16 @@ export default function App() {
       <OnboardingModal
         visible={showOnboarding}
         initialName={householdName}
-        onComplete={({ householdName: newName, defaultContainer: dc }) => {
+        onComplete={({ householdId: newHhId, householdName: newName, defaultContainer: dc }) => {
+          if (newHhId) setHouseholdId(newHhId);
           if (newName) setHouseholdName(newName);
           if (dc) setDefaultContainer(dc);
           setShowOnboarding(false);
+          // Refetch household state + items so the rest of the app reflects
+          // the chosen path (especially the join path, which may have moved
+          // items into a different household).
+          loadHouseholdState();
+          loadItems();
           showToast("👋 You're all set!");
         }}
       />

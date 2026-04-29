@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Join an ok2eat household</title>
+<meta name="description" content="You've been invited to share an ok2eat fridge. Install the app and enter your invite code.">
+<meta name="theme-color" content="#F0EADC">
+<meta name="robots" content="noindex">
+<meta property="og:title" content="Join an ok2eat household">
+<meta property="og:description" content="You've been invited to share an ok2eat fridge. Install the app and enter your invite code.">
+<meta property="og:type" content="website">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'%3E%3Crect width='36' height='36' rx='8' fill='%23F0EADC'/%3E%3Cpath fill='%233E721D' d='M35 5.904c2.394 6.042-1.438 20.543-10.5 26.5-9.06 5.957-20.395 3.573-23.097-6.443-1.669-6.186 2.79-10.721 11.851-16.677C22.315 3.327 32.64-.053 35 5.904z'/%3E%3Cpath fill='%23A6D388' d='M19.815 26.578c-5.757 4.013-13.482 3.097-16.29-.934C.718 21.613 4 14.474 9.757 10.463c5.755-4.011 20.258-9.264 23.068-5.234 2.807 4.03-4.825 16.175-13.01 21.349'/%3E%3Cpath fill='%23662113' d='M11.162 12.488c3.48-2.332 7.382-1.495 9.798.995 1.433 1.477-.88 5.382-4.359 7.714-3.478 2.33-7.769 1.763-8.239.731-1.44-3.157-.677-7.109 2.8-9.44z'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,700;12..96,800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --green: #3E721D;
+    --green-dim: #2A4F12;
+    --green-soft: #A6D388;
+    --bg: #F0EADC;
+    --surface: #F7F3E8;
+    --card: #EDE6D2;
+    --border: #D6D2C4;
+    --text: #1C261C;
+    --text-soft: #3A4A38;
+    --muted: #6B8264;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Bricolage Grotesque', sans-serif; line-height: 1.6; -webkit-font-smoothing: antialiased; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 20px; }
+  .logo { display: flex; align-items: center; gap: 10px; margin-bottom: 32px; }
+  .logo svg { width: 36px; height: 36px; }
+  .logo span { font-size: 22px; font-weight: 700; color: var(--text); letter-spacing: -0.5px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 24px; padding: 40px 32px; max-width: 460px; width: 100%; text-align: center; }
+  .eyebrow { font-size: 13px; color: var(--muted); font-weight: 500; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 12px; }
+  h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.8px; line-height: 1.2; margin-bottom: 12px; }
+  .lead { color: var(--text-soft); font-size: 15px; margin-bottom: 28px; }
+  .code-box { background: var(--bg); border: 2px dashed var(--green); border-radius: 16px; padding: 22px 16px; margin-bottom: 28px; }
+  .code { font-family: 'DM Mono', monospace; font-size: 36px; font-weight: 500; color: var(--text); letter-spacing: 8px; word-break: break-all; }
+  .code-empty { font-family: 'Bricolage Grotesque', sans-serif; font-size: 15px; color: var(--muted); letter-spacing: 0; }
+  .code-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+
+  .step-card { background: var(--card); border-radius: 16px; padding: 20px 22px; margin-bottom: 14px; text-align: left; }
+  .step-card h3 { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
+  .step-num { background: var(--green); color: #fff; width: 24px; height: 24px; border-radius: 50%; font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .step-card p { font-size: 14px; color: var(--text-soft); }
+  .step-card a:not(.install-btn) { color: var(--green); font-weight: 500; }
+
+  /* Higher specificity than `.step-card a` so the white text actually shows.
+     The bug we hit on first deploy was a green-on-green button. */
+  a.install-btn { display: inline-flex; align-items: center; gap: 10px; background: var(--green); color: #fff !important; text-decoration: none; padding: 14px 28px; border-radius: 100px; font-size: 15px; font-weight: 600; transition: background 0.2s; margin-top: 10px; }
+  a.install-btn:hover { background: var(--green-dim); color: #fff !important; }
+  .footer-link { margin-top: 28px; font-size: 13px; color: var(--muted); }
+  .footer-link a { color: var(--muted); text-decoration: underline; }
+</style>
+</head>
+<body>
+  <div class="logo">
+    <svg viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
+      <rect width="36" height="36" rx="8" fill="#F0EADC"/>
+      <path fill="#3E721D" d="M35 5.904c2.394 6.042-1.438 20.543-10.5 26.5-9.06 5.957-20.395 3.573-23.097-6.443-1.669-6.186 2.79-10.721 11.851-16.677C22.315 3.327 32.64-.053 35 5.904z"/>
+      <path fill="#A6D388" d="M19.815 26.578c-5.757 4.013-13.482 3.097-16.29-.934C.718 21.613 4 14.474 9.757 10.463c5.755-4.011 20.258-9.264 23.068-5.234 2.807 4.03-4.825 16.175-13.01 21.349"/>
+      <path fill="#662113" d="M11.162 12.488c3.48-2.332 7.382-1.495 9.798.995 1.433 1.477-.88 5.382-4.359 7.714-3.478 2.33-7.769 1.763-8.239.731-1.44-3.157-.677-7.109 2.8-9.44z"/>
+    </svg>
+    <span>ok2eat</span>
+  </div>
+
+  <div class="card">
+    <p class="eyebrow">// You've been invited</p>
+    <h1>Join an ok2eat household</h1>
+    <p class="lead">Someone shared their fridge with you. Use the code below to join — you'll see the same items, and you can both add, edit, and check things off.</p>
+
+    <div class="code-box">
+      <p class="code-label">Your invite code</p>
+      <p class="code" id="code-display">—</p>
+    </div>
+
+    <div class="step-card">
+      <h3><span class="step-num">1</span> Install ok2eat</h3>
+      <p>If you don't have the app yet, grab it from the App Store. It's free, no ads.</p>
+      <a class="install-btn" href="https://apps.apple.com/us/app/ok2eat/id6761730687">Install on the App Store ↗</a>
+    </div>
+
+    <div class="step-card">
+      <h3><span class="step-num">2</span> Sign in and enter your code</h3>
+      <p>Open the app and sign in with any email. The app will ask if you have an invite code — pick "<strong>I have an invite code</strong>" and paste in the code above. That's it.</p>
+    </div>
+
+    <p class="footer-link">
+      <strong>Already use ok2eat?</strong> Tap <em>Share → Invite a family member</em> in the bottom nav, then enter the code under "Have a code?". Joining replaces your current household and brings your items along.<br><br>
+      Questions? <a href="mailto:support@ok2eat.com">support@ok2eat.com</a>
+    </p>
+  </div>
+
+<script>
+  // Pull ?code=ABC123 out of the URL and render it. Sanitize: 6 alphanumeric
+  // characters max, uppercase. Anything weird falls back to "see your text
+  // message for the code" so we never display garbage.
+  (function () {
+    const params = new URLSearchParams(window.location.search);
+    const raw = (params.get("code") || "").trim().toUpperCase();
+    const clean = raw.replace(/[^A-Z0-9]/g, "").slice(0, 6);
+    const el = document.getElementById("code-display");
+    if (clean.length === 6) {
+      el.textContent = clean;
+    } else {
+      el.textContent = "see your message for the code";
+      el.className = "code-empty";
+    }
+  })();
+</script>
+</body>
+</html>
