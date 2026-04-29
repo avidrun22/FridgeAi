@@ -17,6 +17,14 @@ export const EXPIRY_DAYS_BY_CATEGORY = {
   Dairy: 14, Protein: 3, Produce: 5, "Dry Goods": 180, Beverages: 7, Other: 7,
 };
 
+// "Fresh" = same expiry whether opened or sealed (Dairy, Produce). Everything
+// else is "packaged" — sealed shelf life is long, but once opened the clock
+// starts ticking on a shorter timer. Mirrors the iOS PACKAGED_CATEGORIES.
+export const FRESH_CATEGORIES = new Set(["Dairy", "Produce"]);
+export const PACKAGED_CATEGORIES = new Set(["Protein", "Beverages", "Dry Goods", "Other"]);
+export const isPackagedCategory = (cat) => PACKAGED_CATEGORIES.has(cat);
+export const OPENED_DAYS_MAP = { Protein: 3, Beverages: 7, "Dry Goods": 30, Other: 7 };
+
 // Same retailer order + URLs as the iOS app. Affiliate tags identical so
 // clicks from web also earn (Instacart + Walmart pending Impact approval).
 export const RETAILERS = [

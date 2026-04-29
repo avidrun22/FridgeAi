@@ -326,98 +326,100 @@ function NutritionPanel({ nutrition, grade }) {
 }
 
 // ─── Use Item Modal ───────────────────────────────────────────────────────────
+// v1.0.10 — simplified to match the web. The old version had a unit picker
+// + FRACTION_MAP for cross-unit math (1 tbsp of a 16 oz bottle → 15.5 oz),
+// which was overkill for a fridge tracker. New version: amount in the
+// item's existing unit, subtract directly, "Use it all" shortcut.
 function UseItemModal({ item, visible, onClose, onUse }) {
   const [amount, setAmount] = useState("1");
-  const [selectedUnit, setSelectedUnit] = useState("tbsp");
-  const [expandedGroup, setExpandedGroup] = useState("Volume");
 
   useEffect(() => {
-    if (visible) { setAmount("1"); setSelectedUnit("tbsp"); setExpandedGroup("Volume"); }
+    if (visible) setAmount("1");
   }, [visible]);
 
   if (!item) return null;
 
-  const currentQtyText = item.quantity !== undefined && item.quantity !== null ? String(item.quantity) : "1";
-  const currentQtyNum = parseFloat(currentQtyText) || 1;
-  const currentUnit = currentQtyText.replace(/[\d.]/g, "").trim() || null;
+  const currentQty = parseFloat(item.quantity) || 1;
+  const unit = (item.unit || "").trim();
 
-  function getNewQuantity() {
+  function handleConfirm() {
     const used = parseFloat(amount) || 0;
-    if (used <= 0) return currentQtyText;
-    if (currentUnit && selectedUnit === currentUnit) {
-      const remaining = Math.max(0, currentQtyNum - used);
-      return remaining <= 0.01 ? null : `${round1(remaining)} ${selectedUnit}`;
+    if (used <= 0) {
+      Alert.alert("Enter an amount", "How many did you use?");
+      return;
     }
-    if (FRACTION_MAP[selectedUnit]) {
-      const fraction = FRACTION_MAP[selectedUnit];
-      const remaining = Math.max(0, currentQtyNum - fraction * currentQtyNum);
-      return remaining <= 0.01 ? null : `${round1(remaining)} ${currentUnit || "units"}`;
+    const remaining = currentQty - used;
+    if (remaining <= 0) {
+      Alert.alert(
+        "Item fully used",
+        `Remove ${item.name} from your fridge?`,
+        [
+          { text: "Keep it", style: "cancel" },
+          { text: "Remove", style: "destructive", onPress: () => onUse(item.id, null) },
+        ]
+      );
+      return;
     }
-    return `${currentQtyText} (used ${amount} ${selectedUnit})`;
+    // Round to 1 decimal so we don't store float noise.
+    const cleanRemaining = Math.round(remaining * 10) / 10;
+    onUse(item.id, cleanRemaining);
   }
 
-  function handleUse() {
-    const used = parseFloat(amount) || 0;
-    if (used <= 0) { Alert.alert("Enter an amount", "Please enter how much you used."); return; }
-    const newQty = getNewQuantity();
-    if (newQty === null) {
-      Alert.alert("Item Fully Used", `Remove ${item.name} from your fridge?`, [
-        { text: "Keep it", style: "cancel" },
-        { text: "Remove", style: "destructive", onPress: () => onUse(item.id, null) }
-      ]);
-    } else {
-      onUse(item.id, newQty);
-    }
+  function handleUseAll() {
+    Alert.alert(
+      `Used all of ${item.name}?`,
+      "It'll be removed from your fridge.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Remove", style: "destructive", onPress: () => onUse(item.id, null) },
+      ]
+    );
   }
-
-  const preview = getNewQuantity();
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={s.modalOverlay} activeOpacity={1} onPress={onClose}>
-        <TouchableOpacity activeOpacity={1} style={[s.modalSheet, { maxHeight: "85%" }]}>
+        <TouchableOpacity activeOpacity={1} style={s.modalSheet}>
           <View style={s.sheetHandle} />
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 16 }}>
             <Text style={{ fontSize: 36 }}>{item.emoji}</Text>
             <View>
-              <Text style={[s.bold, { fontSize: 18 }]}>Use Item</Text>
+              <Text style={[s.bold, { fontSize: 18 }]}>Use this item</Text>
               <Text style={{ color: T.textSoft, fontSize: 13 }}>{item.name}</Text>
             </View>
           </View>
-          <View style={{ backgroundColor: T.card, borderRadius: 12, padding: 12, marginBottom: 16, flexDirection: "row", justifyContent: "space-between", borderWidth: 1, borderColor: T.border }}>
-            <Text style={{ color: T.textSoft, fontSize: 13 }}>Current amount</Text>
-            <Text style={[s.bold, { color: T.accent }]}>{currentQtyText}</Text>
+
+          <Text style={{ color: T.textSoft, fontSize: 13, marginBottom: 12 }}>
+            How {unit ? `many ${unit}` : "much"} did you use? You have {currentQty}{unit ? ` ${unit}` : ""}.
+          </Text>
+
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 16 }}>
+            <TextInput
+              style={[s.input, { flex: 1, fontSize: 22, textAlign: "center", fontWeight: "700", marginBottom: 0 }]}
+              value={amount}
+              onChangeText={setAmount}
+              keyboardType="decimal-pad"
+              placeholder="0"
+              placeholderTextColor={T.muted}
+              autoFocus
+            />
+            {unit ? (
+              <Text style={{ color: T.textSoft, fontSize: 16, fontWeight: "600", paddingHorizontal: 4 }}>{unit}</Text>
+            ) : null}
           </View>
-          <Text style={s.inputLabel}>How much did you use?</Text>
-          <TextInput style={[s.input, { fontSize: 20, textAlign: "center", fontWeight: "700" }]} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={T.muted} />
-          <Text style={[s.inputLabel, { marginBottom: 8 }]}>Unit</Text>
-          <ScrollView style={{ maxHeight: 200 }} showsVerticalScrollIndicator={false}>
-            {UNIT_GROUPS.map(group => (
-              <View key={group.label} style={{ marginBottom: 8 }}>
-                <TouchableOpacity onPress={() => setExpandedGroup(expandedGroup === group.label ? null : group.label)} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 6 }}>
-                  <Text style={{ color: T.textSoft, fontSize: 12, fontWeight: "600", letterSpacing: 1, textTransform: "uppercase" }}>{group.label}</Text>
-                  <Text style={{ color: T.muted, fontSize: 12 }}>{expandedGroup === group.label ? "▲" : "▼"}</Text>
-                </TouchableOpacity>
-                {expandedGroup === group.label && (
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                    {group.units.map(unit => (
-                      <TouchableOpacity key={unit} onPress={() => setSelectedUnit(unit)} style={[{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1 }, selectedUnit === unit ? { backgroundColor: "rgba(22,163,74,0.15)", borderColor: T.accent } : { backgroundColor: T.card, borderColor: T.border }]}>
-                        <Text style={{ fontSize: 13, fontWeight: "600", color: selectedUnit === unit ? T.accent : T.textSoft }}>{unit}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )}
-              </View>
-            ))}
-          </ScrollView>
-          {amount && parseFloat(amount) > 0 && (
-            <View style={{ backgroundColor: "rgba(22,163,74,0.08)", borderRadius: 12, padding: 12, marginTop: 12, borderWidth: 1, borderColor: "rgba(22,163,74,0.2)" }}>
-              <Text style={{ color: T.textSoft, fontSize: 12, marginBottom: 4 }}>Remaining after use</Text>
-              <Text style={[s.bold, { color: T.accent, fontSize: 16 }]}>{preview === null ? "🗑 Item will be removed" : preview}</Text>
-            </View>
-          )}
-          <TouchableOpacity style={[s.btnPrimary, { marginTop: 16 }]} onPress={handleUse}>
-            <Text style={s.btnPrimaryText}>✅  Confirm Usage</Text>
+
+          <TouchableOpacity style={s.btnPrimary} onPress={handleConfirm}>
+            <Text style={s.btnPrimaryText}>
+              {`Use ${amount || 0}${unit ? " " + unit : ""}`}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={[s.btnSecondary, { marginTop: 10 }]} onPress={handleUseAll}>
+            <Text style={[s.btnSecondaryText, { color: T.accent }]}>Use it all</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={{ alignItems: "center", paddingVertical: 14, marginTop: 4 }} onPress={onClose}>
+            <Text style={{ color: T.textSoft, fontSize: 14 }}>Cancel</Text>
           </TouchableOpacity>
         </TouchableOpacity>
       </TouchableOpacity>
@@ -2396,8 +2398,15 @@ function InviteHouseholdModal({ visible, onClose, householdId, householdName, on
 
 // Compact +/- stepper used by AddModal for editable expiry-day inputs.
 // Min/max clamp to keep nonsense out of the int column.
+// v1.0.10 — number is now an editable TextInput so users can type a value
+// directly (e.g. 90 days for canned goods, faster than tapping + ninety
+// times). +/- buttons still adjust it.
 function DayStepper({ value, onChange, min = 0, max = 365, label, suffix = "days" }) {
-  const set = (v) => onChange(Math.max(min, Math.min(max, v)));
+  const set = (v) => {
+    const num = typeof v === "number" ? v : parseInt(v, 10);
+    if (!Number.isFinite(num)) return;
+    onChange(Math.max(min, Math.min(max, num)));
+  };
   return (
     <View style={{ marginBottom: 12 }}>
       {label && <Text style={[s.inputLabel, { marginBottom: 6 }]}>{label}</Text>}
@@ -2406,7 +2415,18 @@ function DayStepper({ value, onChange, min = 0, max = 365, label, suffix = "days
           <Ionicons name="remove" size={20} color={value <= min ? T.muted : T.accent} />
         </TouchableOpacity>
         <View style={{ flex: 1, alignItems: "center" }}>
-          <Text style={{ fontSize: 16, fontWeight: "700", color: T.text }}>{value}</Text>
+          <TextInput
+            value={String(value)}
+            onChangeText={(t) => {
+              if (t === "") return;             // allow temporary empty while editing
+              const n = parseInt(t.replace(/[^0-9]/g, ""), 10);
+              if (Number.isFinite(n)) set(n);
+            }}
+            onBlur={() => { if (!Number.isFinite(value)) set(min); }}
+            keyboardType="number-pad"
+            selectTextOnFocus
+            style={{ fontSize: 16, fontWeight: "700", color: T.text, textAlign: "center", padding: 0, minWidth: 40 }}
+          />
           <Text style={{ fontSize: 11, color: T.textSoft, marginTop: -2 }}>{suffix}</Text>
         </View>
         <TouchableOpacity onPress={() => set(value + 1)} style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}>
