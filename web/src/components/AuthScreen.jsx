@@ -1,12 +1,18 @@
 import { useState } from "react";
 import { supabase } from "../lib/supabase.js";
 
-// Minimal email + password auth. Sign-in is the primary action. Sign-up is
-// in the same form, toggled. Apple Sign In on web is a v1.1 follow-up — for
-// now an iOS user with Apple Sign In can do email + password reset to set
-// their password, then sign in here.
+// Auth screen with magic link as the default. iOS users who signed in via
+// "Sign in with Apple" never set a password, so a password form alone would
+// lock them out of the web. The magic-link flow works for everyone — Apple
+// users, email/password users, anyone — with no friction.
+//
+// Modes:
+//   "magic"   — email-only, sends a one-click sign-in link (default)
+//   "signin"  — email + password (for users who set one)
+//   "signup"  — email + password to create a new account
+//   "reset"   — email-only, sends a password-reset link
 export default function AuthScreen() {
-  const [mode, setMode]     = useState("signin"); // "signin" | "signup" | "reset"
+  const [mode, setMode]     = useState("magic");
   const [email, setEmail]   = useState("");
   const [password, setPass] = useState("");
   const [busy, setBusy]     = useState(false);
@@ -19,7 +25,20 @@ export default function AuthScreen() {
     setMsg(null);
     setBusy(true);
     try {
-      if (mode === "signin") {
+      if (mode === "magic") {
+        // shouldCreateUser=true means a brand-new email gets an account
+        // automatically. That removes the "do I sign up or sign in?" choice
+        // — the link Just Works for everyone.
+        const { error } = await supabase.auth.signInWithOtp({
+          email,
+          options: {
+            emailRedirectTo: window.location.origin + "/",
+            shouldCreateUser: true,
+          },
+        });
+        if (error) throw error;
+        setMsg("Check your email — we sent a sign-in link. Tap it from any device on the same network as this browser.");
+      } else if (mode === "signin") {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
         // Session change will flip the App component into routes.
@@ -44,9 +63,24 @@ export default function AuthScreen() {
   }
 
   const titleByMode = {
-    signin: "Sign in to ok2eat",
+    magic:  "Sign in to ok2eat",
+    signin: "Sign in with password",
     signup: "Create your account",
     reset:  "Reset your password",
+  };
+
+  const subtitleByMode = {
+    magic:  "We'll email you a one-tap sign-in link. Same email as your iPhone account.",
+    signin: "Use the password you set for the web. Same email as your iPhone account.",
+    signup: "Or use the iPhone app — same login works on both.",
+    reset:  "We'll email you a link to set a new password.",
+  };
+
+  const submitLabelByMode = {
+    magic:  "Email me a sign-in link",
+    signin: "Sign in",
+    signup: "Create account",
+    reset:  "Send reset link",
   };
 
   return (
@@ -59,11 +93,7 @@ export default function AuthScreen() {
 
         <div className="bg-card rounded-xl border border-border p-6">
           <h1 className="text-xl font-bold text-text mb-1">{titleByMode[mode]}</h1>
-          <p className="text-textSoft text-sm mb-5">
-            {mode === "signin" && "Use the same email + password as your iPhone app."}
-            {mode === "signup" && "We'll create your household automatically — sign in on iPhone too with the same login."}
-            {mode === "reset"  && "We'll email you a link to set a new password."}
-          </p>
+          <p className="text-textSoft text-sm mb-5">{subtitleByMode[mode]}</p>
 
           <form onSubmit={handleSubmit} className="space-y-3">
             <div>
@@ -76,7 +106,7 @@ export default function AuthScreen() {
                 placeholder="you@example.com"
               />
             </div>
-            {mode !== "reset" && (
+            {(mode === "signin" || mode === "signup") && (
               <div>
                 <label className="block text-xs text-textSoft mb-1">Password</label>
                 <input
@@ -96,36 +126,51 @@ export default function AuthScreen() {
               disabled={busy}
               className="w-full rounded-lg bg-accent text-white text-sm font-semibold py-2.5 disabled:opacity-50"
             >
-              {busy ? "Working…" :
-                mode === "signin" ? "Sign in" :
-                mode === "signup" ? "Create account" :
-                "Send reset link"}
+              {busy ? "Working…" : submitLabelByMode[mode]}
             </button>
           </form>
 
           <div className="mt-5 text-xs text-textSoft flex flex-col items-center gap-2">
+            {mode === "magic" && (
+              <>
+                <button onClick={() => { setMode("signin"); setErr(null); setMsg(null); }} className="text-textSoft hover:text-text">
+                  Have a password? Use that instead
+                </button>
+              </>
+            )}
             {mode === "signin" && (
               <>
-                <button onClick={() => setMode("signup")} className="text-accent">
-                  No account yet? Sign up
+                <button onClick={() => { setMode("magic"); setErr(null); setMsg(null); }} className="text-accent">
+                  Email me a sign-in link instead
                 </button>
-                <button onClick={() => setMode("reset")} className="text-textSoft">
+                <button onClick={() => { setMode("reset"); setErr(null); setMsg(null); }} className="text-textSoft hover:text-text">
                   Forgot password?
+                </button>
+                <button onClick={() => { setMode("signup"); setErr(null); setMsg(null); }} className="text-textSoft hover:text-text">
+                  No account yet? Sign up
                 </button>
               </>
             )}
             {mode === "signup" && (
-              <button onClick={() => setMode("signin")} className="text-accent">
-                Already have an account? Sign in
+              <button onClick={() => { setMode("magic"); setErr(null); setMsg(null); }} className="text-accent">
+                Back to sign in
               </button>
             )}
             {mode === "reset" && (
-              <button onClick={() => setMode("signin")} className="text-accent">
+              <button onClick={() => { setMode("signin"); setErr(null); setMsg(null); }} className="text-accent">
                 Back to sign in
               </button>
             )}
           </div>
         </div>
+
+        {/* Apple Sign In hint — drives the few users who signed up via Apple
+            on iOS to use the relay email if that's what shows on their iPhone. */}
+        {mode === "magic" && (
+          <p className="text-center text-xs text-muted mt-4 leading-relaxed">
+            Signed up with "Sign in with Apple" on iPhone? Use the email shown on your <span className="text-textSoft">iPhone Settings → Apple Account → ok2eat</span>. The relay address forwards to your real inbox.
+          </p>
+        )}
 
         <p className="text-center text-xs text-muted mt-6">
           Less waste, more savings.

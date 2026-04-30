@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   StyleSheet, SafeAreaView, StatusBar, Modal, Alert,
   Animated, Platform, ActivityIndicator, AppState, KeyboardAvoidingView,
+  PanResponder, Dimensions,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Linking, Share } from "react-native";
@@ -835,6 +836,11 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
   const [activeSection, setActiveSection] = useState("fridge");
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
+  // v1.0.10 — inventory search. Filters items in-place by case-insensitive
+  // name substring across the active container.
+  const [searchQuery, setSearchQuery] = useState("");
+  // v1.0.10 — help sheet, opened from the "?" icon in the header.
+  const [showHelp, setShowHelp] = useState(false);
 
   function toggleSelected(id) {
     setSelectedIds(prev => {
@@ -874,13 +880,18 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
   const [editLabel, setEditLabel] = useState("");
   const categories = ["All", "Dairy", "Protein", "Produce", "Dry Goods", "Beverages"];
   const sectionItems = items.filter(i => (i.container || i.section || "fridge") === activeSection);
-  const filtered = filter === "All"
+  // First apply category/expiry filter, then narrow with the text search.
+  const categoryFiltered = filter === "All"
     ? sectionItems
     : filter === "expiring"
       ? sectionItems.filter(i => { const d = daysUntil(i.expiryDate); return d > 0 && d <= 3; })
       : filter === "expired"
         ? sectionItems.filter(i => daysUntil(i.expiryDate) <= 0)
         : sectionItems.filter(i => i.category === filter);
+  const q = searchQuery.trim().toLowerCase();
+  const filtered = q
+    ? categoryFiltered.filter(i => (i.name || "").toLowerCase().includes(q))
+    : categoryFiltered;
   const expired = sectionItems.filter(i => daysUntil(i.expiryDate) <= 0).length;
   const expiringSoon = sectionItems.filter(i => { const d = daysUntil(i.expiryDate); return d > 0 && d <= 3; }).length;
 
@@ -912,14 +923,46 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
             <Text style={s.pageTitle}>{householdName || "My Fridge"}</Text>
             <Text style={s.pageSubtitle}>{loading ? "Loading..." : `${sectionItems.length} items tracked`}</Text>
           </View>
-          {onOpenManageInventory && (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            {onOpenManageInventory && (
+              <TouchableOpacity
+                onPress={onOpenManageInventory}
+                style={{ paddingHorizontal: 12, paddingVertical: 7, backgroundColor: "rgba(22,163,74,0.1)", borderWidth: 1, borderColor: "rgba(22,163,74,0.2)", borderRadius: 14 }}
+              >
+                <Text style={{ fontSize: 11, color: T.accent, fontWeight: "600" }}>Manage inventory</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
-              onPress={onOpenManageInventory}
-              style={{ paddingHorizontal: 12, paddingVertical: 7, backgroundColor: "rgba(22,163,74,0.1)", borderWidth: 1, borderColor: "rgba(22,163,74,0.2)", borderRadius: 14 }}
+              onPress={() => { track("help_opened"); setShowHelp(true); }}
+              hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+              style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(22,163,74,0.1)", borderWidth: 1, borderColor: "rgba(22,163,74,0.2)", alignItems: "center", justifyContent: "center" }}
+              accessibilityLabel="How to use ok2eat"
             >
-              <Text style={{ fontSize: 11, color: T.accent, fontWeight: "600" }}>Manage inventory</Text>
+              <Ionicons name="help" size={16} color={T.accent} />
             </TouchableOpacity>
-          )}
+          </View>
+        </View>
+        {/* v1.0.10 — inline search bar (filters across the active container) */}
+        <View style={{ marginHorizontal: 16, marginBottom: 12 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: T.card, borderRadius: 12, borderWidth: 1, borderColor: T.border, paddingHorizontal: 12 }}>
+            <Ionicons name="search" size={16} color={T.muted} />
+            <TextInput
+              style={{ flex: 1, paddingVertical: 10, paddingHorizontal: 8, fontSize: 14, color: T.text }}
+              placeholder="Search your fridge…"
+              placeholderTextColor={T.muted}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              returnKeyType="search"
+              clearButtonMode="while-editing"
+              autoCorrect={false}
+              autoCapitalize="none"
+            />
+            {searchQuery.length > 0 && Platform.OS !== "ios" && (
+              <TouchableOpacity onPress={() => setSearchQuery("")} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Ionicons name="close-circle" size={18} color={T.muted} />
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
         {/* Storage Section Tabs */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ paddingHorizontal: 16, marginBottom: 12 }}>
@@ -1011,35 +1054,67 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
         ) : (
           <>
             <Text style={s.sectionLabel}>{filter === "expiring" ? "// EXPIRING SOON" : filter === "expired" ? "// EXPIRED — REMOVE OR DISCARD" : "// CONTENTS · TAP TO VIEW DETAILS"}</Text>
-            {filtered.length === 0 && <View style={{ alignItems: "center", padding: 48 }}><Text style={{ fontSize: 48 }}>🧊</Text><Text style={[s.bold, { fontSize: 18, marginTop: 12 }]}>Your fridge is empty!</Text><Text style={{ color: T.textSoft, fontSize: 14, marginTop: 6 }}>Tap + to add your first item.</Text></View>}
+            {filtered.length === 0 && (
+              q ? (
+                <View style={{ alignItems: "center", padding: 48 }}>
+                  <Text style={{ fontSize: 48 }}>🔍</Text>
+                  <Text style={[s.bold, { fontSize: 16, marginTop: 12 }]}>No items match "{searchQuery}"</Text>
+                  <Text style={{ color: T.textSoft, fontSize: 13, marginTop: 6 }}>Try a different search.</Text>
+                  <TouchableOpacity onPress={() => setSearchQuery("")} style={[s.btnSecondary, { marginTop: 14, paddingHorizontal: 16 }]}>
+                    <Text style={{ color: T.accent, fontWeight: "600" }}>Clear search</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={{ alignItems: "center", padding: 48 }}>
+                  <Text style={{ fontSize: 48 }}>🧊</Text>
+                  <Text style={[s.bold, { fontSize: 18, marginTop: 12 }]}>Your fridge is empty!</Text>
+                  <Text style={{ color: T.textSoft, fontSize: 14, marginTop: 6 }}>Tap + to add your first item.</Text>
+                </View>
+              )
+            )}
             {filtered.map(item => {
               const days = daysUntil(item.expiryDate); const color = expiryColor(days);
               const isSelected = selectedIds.has(item.id);
               return (
-                <TouchableOpacity
+                <SwipeableRow
                   key={item.id}
-                  style={[s.fridgeItem, isSelected && { borderColor: T.accent, borderWidth: 2 }]}
-                  onPress={() => selectMode ? toggleSelected(item.id) : setSelectedItem(item)}
-                  onLongPress={() => { if (!selectMode) { setSelectMode(true); toggleSelected(item.id); } }}
-                  activeOpacity={0.7}
+                  disabled={selectMode}
+                  onSwipeRight={() => { onUse(item.id, null); track("item_swipe_use_all"); }}
+                  onSwipeLeft={() => {
+                    Alert.alert(
+                      `Delete ${item.name}?`,
+                      "This can't be undone.",
+                      [
+                        { text: "Cancel", style: "cancel" },
+                        { text: "Delete", style: "destructive", onPress: () => { onDelete(item.id); track("item_swipe_delete"); } },
+                      ]
+                    );
+                  }}
                 >
-                  {selectMode ? (
-                    <View style={{ width: 44, alignItems: "center" }}>
-                      <Ionicons name={isSelected ? "checkmark-circle" : "ellipse-outline"} size={26} color={isSelected ? T.accent : T.muted} />
+                  <TouchableOpacity
+                    style={[s.fridgeItem, { marginHorizontal: 0, marginBottom: 0 }, isSelected && { borderColor: T.accent, borderWidth: 2 }]}
+                    onPress={() => selectMode ? toggleSelected(item.id) : setSelectedItem(item)}
+                    onLongPress={() => { if (!selectMode) { setSelectMode(true); toggleSelected(item.id); } }}
+                    activeOpacity={0.7}
+                  >
+                    {selectMode ? (
+                      <View style={{ width: 44, alignItems: "center" }}>
+                        <Ionicons name={isSelected ? "checkmark-circle" : "ellipse-outline"} size={26} color={isSelected ? T.accent : T.muted} />
+                      </View>
+                    ) : (
+                      <Text style={{ fontSize: 32, width: 44, textAlign: "center" }}>{item.emoji}</Text>
+                    )}
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <Text style={s.itemName} numberOfLines={1}>{item.name}</Text>
+                      <Text style={s.itemMeta}>{item.category} · {formatQty(item)}</Text>
+                      {item.barcode && <Text style={[s.monoText, { color: T.muted, fontSize: 10, marginTop: 2 }]}>#{item.barcode}</Text>}
                     </View>
-                  ) : (
-                    <Text style={{ fontSize: 32, width: 44, textAlign: "center" }}>{item.emoji}</Text>
-                  )}
-                  <View style={{ flex: 1, marginLeft: 12 }}>
-                    <Text style={s.itemName} numberOfLines={1}>{item.name}</Text>
-                    <Text style={s.itemMeta}>{item.category} · {formatQty(item)}</Text>
-                    {item.barcode && <Text style={[s.monoText, { color: T.muted, fontSize: 10, marginTop: 2 }]}>#{item.barcode}</Text>}
-                  </View>
-                  <View style={{ alignItems: "flex-end", gap: 8 }}>
-                    <View style={[s.expiryBadge, { backgroundColor: color + "22", borderColor: color + "55" }]}><Text style={[s.expiryText, { color }]}>{days <= 0 ? "Expired" : days === 1 ? "1 day" : `${days}d`}</Text></View>
-                    {!selectMode && <Text style={{ color: T.muted, fontSize: 12 }}>›</Text>}
-                  </View>
-                </TouchableOpacity>
+                    <View style={{ alignItems: "flex-end", gap: 8 }}>
+                      <View style={[s.expiryBadge, { backgroundColor: color + "22", borderColor: color + "55" }]}><Text style={[s.expiryText, { color }]}>{days <= 0 ? "Expired" : days === 1 ? "1 day" : `${days}d`}</Text></View>
+                      {!selectMode && <Text style={{ color: T.muted, fontSize: 12 }}>›</Text>}
+                    </View>
+                  </TouchableOpacity>
+                </SwipeableRow>
               );
             })}
           </>
@@ -1048,6 +1123,7 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
       </ScrollView>
       <ItemDetailModal item={selectedItem} visible={!!selectedItem} onClose={() => setSelectedItem(null)} onUpdate={async (id, updates) => { await onUpdate(id, updates); setSelectedItem(null); }} onDelete={(id) => { onDelete(id); setSelectedItem(null); }} onShowUse={(item) => setUseItem(item)} />
       <UseItemModal item={useItem} visible={!!useItem} onClose={() => setUseItem(null)} onUse={(id, newQty) => { onUse(id, newQty); setUseItem(null); }} />
+      <HelpSheet visible={showHelp} onClose={() => setShowHelp(false)} />
       <TouchableOpacity style={{ position: "absolute", bottom: 24, right: 20, width: 56, height: 56, borderRadius: 28, backgroundColor: T.accent, alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 8 }} onPress={() => onAdd(activeSection)}>
         <Text style={{ color: "#FFFFFF", fontSize: 28, lineHeight: 32 }}>+</Text>
       </TouchableOpacity>
@@ -1795,6 +1871,10 @@ function BulkAddModal({ visible, onClose, onAddItems, section }) {
 // 'fridge') but is stored as a default so future "add item" prompts can
 // pre-select it.
 const ONBOARDING_DEFAULT_CONTAINER_KEY = "ok2eat:default_container";
+// v1.0.10 — first-run tour. Set after the user completes the 3-card tour
+// (or skips). We never show the tour again once this is set, even after a
+// reinstall (would need an explicit reset).
+const TOUR_SEEN_KEY = "ok2eat:tourSeen_v1";
 
 function OnboardingModal({ visible, initialName, onComplete }) {
   // v1.0.9 — `phase` replaces a numeric step. Forks early between joining
@@ -2438,7 +2518,7 @@ function DayStepper({ value, onChange, min = 0, max = 365, label, suffix = "days
 }
 
 // ─── Add Item Modal ───────────────────────────────────────────────────────────
-function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, section }) {
+function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceipt, section, recentItems }) {
   const [name, setName] = useState("");
   const [category, setCategory] = useState("Other");
   const [initialQty, setInitialQty] = useState("");
@@ -2498,6 +2578,31 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, section }) {
     onClose();
   }
 
+  // v1.0.10 — one-tap re-add of a previously-added item. Uses the template's
+  // category/quantity/unit, but recomputes expiry from the category default
+  // (the original item's expiry is months stale by now in most cases).
+  function handleQuickAdd(template) {
+    const cat = template.category || "Other";
+    const days = EXPIRY_MAP[cat] || 7;
+    const expiryDateIso = new Date(Date.now() + days * 86400000).toISOString();
+    const packaged = isPackagedCategory(cat);
+    onAdd({
+      name: template.name,
+      category: cat,
+      emoji: template.emoji || emojiMap[cat] || "📦",
+      quantity: Number.isFinite(template.quantity) && template.quantity > 0 ? template.quantity : 1,
+      unit: template.unit || null,
+      expiryDate: expiryDateIso,
+      section,
+      isOpened: false,
+      openedAt: null,
+      expiryOpenedDays: packaged ? (OPENED_DAYS_MAP[cat] || 7) : null,
+      expiryUnopened: packaged ? expiryDateIso.slice(0, 10) : null,
+    });
+    track("item_quick_added", { category: cat });
+    onClose();
+  }
+
   const packaged = isPackagedCategory(category);
 
   return (
@@ -2506,7 +2611,60 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, section }) {
         <TouchableOpacity activeOpacity={1} style={s.modalSheet}>
           <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             <View style={s.sheetHandle} />
-            <Text style={[s.bold, { fontSize: 20, marginBottom: 20 }]}>Add Item Manually</Text>
+            <Text style={[s.bold, { fontSize: 20, marginBottom: 14 }]}>Add Item</Text>
+
+            {/* v1.0.10 — Two prominent peer tiles for the fast-paths.
+                Receipt scanning was previously buried inside "Add multiple
+                items"; testers said they didn't realize it existed. */}
+            <View style={{ flexDirection: "row", gap: 10, marginBottom: 14 }}>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: "rgba(22,163,74,0.08)", borderWidth: 1, borderColor: "rgba(22,163,74,0.25)", borderRadius: 14, padding: 14, alignItems: "center", gap: 6 }}
+                onPress={() => { onClose(); setTimeout(() => onGoToScan && onGoToScan(), 350); }}
+                accessibilityLabel="Scan barcode"
+              >
+                <Text style={{ fontSize: 28 }}>📷</Text>
+                <Text style={[s.bold, { fontSize: 13, textAlign: "center" }]}>Scan Barcode</Text>
+                <Text style={{ color: T.textSoft, fontSize: 11, textAlign: "center" }}>One product</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: "rgba(22,163,74,0.08)", borderWidth: 1, borderColor: "rgba(22,163,74,0.25)", borderRadius: 14, padding: 14, alignItems: "center", gap: 6 }}
+                onPress={() => { onClose(); setTimeout(() => onScanReceipt && onScanReceipt(), 350); }}
+                accessibilityLabel="Scan receipt"
+              >
+                <Text style={{ fontSize: 28 }}>🧾</Text>
+                <Text style={[s.bold, { fontSize: 13, textAlign: "center" }]}>Scan Receipt</Text>
+                <Text style={{ color: T.textSoft, fontSize: 11, textAlign: "center" }}>Whole grocery run</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* v1.0.10 — Recently used quick-add. Most fridge restocking is
+                repeat purchases, so kill the typing+stepper flow for the
+                common case. */}
+            {Array.isArray(recentItems) && recentItems.length > 0 && (
+              <View style={{ marginBottom: 14 }}>
+                <Text style={{ color: T.textSoft, fontSize: 11, fontWeight: "700", letterSpacing: 0.5, marginBottom: 8 }}>RECENTLY ADDED · TAP TO ADD AGAIN</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  {recentItems.map((it, idx) => (
+                    <TouchableOpacity
+                      key={(it.name || "") + "_" + idx}
+                      onPress={() => handleQuickAdd(it)}
+                      style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 18, backgroundColor: T.card, borderWidth: 1, borderColor: T.border, marginRight: 8 }}
+                    >
+                      <Text style={{ fontSize: 16 }}>{it.emoji || "📦"}</Text>
+                      <Text style={{ fontSize: 13, fontWeight: "600", color: T.text, maxWidth: 140 }} numberOfLines={1}>{it.name}</Text>
+                      <Text style={{ fontSize: 13, color: T.accent, fontWeight: "700" }}>+</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* "Or add manually" separator */}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 14 }}>
+              <View style={{ flex: 1, height: 1, backgroundColor: T.border }} />
+              <Text style={{ color: T.muted, fontSize: 11, fontWeight: "600", letterSpacing: 0.5 }}>OR ADD MANUALLY</Text>
+              <View style={{ flex: 1, height: 1, backgroundColor: T.border }} />
+            </View>
 
             <Text style={s.inputLabel}>Item name *</Text>
             <TextInput style={s.input} placeholder="e.g. Almond Butter" placeholderTextColor={T.muted} value={name} onChangeText={setName} />
@@ -2556,13 +2714,11 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, section }) {
             </Text>
 
             <TouchableOpacity style={s.btnPrimary} onPress={handleAdd}><Text style={s.btnPrimaryText}>Add to Fridge</Text></TouchableOpacity>
-            <TouchableOpacity style={[s.btnSecondary, { marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }]} onPress={() => { onClose(); setTimeout(() => onGoToScan && onGoToScan(), 350); }}>
-              <Ionicons name="barcode-outline" size={18} color={T.accent} />
-              <Text style={{ color: T.accent, fontSize: 15, fontWeight: "600" }}>Scan Barcode</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[s.btnSecondary, { marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }]} onPress={() => { onClose(); setTimeout(() => onBulkAdd && onBulkAdd(), 350); }}>
-              <Ionicons name="list-outline" size={18} color={T.accent} />
-              <Text style={{ color: T.accent, fontSize: 15, fontWeight: "600" }}>Add Multiple Items</Text>
+            {/* v1.0.10 — kept as a low-emphasis link; "Scan Receipt" tile up
+                top now opens the same multi-add screen, but the manual list
+                workflow still has its own path for users who prefer it. */}
+            <TouchableOpacity style={{ marginTop: 14, alignSelf: "center", paddingVertical: 6, paddingHorizontal: 12 }} onPress={() => { onClose(); setTimeout(() => onBulkAdd && onBulkAdd(), 350); }}>
+              <Text style={{ color: T.textSoft, fontSize: 13, fontWeight: "500", textDecorationLine: "underline" }}>Add a list of items manually →</Text>
             </TouchableOpacity>
             <View style={{ height: 16 }} />
           </ScrollView>
@@ -2951,6 +3107,247 @@ function PlanScreen({ items, householdId }) {
   );
 }
 
+// ─── SwipeableRow (v1.0.10) ──────────────────────────────────────────────────
+// PanResponder-based swipe-to-action wrapper around fridge item rows. Swipe
+// LEFT (drag finger left) reveals "Delete"; swipe RIGHT reveals "Use it all".
+// We use PanResponder rather than react-native-gesture-handler to avoid a
+// new native dependency / rebuild for v1.0.10. Tap and long-press on the
+// inner child still work — the responder only activates after the user moves
+// horizontally past 12px AND the gesture is more horizontal than vertical
+// (so vertical scrolls in the list still scroll the parent ScrollView).
+function SwipeableRow({ children, onSwipeRight, onSwipeLeft, disabled }) {
+  const translateX = useRef(new Animated.Value(0)).current;
+  const swipeWidth = 100;
+  const trigger = 70;
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, g) =>
+        !disabled && Math.abs(g.dx) > 12 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
+      onPanResponderGrant: () => {
+        translateX.setOffset(0);
+        translateX.setValue(0);
+      },
+      onPanResponderMove: (_, g) => {
+        // Clamp so the row can't be dragged off-screen.
+        const next = Math.max(-swipeWidth - 20, Math.min(swipeWidth + 20, g.dx));
+        translateX.setValue(next);
+      },
+      onPanResponderRelease: (_, g) => {
+        const dx = g.dx;
+        if (dx > trigger && onSwipeRight) {
+          // Animate to the right, fire callback, then snap back so the row
+          // doesn't appear to vanish — the parent state is what removes /
+          // updates the item.
+          Animated.timing(translateX, { toValue: swipeWidth, duration: 120, useNativeDriver: true }).start(() => {
+            onSwipeRight();
+            Animated.timing(translateX, { toValue: 0, duration: 200, useNativeDriver: true }).start();
+          });
+        } else if (dx < -trigger && onSwipeLeft) {
+          Animated.timing(translateX, { toValue: -swipeWidth, duration: 120, useNativeDriver: true }).start(() => {
+            onSwipeLeft();
+            Animated.timing(translateX, { toValue: 0, duration: 200, useNativeDriver: true }).start();
+          });
+        } else {
+          Animated.spring(translateX, { toValue: 0, useNativeDriver: true, friction: 7 }).start();
+        }
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(translateX, { toValue: 0, useNativeDriver: true, friction: 7 }).start();
+      },
+    })
+  ).current;
+
+  // Whether enabled or disabled (selectMode), we always provide consistent
+  // outer margins so the inner row can use marginHorizontal:0 / marginBottom:0
+  // and rely on us. Keeps multi-select and swipe modes visually identical.
+  if (disabled) {
+    return <View style={{ marginHorizontal: 16, marginBottom: 10 }}>{children}</View>;
+  }
+
+  return (
+    <View style={{ position: "relative", marginHorizontal: 16, marginBottom: 10 }}>
+      {/* Action backdrops, revealed as the row is dragged */}
+      <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, flexDirection: "row", borderRadius: 14, overflow: "hidden" }}>
+        <View style={{ flex: 1, backgroundColor: T.accent, justifyContent: "center", paddingLeft: 18 }}>
+          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>✓ Use it all</Text>
+        </View>
+        <View style={{ flex: 1, backgroundColor: T.danger, justifyContent: "center", alignItems: "flex-end", paddingRight: 18 }}>
+          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>Delete 🗑</Text>
+        </View>
+      </View>
+      <Animated.View
+        {...panResponder.panHandlers}
+        style={{ transform: [{ translateX }] }}
+      >
+        {children}
+      </Animated.View>
+    </View>
+  );
+}
+
+// ─── HelpSheet (v1.0.10) ─────────────────────────────────────────────────────
+// Persistent how-to reference, opened from the "?" icon in the FridgeScreen
+// header. Static content — no backend. Add new sections here as the app
+// gains features.
+function HelpSheet({ visible, onClose }) {
+  const sections = [
+    {
+      icon: "📦",
+      title: "Adding items",
+      body: "Tap + on the Fridge tab. Type a name, pick a category, set how many days it lasts. Or scan a barcode for a single product, scan a receipt to bulk-import a whole grocery run, or use “Add multiple items” to type a list.",
+    },
+    {
+      icon: "🧾",
+      title: "Scanning receipts",
+      body: "Tap + → Scan Receipt. Take a photo or upload one from your camera roll. We use AI to extract food items and pre-fill names, quantities, and expiration dates. Review the list and tap Add All.",
+    },
+    {
+      icon: "🤝",
+      title: "Sharing your fridge",
+      body: "Tap the Share tab → Invite household member. Send the code to anyone in your home — once they enter it, you both see the same fridge in real time. New items, deletions, marked-as-used — all sync.",
+    },
+    {
+      icon: "🔔",
+      title: "Reminders",
+      body: "On the Alerts tab, turn on push notifications, daily email digest, or both. We'll let you know which items are 3 days from expiring so nothing gets thrown out.",
+    },
+    {
+      icon: "👆",
+      title: "Quick actions",
+      body: "Swipe RIGHT on an item to mark it all used. Swipe LEFT to delete. Long-press to enter multi-select. Tap any item to edit details, change quantity, or mark as opened.",
+    },
+    {
+      icon: "📍",
+      title: "Containers",
+      body: "Items live in Fridge, Pantry, or Freezer by default. Tap a container chip to filter; tap the + chip to add custom containers like “Spice rack” or “Garage fridge”.",
+    },
+  ];
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <TouchableOpacity style={s.modalOverlay} activeOpacity={1} onPress={onClose}>
+        <TouchableOpacity activeOpacity={1} style={s.modalSheet}>
+          <ScrollView showsVerticalScrollIndicator={false}>
+            <View style={s.sheetHandle} />
+            <Text style={[s.bold, { fontSize: 22, marginBottom: 6 }]}>How to use ok2eat</Text>
+            <Text style={{ color: T.textSoft, fontSize: 13, marginBottom: 18 }}>The short tour. Tap a section below for each topic.</Text>
+            {sections.map(sec => (
+              <View key={sec.title} style={{ flexDirection: "row", marginBottom: 18, gap: 12 }}>
+                <Text style={{ fontSize: 28, width: 36, textAlign: "center" }}>{sec.icon}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.bold, { fontSize: 15, marginBottom: 4 }]}>{sec.title}</Text>
+                  <Text style={{ color: T.textSoft, fontSize: 13, lineHeight: 19 }}>{sec.body}</Text>
+                </View>
+              </View>
+            ))}
+            <View style={{ borderTopWidth: 1, borderTopColor: T.border, paddingTop: 16, marginTop: 8 }}>
+              <Text style={{ color: T.muted, fontSize: 12, textAlign: "center", marginBottom: 8 }}>Stuck? Send us a note.</Text>
+              <TouchableOpacity
+                onPress={() => Linking.openURL("mailto:support@ok2eat.com?subject=ok2eat%20Help")}
+                style={[s.btnSecondary, { alignSelf: "center", paddingHorizontal: 20 }]}
+              >
+                <Text style={{ color: T.accent, fontWeight: "600" }}>Email support</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={{ height: 32 }} />
+          </ScrollView>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+  );
+}
+
+// ─── TourModal (v1.0.10) ─────────────────────────────────────────────────────
+// First-run tour shown after onboarding completes. 3 horizontally-paged cards
+// with a Skip button on every card and Next/Done on the right. Persists
+// TOUR_SEEN_KEY on completion so it never shows twice.
+function TourModal({ visible, onClose }) {
+  const [page, setPage] = useState(0);
+  const screenWidth = Dimensions.get("window").width;
+  const scrollRef = useRef(null);
+
+  useEffect(() => {
+    if (visible) setPage(0);
+  }, [visible]);
+
+  const cards = [
+    {
+      emoji: "📷",
+      title: "Add items in seconds",
+      body: "Scan a barcode or snap a photo of your receipt — we'll auto-fill names, categories, and expiration dates. Way faster than typing.",
+    },
+    {
+      emoji: "📅",
+      title: "We track when it'll go bad",
+      body: "Each item gets a freshness countdown based on what it is. Open something? Tap “Mark as opened” to switch to the shorter shelf life.",
+    },
+    {
+      emoji: "🔔",
+      title: "Get a heads-up before it expires",
+      body: "Daily digest emails (or push notifications) tell you what's expiring in the next 3 days. Less waste, more savings.",
+    },
+  ];
+
+  async function finish() {
+    try { await AsyncStorage.setItem(TOUR_SEEN_KEY, "1"); } catch (e) { /* noop */ }
+    track("tour_completed", { last_page: page });
+    onClose();
+  }
+
+  function handleNext() {
+    if (page < cards.length - 1) {
+      const next = page + 1;
+      setPage(next);
+      scrollRef.current?.scrollTo({ x: next * screenWidth, animated: true });
+    } else {
+      finish();
+    }
+  }
+
+  return (
+    <Modal visible={visible} animationType="fade" onRequestClose={finish}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }}>
+        <View style={{ flexDirection: "row", justifyContent: "flex-end", paddingHorizontal: 20, paddingTop: 8 }}>
+          <TouchableOpacity onPress={finish} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Text style={{ color: T.textSoft, fontSize: 14, fontWeight: "600" }}>Skip</Text>
+          </TouchableOpacity>
+        </View>
+        <ScrollView
+          ref={scrollRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={(e) => setPage(Math.round(e.nativeEvent.contentOffset.x / screenWidth))}
+          style={{ flex: 1 }}
+        >
+          {cards.map((c, i) => (
+            <View key={i} style={{ width: screenWidth, padding: 32, justifyContent: "center", alignItems: "center" }}>
+              <Text style={{ fontSize: 88, marginBottom: 24 }}>{c.emoji}</Text>
+              <Text style={{ fontSize: 24, fontWeight: "800", color: T.text, textAlign: "center", marginBottom: 14, letterSpacing: -0.5 }}>{c.title}</Text>
+              <Text style={{ fontSize: 15, color: T.textSoft, textAlign: "center", lineHeight: 22, maxWidth: 320 }}>{c.body}</Text>
+            </View>
+          ))}
+        </ScrollView>
+        {/* Page dots */}
+        <View style={{ flexDirection: "row", justifyContent: "center", gap: 8, marginBottom: 16 }}>
+          {cards.map((_, i) => (
+            <View
+              key={i}
+              style={{ width: i === page ? 24 : 8, height: 8, borderRadius: 4, backgroundColor: i === page ? T.accent : T.border }}
+            />
+          ))}
+        </View>
+        <View style={{ paddingHorizontal: 24, paddingBottom: 24 }}>
+          <TouchableOpacity style={s.btnPrimary} onPress={handleNext}>
+            <Text style={s.btnPrimaryText}>{page === cards.length - 1 ? "Get started" : "Next"}</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
 // ─── Root App ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [user, setUser] = useState(null);
@@ -2973,8 +3370,28 @@ export default function App() {
   const [showManageInventory, setShowManageInventory] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [memberCount, setMemberCount] = useState(1);
+  // v1.0.10 — first-run tour. We check AsyncStorage on mount and after
+  // onboarding completion to decide whether to show.
+  const [showTour, setShowTour] = useState(false);
   const toastOpacity = useRef(new Animated.Value(0)).current;
   const appState = useRef(AppState.currentState);
+
+  // v1.0.10 — recently-added items, deduped by name (case-insensitive),
+  // newest first, capped at 6. Most fridge restocking is repeat purchases,
+  // so the AddModal surfaces these as one-tap re-add chips.
+  const recentItems = (() => {
+    const seen = new Set();
+    const out = [];
+    // `items` is already ordered created_at DESC by dbGetItems.
+    for (const it of items) {
+      const k = (it.name || "").trim().toLowerCase();
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      out.push(it);
+      if (out.length >= 6) break;
+    }
+    return out;
+  })();
 
   // ── All hooks must come before any conditional returns ──
   
@@ -3431,7 +3848,16 @@ export default function App() {
         {tab === "share" && <ShareScreen householdName={householdName} memberCount={memberCount} onOpenInvite={() => setShowInvite(true)} />}
       </View>
       {toast !== "" && <Animated.View style={[s.toast, { opacity: toastOpacity }]}><Text style={s.toastText}>{toast}</Text></Animated.View>}
-      <AddModal visible={showAdd} onClose={() => setShowAdd(false)} onAdd={handleAddManual} onGoToScan={() => { setShowAdd(false); setTab("scan"); }} section={addSection} onBulkAdd={() => setShowBulkAdd(true)} />
+      <AddModal
+        visible={showAdd}
+        onClose={() => setShowAdd(false)}
+        onAdd={handleAddManual}
+        onGoToScan={() => { setShowAdd(false); setTab("scan"); }}
+        onScanReceipt={() => { setShowAdd(false); setShowBulkAdd(true); }}
+        section={addSection}
+        onBulkAdd={() => setShowBulkAdd(true)}
+        recentItems={recentItems}
+      />
       <OnboardingModal
         visible={showOnboarding}
         initialName={householdName}
@@ -3446,8 +3872,13 @@ export default function App() {
           loadHouseholdState();
           loadItems();
           showToast("👋 You're all set!");
+          // v1.0.10 — first-run tour. Show right after onboarding (only once).
+          AsyncStorage.getItem(TOUR_SEEN_KEY).then(val => {
+            if (!val) setShowTour(true);
+          }).catch(() => { /* noop — fall through, tour just won't show */ });
         }}
       />
+      <TourModal visible={showTour} onClose={() => setShowTour(false)} />
       <ManageInventoryModal
         visible={showManageInventory}
         items={items}
