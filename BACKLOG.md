@@ -15,7 +15,21 @@ Last reviewed: 2026-04-28
 
 ## 🎯 In progress
 
-- [ ] **Twice-weekly blog cadence (Tue + Thu)** — strategic move after Impact rejection: build content on ok2eat.com so the site has substance to crawl when reapplying. Scheduled task `ok2eat-blog-post-nudge` (cron `0 9 * * 2,4`) sends a Telegram nudge every Tue/Thu 9am Pacific. Founder series in order: (1) Why I built ok2eat ✅ live 2026-04-29, (2) How I cut my grocery bill by optimizing what I already have, (3) How I always know what to buy when I'm not at home, (4) What real spending data taught me about my habits. After the founder series, alternate between food-waste tips, expiry myths, simple-recipe posts. Workflow doc lives at `blog/HOWTO.md`.
+- [ ] **Twice-weekly blog cadence (Tue + Thu)** — strategic move after Impact rejection: build content on ok2eat.com so the site has substance to crawl when reapplying. Scheduled task `ok2eat-blog-post-nudge` (cron `0 9 * * 2,4`) sends a Telegram nudge every Tue/Thu 9am Pacific. Workflow doc lives at `blog/HOWTO.md`.
+
+  **Founder series** (in order, personal voice — track 1):
+    1. Why I built ok2eat ✅ live 2026-04-29
+    2. How I cut my grocery bill by optimizing what I already have
+    3. How I always know what to buy when I'm not at home
+    4. What real spending data taught me about my habits
+
+  **Post-founder rotation — 4-post arc explicitly aligned with Impact's 2026-04-30 feedback** (they want "active, high-quality content" + "growing follower base" before reapplying). Each post is SEO-evergreen AND a natural fit for direct-affiliate placements:
+    1. **"Sell-by, use-by, best-by: a complete guide to expiration date labels"** — myth-busting, very high search volume on each label term. Internal links to ok2eat. Affiliate angle: pantry/storage products (Vitacost, Thrive Market).
+    2. **"The fridge organization guide: where every food group should live (and why)"** — evergreen, visual, screenshot-friendly. Pinterest/Instagram fodder. Affiliate angle: storage containers, ethylene absorbers.
+    3. **"I tried Misfits Market for 3 months — here's the real cost and waste data"** — founder-voice review post. Direct affiliate-friendly (Misfits has its own program, bypasses Impact entirely). Authentic and on-brand: their pitch IS food-waste reduction.
+    4. **"The 12 foods Americans waste the most (and what they cost in 2026)"** — listicle, shareable, hits ok2eat's core thesis. Cites USDA data. Naturally links to retailers in the app's picker.
+
+  Track 1 builds audience trust (ok2eat as a real founder/product). Track 2 builds search traffic + gives direct-affiliate programs reasons to approve us. Both signals are exactly what Impact named in their 2026-04-30 feedback email.
 
 - [ ] **v1.0.9 — real-user feedback fixes** — surfaced 2026-04-29 within hours of v1.0.8 going live, when Greg + wife stress-tested the shared-household flow. Three real bugs:
   - **Bug 1 (invite UX confusing)** — when the recipient gets a code, they don't know what to do with it. *Half-fix shipping immediately*: new `/join?code=ABC123` landing page on ok2eat.com that prominently displays the code, has an App Store install button, and clear instructions for "already have the app" path. *v1.0.9 piece*: update the share message in `InviteHouseholdModal` to point to `https://ok2eat.com/join?code=`. Eventual proper fix: Universal Links auto-open the app and prefill the code (already on backlog).
@@ -42,7 +56,32 @@ Last reviewed: 2026-04-28
 
 ### 🔜 Soon — next 1–2 weeks
 
-- [ ] **Impact affiliate (Instacart + Walmart) — DECLINED, reapply later** — application 7243988 declined on 2026-04-28 with no specific reason given. Walmart and Instacart both run exclusively through Impact, so no alternative network exists for those retailers. Drafted a support ticket asking for concrete feedback (saved in Gmail drafts) — copy/paste into impact.com support form. **Reapply when ok2eat has** (a) ~100+ active iOS users to cite, (b) blog content on ok2eat.com beyond the landing page (5–10 articles on food waste, expiry, recipes — anything Google indexes), (c) PostHog/Plausible traffic numbers worth showing. Realistic timeline: 4–8 weeks. Until then, Instacart and Walmart links still open the right pages and just don't earn commission. Amazon Associates (tag `ok2eat-20`) is approved and earning. Retailer order in the picker stays: Instacart 1st, Amazon 2nd, Walmart 3rd.
+- [ ] **Impact affiliate (Instacart + Walmart) — DECLINED, reapply in 4–8 weeks with feedback addressed** — application 7243988 declined on 2026-04-28. Support ticket [#815632] response landed 2026-04-30 from Compliance Team / Siska Marvel with concrete feedback (good — way more actionable than the original blanket rejection):
+  > "At this time the traffic on your domain, and/or your business strategies doesn't quite meet the minimum requirements just yet for Impact.com Marketplace approval. We highly recommend that you apply to some campaigns directly to increase your traffic and marketing presence and then reapply to the Impact.com Marketplace, once traffic and marketing presence have increased. Please note that approval to the Impact.com Marketplace does not automatically mean Brands will approve you on the Platform. […] Brands generally look for active, high-quality content and a growing follower base."
+
+  **Translation of what they want before approval:**
+    1. ok2eat.com getting real Google search traffic (not just an iOS landing page).
+    2. "Active, high-quality content" — the blog cadence is exactly this signal.
+    3. "Growing follower base" — iOS user count + any social presence we can point to.
+    4. *Two gates*: getting into Marketplace ≠ Brands approving us inside it. We need to look like a real publisher, not just an app dev.
+
+  **Plan (4–8 weeks):**
+    - Continue Tue/Thu blog cadence — see "Twice-weekly blog cadence" above for the 4-post arc explicitly designed for this.
+    - Apply to direct-affiliate programs that bypass Impact (see "Direct-affiliate programs to pursue" below). Each one we get approved into is evidence of "marketing presence" when we reapply to Impact.
+    - Watch Plausible/PostHog. Reapply target: ok2eat.com averaging 100+ unique visits/week, 100+ iOS DAU, 5+ blog posts published, 1–2 direct-affiliate program approvals in hand.
+    - When reapplying, include the traffic numbers + active user count + published post list as evidence in the new application.
+
+  Walmart and Instacart both run exclusively through Impact, so no alternative network for those two specific retailers. Until reapply: Instacart and Walmart links still open the right pages, just don't earn commission. Amazon Associates (tag `ok2eat-20`) is approved and earning. Retailer order in the picker stays: Instacart 1st, Amazon 2nd, Walmart 3rd.
+
+- [ ] **Direct-affiliate programs to pursue (bypass Impact)** — Impact themselves told us 2026-04-30 to "apply to campaigns directly" first. The food-waste angle is on-brand for several programs that run their own affiliate platforms outside Impact. In rough priority order:
+  - **Misfits Market** — their pitch IS food-waste reduction. Strongest editorial fit. Has its own affiliate program. Apply at misfitsmarket.com/affiliate. Plan: subscribe + write the 3-month review post (Track 2 #3 in the blog rotation), apply with that post as a portfolio piece.
+  - **Imperfect Foods** — same angle as Misfits, also runs its own program. Some evidence they merged with another service in 2025; verify program is still active before applying.
+  - **Thrive Market** — pantry/clean-food subscription, has own affiliate program. Less waste-angle but big affiliate budgets and good $/conversion.
+  - **Hungryroot** — meal planning, food-waste-aware (chooses recipes from what you have). Direct fit with ok2eat's planning tab.
+  - **Vitacost / iHerb** — pantry staples; broad selection. Lower fit on brand but easy approval bars.
+  - **ButcherBox / Crowd Cow** — protein subscriptions; ok2eat's freezer/expiry tracking is a natural complement.
+
+  Each direct-program approval = one more piece of evidence we're "actively building marketing presence" when we reapply to Impact for Walmart/Instacart. Captured 2026-04-30 from Impact's response email.
 - [x] 2026-04-29 — **Hosting strategy decided: Netlify Personal ($19/mo, 1,000 credits/mo)**. Upgraded after the v1.0.8 / v1.0.9 sprint kicked deploy frequency past the free tier's ~20/month limit. Roughly $0.30 per deploy at this rate; safe ceiling for the next 4–8 weeks of bug fixes + twice-weekly blog cadence + iteration. Revisit the downgrade-to-Cloudflare-Pages option when deploys settle to <20/month.
 - [ ] **v1.0.6 release** — bump build, ship cream icon to App Store (current v1.0.5 in review still has dark icon)
 - [ ] **App Store Support URL** — paste `https://ok2eat.com/#support` in App Information (reminder scheduled for 2026-04-28 9am)
