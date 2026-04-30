@@ -2047,7 +2047,7 @@ function OnboardingModal({ visible, initialName, onComplete }) {
                   style={s.input}
                   value={name}
                   onChangeText={setName}
-                  placeholder='e.g. "The Goldbergs", "Apt 4B"'
+                  placeholder='e.g. "The Smiths", "Apt 4B"'
                   placeholderTextColor={T.muted}
                   autoCapitalize="words"
                   maxLength={60}
