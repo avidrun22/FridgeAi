@@ -31,11 +31,7 @@ Last reviewed: 2026-04-28
 
   Track 1 builds audience trust (ok2eat as a real founder/product). Track 2 builds search traffic + gives direct-affiliate programs reasons to approve us. Both signals are exactly what Impact named in their 2026-04-30 feedback email.
 
-- [ ] **v1.0.9 — real-user feedback fixes** — surfaced 2026-04-29 within hours of v1.0.8 going live, when Greg + wife stress-tested the shared-household flow. Three real bugs:
-  - **Bug 1 (invite UX confusing)** — when the recipient gets a code, they don't know what to do with it. *Half-fix shipping immediately*: new `/join?code=ABC123` landing page on ok2eat.com that prominently displays the code, has an App Store install button, and clear instructions for "already have the app" path. *v1.0.9 piece*: update the share message in `InviteHouseholdModal` to point to `https://ok2eat.com/join?code=`. Eventual proper fix: Universal Links auto-open the app and prefill the code (already on backlog).
-  - **Bug 2 (joining user's old inventory still showed)** — fixed in production 2026-04-29 via migration `20260429_v108_fix_redeem_moves_items.sql`. `redeem_household_invite` now moves the joining user's items into the new household, deletes their now-empty old household, and the migration also one-time-cleaned the existing bad state (used `IS DISTINCT FROM` to also catch NULL household_id from legacy clients). 0 orphaned items remaining. **No app update needed.**
-  - **Bug 3 (shopping list not shared)** — the v1.0.8 shopping list was AsyncStorage-only (device-local), pragmatic shortcut to ship faster. v1.0.9 moves it server-side: new `shopping_list_items` table with RLS scoped by household, `PlanScreen` refactor to read/write via Supabase, optional Realtime subscription for instant cross-device sync.
-  - **Bug 4 (onboarding forces household creation before invite)** — current flow auto-creates a household on first sign-in via `ensure_household_for_user`, then asks them to name it. New users with an invite code get a junk household first that they have to abandon. v1.0.9 adds a fork as Step 0 of `OnboardingModal`: "Have an invite code?" → redeem flow, OR "Create a new household" → existing 2-step name + container flow. The redeem RPC already handles the no-prior-household case correctly.
+- [ ] **v1.0.10 — submitted to App Store, pending review** (submitted 2026-04-30). "Fewer taps everywhere" release driven by tester feedback. Ships: inventory search, swipe-right-to-use / swipe-left-to-delete, recently-added quick-add chips in AddModal, receipt-scan promoted to a peer of barcode-scan, first-run 3-card tour, full-screen "How To" tab (replaced the Help bottom sheet + took Share's nav slot), Share moved into the global app bar, navBar restructure to extend through the home-indicator zone (Messages-app style), magic-link auth on web for Apple-Sign-In iOS users. Wait for Apple approval, then move to Done.
 
 ---
 
@@ -43,14 +39,9 @@ Last reviewed: 2026-04-28
 
 > Items captured via Telegram `/idea` land here. Triage into the sections below when you've got time.
 
+*(empty — last triaged 2026-04-30: 3 items moved into Soon)*
 
 ---
-
-- [ ] 2026-04-27 — screen record demo to upload to socials and website
-
-- [ ] 2026-04-27 — add instacart reorder in place of Walmart
-
-- [ ] 2026-04-27 — push privacy policy on website to a separate page
 
 ## 📋 Triaged
 
@@ -83,11 +74,10 @@ Last reviewed: 2026-04-28
 
   Each direct-program approval = one more piece of evidence we're "actively building marketing presence" when we reapply to Impact for Walmart/Instacart. Captured 2026-04-30 from Impact's response email.
 - [x] 2026-04-29 — **Hosting strategy decided: Netlify Personal ($19/mo, 1,000 credits/mo)**. Upgraded after the v1.0.8 / v1.0.9 sprint kicked deploy frequency past the free tier's ~20/month limit. Roughly $0.30 per deploy at this rate; safe ceiling for the next 4–8 weeks of bug fixes + twice-weekly blog cadence + iteration. Revisit the downgrade-to-Cloudflare-Pages option when deploys settle to <20/month.
-- [ ] **v1.0.6 release** — bump build, ship cream icon to App Store (current v1.0.5 in review still has dark icon)
-- [ ] **App Store Support URL** — paste `https://ok2eat.com/#support` in App Information (reminder scheduled for 2026-04-28 9am)
-- [ ] **Git commit website + script changes** — ok2eat.html, security.txt, deploy_website.py, daily_report.py (reminder scheduled for 2026-04-28 9am)
-- [ ] **Test daily metrics report** — first auto-fire is 2026-04-27 9pm Pacific
 - [ ] **X marketing — engage influencer reply targets** for 2 weeks before mentioning ok2eat (account list drafted in chat history; reminder scheduled for 2026-05-03)
+- [ ] **Screen-record demo for socials + website** (Inbox 2026-04-27). High-leverage content for Impact's "growing follower base" gate. ~30 min to record, edit in iMovie, post to YouTube + embed on ok2eat.com.
+- [ ] **Push privacy policy to a separate page** (Inbox 2026-04-27). Currently at `ok2eat.com/#privacy`. Move to `/privacy` for cleaner App Store / lawyer review. ~10 min.
+- [ ] **Swap Walmart → Instacart in the reorder picker** (Inbox 2026-04-27). Walmart links don't earn commission anyway (Impact gated). Instacart 1st in the picker is already done; this would move Walmart out entirely or replace with another retailer.
 
 ### 🔜 Soon — next 1–2 weeks (continued)
 
@@ -108,6 +98,12 @@ Last reviewed: 2026-04-28
   - **Probably won't add to web** (by hardware, not effort): camera-based barcode scanning, receipt OCR, push notifications. All iPhone-primary features.
 - [ ] **🥉 Android version of ok2eat** — third priority. Same Expo project should produce an Android build with minimal changes, but the Apple-specific bits (Apple Sign In, App Store affiliate tags) need fallbacks. Then Play Store listing, screenshots, and review.
 - [ ] **QR-code handoff: web → phone scanner** — captured 2026-04-29 by Greg. Pattern: web app has no camera, but phone does. Web shows a QR code containing a deep link (e.g. `https://ok2eat.com/scan`). User scans the QR with their phone camera, ok2eat opens directly to the scanner, captures barcode/receipt, and the new item shows up on both screens because of the shared Supabase backend. Pieces: (1) Universal Links setup (already on backlog) so `https://ok2eat.com/scan` opens the app instead of the website. (2) iOS deep-link handler routes `/scan` straight to ScanScreen with camera active. (3) Web app: QR-code generation via a tiny library (qrcode.js or similar, ~3KB), button "Scan with phone" in the Add Item flow. Best-of-both-worlds UX. Probably v1.2.0 because it depends on Universal Links shipping first.
+- [ ] **v1.1.0 — "Money saved" counter (engagement loop)** — captured 2026-04-30 from Greg's "testers say they like the tool but aren't incentivized to keep using it" feedback. The honest answer to that gap: show users the dollar value of food they didn't throw out. Each time an item is marked "used" (or quantity drops to zero) before its expiry, credit the user an estimated $ value (from receipt scan price if known, otherwise category-based default). Surface it in three places: top of Fridge tab ("Saved $47 this month"), Alerts tab ("Lifetime: $312"), email digest ("Last week's saves: $14 across 6 items"). Aggregate-of-all-users total is killer marketing copy ("Our community saved $X,XXX from the trash this month") for blog + Impact reapply.
+
+  **Why this lands before real cashback:** unit economics — Amazon affiliate commission is ~$1.50 per converted reorder, so even at 1k DAU the per-user monthly cashback is well below any practical payout threshold ($5 standard). "Money saved" has the same engagement loop (visible accumulating number that goes up when you use the app) without the payout pipeline complexity. Real cashback queues in "Maybe — someday" and gets unlocked when DAU crosses ~10k.
+
+  Schema: new `value_cents` field on fridge_items (nullable, set from receipt price when scanned, otherwise null). New `money_saved_events` table (user_id, household_id, item_id, item_name, value_cents, saved_at) — written when a user marks an item used. Aggregate views computed on the client from this table or precomputed via a daily Edge Function for the email digest.
+
 - [ ] **v1.1.0 — Shopping list polish sprint** — surfaced 2026-04-29 from Greg + wife testing v1.0.9. Two related improvements that go together:
   - **Multiple named shopping lists per household.** Today each household has ONE implicit list. Users want to organize by store ("Costco trip", "Trader Joe's", "Whole Foods") or by purpose ("This week", "Birthday party"). Schema: new `shopping_lists` table (id, household_id, name, created_by, created_at, archived_at) + add `list_id` FK to `shopping_list_items`. UI: Plan tab top-level becomes a list-picker (cards with item counts); tapping a list opens the item-edit screen we have today. "Create new list" flow + rename + archive actions. RLS scoped by household same as items. ~3-4 hr.
   - **Creator initials next to items.** Show a small green-text initial (first char of email's local-part) next to each shopping list item (and maybe each list itself), so household members can see who added what. Reuse the `list_household_members` RPC to build a userId→initial map on mount. ~30 min.
@@ -118,11 +114,11 @@ Last reviewed: 2026-04-28
 - [ ] **Receipt-scan accuracy** — improve OCR for low-light, faded, or crumpled receipts
 - [ ] **SMS digest via Twilio** — alternative delivery channel for users who don't check email or push
 - [ ] **Item-photo capture** — optional photo per item so users can visually confirm what's in the fridge
-- [ ] 2026-04-28 — **Search across inventory** — search bar on the fridge home that filters items by name (and possibly category, brand, barcode). Most apps put this above the categories chip row. Lightweight: client-side filter on the already-loaded `items` array, no backend changes. Worth pairing with sort options (alphabetical, by expiry, by date added).
 - [ ] 2026-04-28 — **Pending items: ordered but not yet received** — when a user orders from the shopping list (or hits Reorder on an existing item), automatically draft those items into a "Pending" tray. User taps "Mark received" when groceries arrive — that's when the expiry clock starts. Touches: schema (add `status` enum on `fridge_items`: `pending` / `active` / `used`, default `active` for back-compat; or a separate `pending_items` table), UI (new "Pending" section/filter on fridge home, "Mark received" action that transitions status and stamps `added_date = now()`), Plan tab (after tapping "Order N items", offer to draft those into Pending), item detail (after Reorder, offer the same). Solves the common UX gap where "I ordered milk yesterday, when does my fridge know about it?". Also gives us better data on actual buy-through vs intent.
 
 ### 🛸 Maybe — someday
 
+- [ ] **Real cashback (Stage 2 of "Money saved" counter)** — once "Money saved" is live and DAU is in the ~10k range, plug actual affiliate revenue into the same UI. Per-user Amazon Associates sub-tags (already supported via `tag=ok2eat-20-{userid}` pattern), daily ingest of the Amazon affiliate CSV report to credit each user's account, monthly Amazon gift-card payouts at $5 threshold via Tremendous or Tango Card APIs. Apple App Store rules allow cashback flows (see Rakuten, Honey) as long as it's real-world value — can't be in-app currency. FTC: disclose affiliate relationships. IRS: 1099-MISC if any user crosses $600/yr (unlikely at our scale for a long time but tracked). Capture from 2026-04-30 brainstorm with Greg about user incentives.
 - [ ] Integration with Instacart / Whole Foods for low-inventory reorder
 - [ ] Barcode→recipe shortcut from iOS Home Screen widget
 - [ ] Receipt-history view (past grocery runs as a timeline)
@@ -131,6 +127,8 @@ Last reviewed: 2026-04-28
 
 ## ✅ Done
 
+- [x] 2026-04-30 — **Inventory search bar shipped in v1.0.10.** Sticky search above section tabs in the fridge screen, case-insensitive substring filter on item name. Empty-state for no matches with a Clear button. Originally 2026-04-28 backlog item.
+- [x] 2026-04-30 — **v1.0.9 APPROVED + LIVE.** Real-user-feedback fixes from launch-day testing of v1.0.8: invite UX (`/join?code=` landing page on ok2eat.com), redeem migration that moves items into joined household, server-side shopping list with Realtime sync (replaces AsyncStorage-only), onboarding fork ("have an invite code?" before creating a household). Plus polish: editable DayStepper, simplified UseItemModal, AddModal expiration UI, packaged-categories opened-vs-closed shelf life.
 - [x] 2026-04-29 — **v1.0.8 APPROVED + LIVE.** Shared household inventory (households / household_members / household_invites tables, RLS via `user_household_ids()` SECURITY DEFINER helper, four RPCs: ensure_household_for_user, create_household_invite, redeem_household_invite, list_household_members). `fridge_items.container` enum (fridge / pantry / freezer); `user_settings.has_seen_household_onboarding` flag. UI: bottom-nav rename to Fridge / Alerts / Plan / Share, OnboardingModal, ManageInventoryModal, InviteHouseholdModal, ShareScreen restructure, PlanScreen replaces RecipesScreen (recipe-search links + manual shopping list + Order-N-items retailer picker). Bundles all the v1.0.7 friend-feedback fixes (LIVE badge, OUT button, demo data, font scaling, NUTRI), open/closed expiry tracking, editable expiry stepper, Walmart→Instacart swap, and the v1.0.7 manual-add bug fixes (section prop, integer coercion, unit dropdown). Shipped under one combined submission to skip the wait for two reviews.
 - [x] 2026-04-29 — **Newsletter signup + ok2eat.com blog launch.** `/blog/` section on the marketing site, first founder-series post live, email-signup form on homepage and at the end of every post, `subscribe-newsletter` Edge Function adds subscribers to Resend audience. Twice-weekly Tue+Thu 9am Pacific Telegram nudge scheduled.
 - [x] 2026-04-29 — **app.ok2eat.com web app — Round 1 (auth + read-only fridge).** Vite + React + Tailwind SPA, deployed to Netlify with `web/` base directory, custom domain via Namecheap CNAME. Same Supabase backend as iOS so users sign in with one credential and see the same household inventory.
