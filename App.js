@@ -3842,7 +3842,13 @@ export default function App() {
   const navItems = [{ id: "fridge", label: "Fridge" }, { id: "reminders", label: "Alerts" }, { id: "plan", label: "Plan" }, { id: "howto", label: "How To" }];
 
   return (
-    <SafeAreaView style={s.root}>
+    // v1.0.10 — root is a plain View now, with the SafeAreaView nested
+    // *inside* it. The navBar (below) is rendered as a sibling of
+    // SafeAreaView, so it extends past the home-indicator inset and sits
+    // flush with the bottom of the screen, Messages-app style. The nav's
+    // own paddingBottom keeps labels above the actual home indicator.
+    <View style={s.root}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: "#FFFFFF", paddingBottom: 0 }}>
       <StatusBar barStyle="dark-content" backgroundColor={T.bg} />
       <View style={s.appBar}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -3963,7 +3969,11 @@ export default function App() {
           </View>
         </View>
       </Modal>
-      <View style={s.navBar}>
+      </SafeAreaView>
+      {/* navBar lives OUTSIDE the SafeAreaView so its white background
+          extends through the home-indicator zone. paddingBottom on iOS
+          (~24pt) keeps the labels above the actual indicator. */}
+      <View style={[s.navBar, Platform.OS === "ios" && { paddingBottom: 24 }]}>
         {navItems.map(n => (
           <TouchableOpacity key={n.id} style={s.navBtn} onPress={() => setTab(n.id)}>
             {n.id === "fridge" && <MaterialIcons name="kitchen" size={24} color={tab === n.id ? T.accent : T.muted} />}
@@ -3974,13 +3984,17 @@ export default function App() {
           </TouchableOpacity>
         ))}
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: T.bg }, screen: { flex: 1, backgroundColor: T.bg },
+  // v1.0.10 — root bg switched to white so the SafeAreaView's bottom inset
+  // (the home-indicator zone) reads as a continuation of the navBar instead
+  // of a cream-tinted "gap" beneath it. Screens still set their own T.bg
+  // background, so the visible content area is unchanged.
+  root: { flex: 1, backgroundColor: "#FFFFFF" }, screen: { flex: 1, backgroundColor: T.bg },
   appBar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 20, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: T.border, backgroundColor: "#FFFFFF" },
   appLogo: { width: 28, height: 28, backgroundColor: T.accent, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   appName: { fontWeight: "800", fontSize: 16, color: T.accent, letterSpacing: -0.3 },
