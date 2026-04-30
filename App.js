@@ -839,8 +839,6 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
   // v1.0.10 — inventory search. Filters items in-place by case-insensitive
   // name substring across the active container.
   const [searchQuery, setSearchQuery] = useState("");
-  // v1.0.10 — help sheet, opened from the "?" icon in the header.
-  const [showHelp, setShowHelp] = useState(false);
 
   function toggleSelected(id) {
     setSelectedIds(prev => {
@@ -932,14 +930,6 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
                 <Text style={{ fontSize: 11, color: T.accent, fontWeight: "600" }}>Manage inventory</Text>
               </TouchableOpacity>
             )}
-            <TouchableOpacity
-              onPress={() => { track("help_opened"); setShowHelp(true); }}
-              hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
-              style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(22,163,74,0.1)", borderWidth: 1, borderColor: "rgba(22,163,74,0.2)", alignItems: "center", justifyContent: "center" }}
-              accessibilityLabel="How to use ok2eat"
-            >
-              <Ionicons name="help" size={16} color={T.accent} />
-            </TouchableOpacity>
           </View>
         </View>
         {/* v1.0.10 — inline search bar (filters across the active container) */}
@@ -1123,7 +1113,6 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
       </ScrollView>
       <ItemDetailModal item={selectedItem} visible={!!selectedItem} onClose={() => setSelectedItem(null)} onUpdate={async (id, updates) => { await onUpdate(id, updates); setSelectedItem(null); }} onDelete={(id) => { onDelete(id); setSelectedItem(null); }} onShowUse={(item) => setUseItem(item)} />
       <UseItemModal item={useItem} visible={!!useItem} onClose={() => setUseItem(null)} onUse={(id, newQty) => { onUse(id, newQty); setUseItem(null); }} />
-      <HelpSheet visible={showHelp} onClose={() => setShowHelp(false)} />
       <TouchableOpacity style={{ position: "absolute", bottom: 24, right: 20, width: 56, height: 56, borderRadius: 28, backgroundColor: T.accent, alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 8 }} onPress={() => onAdd(activeSection)}>
         <Text style={{ color: "#FFFFFF", fontSize: 28, lineHeight: 32 }}>+</Text>
       </TouchableOpacity>
@@ -2729,7 +2718,7 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
 }
 
 // ─── Share Screen ─────────────────────────────────────────────────────────────
-function ShareScreen({ householdName, memberCount, onOpenInvite }) {
+function ShareScreen({ householdName, memberCount, onOpenInvite, onBack }) {
   const APP_URL = "https://apps.apple.com/us/app/ok2eat/id6761730687";
 
   async function handleShareApp() {
@@ -2745,6 +2734,17 @@ function ShareScreen({ householdName, memberCount, onOpenInvite }) {
 
   return (
     <ScrollView style={s.screen} showsVerticalScrollIndicator={false}>
+      {/* v1.0.10 — back arrow because Share is no longer in the bottom nav. */}
+      {onBack && (
+        <TouchableOpacity
+          onPress={onBack}
+          style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons name="chevron-back" size={20} color={T.accent} />
+          <Text style={{ color: T.accent, fontSize: 15, fontWeight: "600", marginLeft: 2 }}>Fridge</Text>
+        </TouchableOpacity>
+      )}
       <View style={s.headerRow}>
         <View>
           <Text style={s.pageTitle}>Share</Text>
@@ -2820,6 +2820,25 @@ function ShareScreen({ householdName, memberCount, onOpenInvite }) {
             {householdName || "Your household"} · {memberCount} {memberCount === 1 ? "member" : "members"}
           </Text>
         </View>
+      </View>
+
+      {/* TERTIARY — feedback. Was a Feedback button in the global app bar
+          before v1.0.10; moved here so the app bar reads more cleanly. */}
+      <Text style={s.sectionLabel}>// HELP US IMPROVE</Text>
+      <View style={[s.card, { marginHorizontal: 16, marginBottom: 16, padding: 4 }]}>
+        <TouchableOpacity
+          style={{ flexDirection: "row", alignItems: "center", padding: 14, gap: 14 }}
+          onPress={() => { track("feedback_tapped"); Linking.openURL("mailto:support@ok2eat.com?subject=ok2eat%20Feedback&body=Hi%20ok2eat%20team%2C%0A%0A"); }}
+        >
+          <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(22,163,74,0.1)", alignItems: "center", justifyContent: "center" }}>
+            <Ionicons name="chatbubble-ellipses-outline" size={20} color={T.accent} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[s.bold, { fontSize: 15 }]}>Send feedback</Text>
+            <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Bug, idea, anything — straight to our inbox</Text>
+          </View>
+          <Text style={{ color: T.muted, fontSize: 16 }}>›</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={{ height: 32 }} />
@@ -3187,74 +3206,73 @@ function SwipeableRow({ children, onSwipeRight, onSwipeLeft, disabled }) {
   );
 }
 
-// ─── HelpSheet (v1.0.10) ─────────────────────────────────────────────────────
-// Persistent how-to reference, opened from the "?" icon in the FridgeScreen
-// header. Static content — no backend. Add new sections here as the app
-// gains features.
-function HelpSheet({ visible, onClose }) {
-  const sections = [
-    {
-      icon: "📦",
-      title: "Adding items",
-      body: "Tap + on the Fridge tab. Type a name, pick a category, set how many days it lasts. Or scan a barcode for a single product, scan a receipt to bulk-import a whole grocery run, or use “Add multiple items” to type a list.",
-    },
-    {
-      icon: "🧾",
-      title: "Scanning receipts",
-      body: "Tap + → Scan Receipt. Take a photo or upload one from your camera roll. We use AI to extract food items and pre-fill names, quantities, and expiration dates. Review the list and tap Add All.",
-    },
-    {
-      icon: "🤝",
-      title: "Sharing your fridge",
-      body: "Tap the Share tab → Invite household member. Send the code to anyone in your home — once they enter it, you both see the same fridge in real time. New items, deletions, marked-as-used — all sync.",
-    },
-    {
-      icon: "🔔",
-      title: "Reminders",
-      body: "On the Alerts tab, turn on push notifications, daily email digest, or both. We'll let you know which items are 3 days from expiring so nothing gets thrown out.",
-    },
-    {
-      icon: "👆",
-      title: "Quick actions",
-      body: "Swipe RIGHT on an item to mark it all used. Swipe LEFT to delete. Long-press to enter multi-select. Tap any item to edit details, change quantity, or mark as opened.",
-    },
-    {
-      icon: "📍",
-      title: "Containers",
-      body: "Items live in Fridge, Pantry, or Freezer by default. Tap a container chip to filter; tap the + chip to add custom containers like “Spice rack” or “Garage fridge”.",
-    },
-  ];
+// ─── How To (v1.0.10) ────────────────────────────────────────────────────────
+// Originally a bottom sheet (HelpSheet) opened from a "?" icon in the fridge
+// header. Greg moved it into the bottom nav after testing v1.0.10 — easier
+// to discover, and Share moved up into the fridge header in its place.
+const HOWTO_SECTIONS = [
+  {
+    icon: "📦",
+    title: "Adding items",
+    body: "Tap + on the Fridge tab. Type a name, pick a category, set how many days it lasts. Or scan a barcode for a single product, scan a receipt to bulk-import a whole grocery run, or use the manual list for typing several items at once.",
+  },
+  {
+    icon: "🧾",
+    title: "Scanning receipts",
+    body: "Tap + → Scan Receipt. Take a photo or upload one from your camera roll. We use AI to extract food items and pre-fill names, quantities, and expiration dates. Review the list and tap Add All.",
+  },
+  {
+    icon: "🤝",
+    title: "Sharing your fridge",
+    body: "Tap the share icon at the top of the Fridge screen → Invite household member. Send the code to anyone in your home — once they enter it, you both see the same fridge in real time. New items, deletions, marked-as-used — all sync.",
+  },
+  {
+    icon: "🔔",
+    title: "Reminders",
+    body: "On the Alerts tab, turn on push notifications, daily email digest, or both. We'll let you know which items are 3 days from expiring so nothing gets thrown out.",
+  },
+  {
+    icon: "👆",
+    title: "Quick actions",
+    body: "Swipe RIGHT on an item to mark it all used. Swipe LEFT to delete. Long-press to enter multi-select. Tap any item to edit details, change quantity, or mark as opened.",
+  },
+  {
+    icon: "📍",
+    title: "Containers",
+    body: "Items live in Fridge, Pantry, or Freezer by default. Tap a container chip to filter; tap the + chip to add custom containers like “Spice rack” or “Garage fridge”.",
+  },
+];
+
+function HowToScreen() {
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <TouchableOpacity style={s.modalOverlay} activeOpacity={1} onPress={onClose}>
-        <TouchableOpacity activeOpacity={1} style={s.modalSheet}>
-          <ScrollView showsVerticalScrollIndicator={false}>
-            <View style={s.sheetHandle} />
-            <Text style={[s.bold, { fontSize: 22, marginBottom: 6 }]}>How to use ok2eat</Text>
-            <Text style={{ color: T.textSoft, fontSize: 13, marginBottom: 18 }}>The short tour. Tap a section below for each topic.</Text>
-            {sections.map(sec => (
-              <View key={sec.title} style={{ flexDirection: "row", marginBottom: 18, gap: 12 }}>
-                <Text style={{ fontSize: 28, width: 36, textAlign: "center" }}>{sec.icon}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={[s.bold, { fontSize: 15, marginBottom: 4 }]}>{sec.title}</Text>
-                  <Text style={{ color: T.textSoft, fontSize: 13, lineHeight: 19 }}>{sec.body}</Text>
-                </View>
-              </View>
-            ))}
-            <View style={{ borderTopWidth: 1, borderTopColor: T.border, paddingTop: 16, marginTop: 8 }}>
-              <Text style={{ color: T.muted, fontSize: 12, textAlign: "center", marginBottom: 8 }}>Stuck? Send us a note.</Text>
-              <TouchableOpacity
-                onPress={() => Linking.openURL("mailto:support@ok2eat.com?subject=ok2eat%20Help")}
-                style={[s.btnSecondary, { alignSelf: "center", paddingHorizontal: 20 }]}
-              >
-                <Text style={{ color: T.accent, fontWeight: "600" }}>Email support</Text>
-              </TouchableOpacity>
+    <ScrollView style={s.screen} showsVerticalScrollIndicator={false}>
+      <View style={s.headerRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={s.pageTitle}>How To</Text>
+          <Text style={s.pageSubtitle}>The short tour. New here? Start with the Fridge tab.</Text>
+        </View>
+      </View>
+      <View style={{ paddingHorizontal: 16, paddingTop: 8 }}>
+        {HOWTO_SECTIONS.map(sec => (
+          <View key={sec.title} style={[s.card, { padding: 14, marginBottom: 10, flexDirection: "row", gap: 12 }]}>
+            <Text style={{ fontSize: 28, width: 36, textAlign: "center" }}>{sec.icon}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={[s.bold, { fontSize: 15, marginBottom: 4 }]}>{sec.title}</Text>
+              <Text style={{ color: T.textSoft, fontSize: 13, lineHeight: 19 }}>{sec.body}</Text>
             </View>
-            <View style={{ height: 32 }} />
-          </ScrollView>
-        </TouchableOpacity>
-      </TouchableOpacity>
-    </Modal>
+          </View>
+        ))}
+        <View style={{ borderTopWidth: 1, borderTopColor: T.border, paddingTop: 16, marginTop: 12, marginBottom: 32, alignItems: "center" }}>
+          <Text style={{ color: T.muted, fontSize: 12, marginBottom: 8 }}>Stuck? Send us a note.</Text>
+          <TouchableOpacity
+            onPress={() => Linking.openURL("mailto:support@ok2eat.com?subject=ok2eat%20Help")}
+            style={[s.btnSecondary, { paddingHorizontal: 20 }]}
+          >
+            <Text style={{ color: T.accent, fontWeight: "600" }}>Email support</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </ScrollView>
   );
 }
 
@@ -3818,7 +3836,10 @@ export default function App() {
 
   if (!user) return <AuthScreen onAuth={setUser} />;
 
-  const navItems = [{ id: "fridge", label: "Fridge" }, { id: "reminders", label: "Alerts" }, { id: "plan", label: "Plan" }, { id: "share", label: "Share" }];
+  // v1.0.10 — Share moved off the bottom nav into the fridge header (icon),
+  // and "How To" took its slot. Tester feedback: help should be the most
+  // discoverable thing for new users.
+  const navItems = [{ id: "fridge", label: "Fridge" }, { id: "reminders", label: "Alerts" }, { id: "plan", label: "Plan" }, { id: "howto", label: "How To" }];
 
   return (
     <SafeAreaView style={s.root}>
@@ -3829,14 +3850,18 @@ export default function App() {
           <Text style={s.appName}>ok2eat</Text>
         </View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          {/* v1.0.10 — Share promoted to the global app bar so it's
+              reachable from every tab. Replaces the Feedback button
+              (whose action moved into the Share screen as a button). */}
           <TouchableOpacity
-            onPress={() => Linking.openURL("mailto:support@ok2eat.com?subject=ok2eat%20Feedback&body=Hi%20ok2eat%20team%2C%0A%0A")}
-            style={{ paddingHorizontal: 10, paddingVertical: 6, backgroundColor: "rgba(22,163,74,0.1)", borderWidth: 1, borderColor: "rgba(22,163,74,0.2)", borderRadius: 8 }}
+            onPress={() => { track("share_appbar_tapped"); setTab("share"); }}
+            style={{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "rgba(22,163,74,0.1)", borderWidth: 1, borderColor: "rgba(22,163,74,0.2)", borderRadius: 8 }}
+            accessibilityLabel="Share or invite household members"
           >
-            <Text style={{ fontSize: 12, color: T.accent, fontWeight: "600" }}>Feedback</Text>
+            <Text style={{ fontSize: 12, color: T.accent, fontWeight: "600" }}>Share</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => supabase.auth.signOut()} style={{ paddingHorizontal: 10, paddingVertical: 6 }}>
-            <Ionicons name="log-out-outline" size={20} color={T.muted} />
+          <TouchableOpacity onPress={() => supabase.auth.signOut()} style={{ paddingHorizontal: 10, paddingVertical: 6 }} accessibilityLabel="Log out">
+            <Text style={{ fontSize: 12, color: T.muted, fontWeight: "600" }}>Logout</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -3845,7 +3870,8 @@ export default function App() {
         {tab === "scan" && <ScanScreen onScanned={handleScanned} />}
         {tab === "plan" && <PlanScreen items={items} householdId={householdId} />}
         {tab === "reminders" && <RemindersScreen items={items} notificationsEnabled={notificationsEnabled} onToggleNotifications={toggleNotifications} emailDigestEnabled={emailDigestEnabled} onToggleEmailDigest={toggleEmailDigest} />}
-        {tab === "share" && <ShareScreen householdName={householdName} memberCount={memberCount} onOpenInvite={() => setShowInvite(true)} />}
+        {tab === "share" && <ShareScreen householdName={householdName} memberCount={memberCount} onOpenInvite={() => setShowInvite(true)} onBack={() => setTab("fridge")} />}
+        {tab === "howto" && <HowToScreen />}
       </View>
       {toast !== "" && <Animated.View style={[s.toast, { opacity: toastOpacity }]}><Text style={s.toastText}>{toast}</Text></Animated.View>}
       <AddModal
@@ -3943,7 +3969,7 @@ export default function App() {
             {n.id === "fridge" && <MaterialIcons name="kitchen" size={24} color={tab === n.id ? T.accent : T.muted} />}
             {n.id === "reminders" && <Ionicons name="notifications-outline" size={24} color={tab === n.id ? T.accent : T.muted} />}
             {n.id === "plan" && <Ionicons name="list-outline" size={24} color={tab === n.id ? T.accent : T.muted} />}
-            {n.id === "share" && <Ionicons name="share-outline" size={24} color={tab === n.id ? T.accent : T.muted} />}
+            {n.id === "howto" && <Ionicons name="help-circle-outline" size={24} color={tab === n.id ? T.accent : T.muted} />}
             <Text style={[s.navLabel, tab === n.id && { color: T.accent }]}>{n.label}</Text>
           </TouchableOpacity>
         ))}
