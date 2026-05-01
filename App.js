@@ -2987,7 +2987,18 @@ function PlanScreen({ items, householdId }) {
     : [];
 
   return (
-    <ScrollView style={s.screen} showsVerticalScrollIndicator={false}>
+    // v1.0.11 — keyboardShouldPersistTaps + automaticallyAdjustKeyboardInsets
+    // fix: testers reported the keyboard covered the shopping-list input when
+    // typing. iOS auto-adjusts content insets when the keyboard appears so the
+    // focused field stays visible. keyboardShouldPersistTaps lets the user
+    // tap outside the input to dismiss without needing a second tap.
+    <ScrollView
+      style={s.screen}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+      automaticallyAdjustKeyboardInsets={true}
+      contentInsetAdjustmentBehavior="automatic"
+    >
       <View style={s.headerRow}>
         <View>
           <Text style={s.pageTitle}>Plan</Text>
