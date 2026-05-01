@@ -31,11 +31,14 @@ Last reviewed: 2026-04-28
 
   Track 1 builds audience trust (ok2eat as a real founder/product). Track 2 builds search traffic + gives direct-affiliate programs reasons to approve us. Both signals are exactly what Impact named in their 2026-04-30 feedback email.
 
-- [ ] **v1.0.11 — small UX polish + bug fix** (queued 2026-04-30). Two real-user-feedback items:
-  - **PlanScreen keyboard fix** — testers reported the keyboard covered the shopping-list input when typing. Added `automaticallyAdjustKeyboardInsets`, `contentInsetAdjustmentBehavior="automatic"`, and `keyboardShouldPersistTaps="handled"` to the PlanScreen ScrollView. iOS auto-scrolls the focused field above the keyboard.
-  - **AddModal placeholder** — "The Goldbergs" → "The Smiths" (Greg's last name removed from public surfaces).
+- [ ] **v1.1.0 — major feature release, ready to build** (queued 2026-05-01). After Greg pushed back on the small-update framing for v1.0.11, scope expanded into a proper minor version. Five things in one release:
+  1. **PlanScreen keyboard fix** — `automaticallyAdjustKeyboardInsets`, `contentInsetAdjustmentBehavior="automatic"`, `keyboardShouldPersistTaps="handled"` on the ScrollView. Real-user complaint was that the keyboard covered the shopping-list input.
+  2. **Date picker on AddModal** — new `ExpiryDateField` component renders a tappable date hint below the DayStepper. Tap flips into a YYYY-MM-DD editor; on commit, parses date and updates `closedDays` two-way. Lets users say "expires May 4" instead of "lasts 4 days." Direct user feedback.
+  3. **Money saved counter (Stage 1)** — schema migration adds `value_cents` to `fridge_items` + new `money_saved_events` table. `handleUse` records an event when an item is fully used before its expiration date. `App` loads aggregates on mount + after every event. Banner on Fridge tab (only when > $0) and dedicated card on Alerts tab (always visible). Category-based fallback values when receipt prices unknown. Stage 2 (later) plugs in receipt-scan prices.
+  4. **Multiple shopping lists + creator initials** — schema migration adds `shopping_lists` table + `list_id` FK on `shopping_list_items`. Default list backfilled per household so v1.0.x users see no change. PlanScreen now renders a list-picker view when 2+ lists exist (auto-selects when only one list, preserving the single-list UX). Create / archive list flows. Member initials computed via existing `list_household_members` RPC, rendered as small green badge on each item.
+  5. **Universal Links for digest** — `associatedDomains: ["applinks:ok2eat.com"]` in `app.json`. `apple-app-site-association` JSON at `/.well-known/` (Netlify `_headers` ensures `Content-Type: application/json`). `_redirects` falls back `/open` to App Store for non-installed users. `send-email-digest` Edge Function changed from App Store URL to `https://ok2eat.com/open` — installed users now open the app in one tap from email.
 
-  Build cycle pending: `npx expo prebuild --clean` → sed-fix MARKETING_VERSION/CURRENT_PROJECT_VERSION → archive in Xcode → upload to ASC → submit. Bump from 1.0.10/12 already applied (now 1.0.11/13).
+  Bumped 1.0.10/12 → 1.1.0/14. Migrations live under `supabase/migrations/20260430_v110_*.sql` — apply via Supabase SQL editor before archive. Build cycle: prebuild --clean → sed MARKETING_VERSION/CURRENT_PROJECT_VERSION → archive → upload → submit.
 
 ---
 

@@ -1,0 +1,6 @@
+# Apple Universal Links — apple-app-site-association MUST be served as
+# Content-Type: application/json. Without an explicit header Netlify guesses
+# text/plain (no file extension) and iOS rejects the manifest.
+/.well-known/apple-app-site-association
+  Content-Type: application/json
+  Cache-Control: max-age=3600

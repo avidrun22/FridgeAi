@@ -402,12 +402,11 @@ Deno.serve(async (req) => {
     const recipeQuery = recipeNames.join(", ");
 
     const unsubscribeUrl = `${supabaseUrl}/functions/v1/unsubscribe-email-digest?token=${row.unsubscribe_token}`;
-    // App Store URL — iOS Mail opens the App Store, which shows "Open" if
-    // ok2eat is installed (or "Get" if not). Two taps instead of one, but
-    // works for all users today. Replace with a Universal Link
-    // (https://ok2eat.com/open) once we ship apple-app-site-association +
-    // associated-domains entitlement.
-    const appUrl = "https://apps.apple.com/us/app/ok2eat/id6761730687";
+    // v1.1.0 — Universal Link. iOS opens ok2eat directly when installed (one
+    // tap from email). Falls back to ok2eat.com landing for non-install
+    // users. Requires apple-app-site-association at /.well-known/ + the
+    // associatedDomains entitlement in v1.1.0+ of the app.
+    const appUrl = "https://ok2eat.com/open";
 
     const subject = buildSubject(expiring.length, expired.length);
     const html = buildEmailHtml({

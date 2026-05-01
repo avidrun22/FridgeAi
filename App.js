@@ -236,6 +236,25 @@ const isPackagedCategory = (cat) => PACKAGED_CATEGORIES.has(cat);
 // Default once-opened shelf life by category (days). Conservative defaults
 // based on USDA FoodKeeper guidance; the user can override per item.
 const OPENED_DAYS_MAP = { "Protein": 3, "Beverages": 7, "Dry Goods": 30, "Other": 7 };
+
+// v1.1.0 — fallback dollar value per item by category, used by the Money
+// Saved counter when a per-item value isn't known (e.g. items added before
+// receipt scanning, or items added without receipt context). Conservative
+// estimates intended to undercount rather than overstate. Stored in CENTS.
+// Stage 2 (later) replaces these with real prices from receipt scans.
+const CATEGORY_VALUE_CENTS = {
+  "Dairy": 400,         // $4   — gallon of milk, tub of yogurt, block of cheese
+  "Protein": 800,       // $8   — chicken breast, salmon, ground beef
+  "Produce": 300,       // $3   — bag of greens, carton of berries
+  "Dry Goods": 400,     // $4   — pasta, cereal, rice
+  "Beverages": 500,     // $5   — juice, kombucha, soda 6-pack
+  "Other": 500,         // $5   — fallback
+};
+function estimatedItemValueCents(item) {
+  if (Number.isFinite(item?.value_cents) && item.value_cents > 0) return item.value_cents;
+  const cat = item?.category || "Other";
+  return CATEGORY_VALUE_CENTS[cat] || CATEGORY_VALUE_CENTS["Other"];
+}
 function categorize(tags) { if (!tags) return "Other"; const joined = tags.join(" ").toLowerCase(); for (const [key, val] of Object.entries(CATEGORY_MAP)) { if (joined.includes(key)) return val; } return "Other"; }
 
 const GUESS_MAP = {
@@ -829,7 +848,7 @@ function CategoryFilterButton({ value, options, onChange }) {
   );
 }
 
-function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, loading, householdName, onOpenManageInventory }) {
+function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, loading, householdName, onOpenManageInventory, moneySaved }) {
   const [filter, setFilter] = useState("All");
   const [selectedItem, setSelectedItem] = useState(null);
   const [useItem, setUseItem] = useState(null);
@@ -1008,6 +1027,23 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
             <Text style={s.statLabel}>Expired</Text>
           </TouchableOpacity>
         </View>
+        {/* v1.1.0 — Money Saved banner. Only shows once the user has at
+            least one save event, so a fresh user isn't greeted with $0. */}
+        {moneySaved && moneySaved.thisMonthCents > 0 && (
+          <View style={{ marginHorizontal: 16, marginBottom: 16, backgroundColor: "rgba(22,163,74,0.10)", borderWidth: 1, borderColor: "rgba(22,163,74,0.25)", borderRadius: 14, padding: 14, flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <Text style={{ fontSize: 28 }}>💰</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 13, color: T.textSoft, fontWeight: "500" }}>Saved this month</Text>
+              <Text style={{ fontSize: 22, color: T.accent, fontWeight: "800", letterSpacing: -0.3 }}>${(moneySaved.thisMonthCents / 100).toFixed(2)}</Text>
+            </View>
+            {moneySaved.lifetimeCents > moneySaved.thisMonthCents && (
+              <View style={{ alignItems: "flex-end" }}>
+                <Text style={{ fontSize: 11, color: T.muted, fontWeight: "500" }}>LIFETIME</Text>
+                <Text style={{ fontSize: 14, color: T.textSoft, fontWeight: "700" }}>${(moneySaved.lifetimeCents / 100).toFixed(2)}</Text>
+              </View>
+            )}
+          </View>
+        )}
         <View style={{ marginHorizontal: 16, marginBottom: 16 }}>
           <CategoryFilterButton
             value={filter}
@@ -1408,7 +1444,7 @@ function RecipesScreen({ items }) {
 }
 
 // ─── Reminders Screen ─────────────────────────────────────────────────────────
-function RemindersScreen({ items, notificationsEnabled, onToggleNotifications, emailDigestEnabled, onToggleEmailDigest }) {
+function RemindersScreen({ items, notificationsEnabled, onToggleNotifications, emailDigestEnabled, onToggleEmailDigest, moneySaved }) {
   const [dismissed, setDismissed] = useState([]);
   const [reorderItem, setReorderItem] = useState(null);
   const autoReminders = items.filter(i => daysUntil(i.expiryDate) <= 3 && !dismissed.includes("auto-" + i.id)).map(i => ({ id: "auto-" + i.id, type: "toss", text: `Check ${i.name}`, detail: `Expires in ${Math.max(0, daysUntil(i.expiryDate))} day(s)`, time: formatDate(i.expiryDate), emoji: i.emoji, urgent: daysUntil(i.expiryDate) <= 1 }));
@@ -1433,6 +1469,25 @@ function RemindersScreen({ items, notificationsEnabled, onToggleNotifications, e
   return (
     <ScrollView style={s.screen} showsVerticalScrollIndicator={false}>
       <View style={s.headerRow}><View><Text style={s.pageTitle}>Reminders</Text><Text style={s.pageSubtitle}>{allReminders.length} active</Text></View></View>
+
+      {/* v1.1.0 — Money Saved aggregates. Always shows here (vs. only-when-nonzero
+          on Fridge) since this is the dedicated screen for app-level metrics. */}
+      <View style={{ marginHorizontal: 16, marginBottom: 12, backgroundColor: "rgba(22,163,74,0.10)", borderWidth: 1, borderColor: "rgba(22,163,74,0.25)", borderRadius: 14, padding: 16 }}>
+        <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 8, paddingHorizontal: 0, color: T.accent }]}>MONEY SAVED</Text>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end" }}>
+          <View>
+            <Text style={{ fontSize: 11, color: T.textSoft, fontWeight: "600", letterSpacing: 0.5 }}>THIS MONTH</Text>
+            <Text style={{ fontSize: 28, color: T.accent, fontWeight: "800", letterSpacing: -0.5, marginTop: 2 }}>${((moneySaved?.thisMonthCents || 0) / 100).toFixed(2)}</Text>
+          </View>
+          <View style={{ alignItems: "flex-end" }}>
+            <Text style={{ fontSize: 11, color: T.textSoft, fontWeight: "600", letterSpacing: 0.5 }}>LIFETIME</Text>
+            <Text style={{ fontSize: 18, color: T.text, fontWeight: "700", marginTop: 2 }}>${((moneySaved?.lifetimeCents || 0) / 100).toFixed(2)}</Text>
+          </View>
+        </View>
+        <Text style={{ fontSize: 11, color: T.muted, marginTop: 10, lineHeight: 16 }}>
+          Estimated dollar value of items you used before they expired. Add receipts to make these numbers more accurate.
+        </Text>
+      </View>
 
       {/* Reminders — push + email channels combined into one card so the
           "wait, are these the same thing?" confusion goes away. v1.0.9. */}
@@ -2506,6 +2561,78 @@ function DayStepper({ value, onChange, min = 0, max = 365, label, suffix = "days
   );
 }
 
+// ─── ExpiryDateField (v1.1.0) ─────────────────────────────────────────────────
+// Tappable date hint that converts to a YYYY-MM-DD editor on tap. Two-way
+// bound with the parent's `days` prop: when the user types a new date we
+// compute days-from-today and call onDaysChange; when `days` changes from
+// the stepper we re-derive the date display. Direct response to user
+// feedback: "you should be able to put in an actual date instead of number
+// of days till expiration."
+function ExpiryDateField({ days, onDaysChange }) {
+  const [editing, setEditing] = useState(false);
+  // Derived date string from days (YYYY-MM-DD)
+  const targetDate = new Date(Date.now() + days * 86400000);
+  const yyyy = targetDate.getFullYear();
+  const mm = String(targetDate.getMonth() + 1).padStart(2, "0");
+  const dd = String(targetDate.getDate()).padStart(2, "0");
+  const isoStr = `${yyyy}-${mm}-${dd}`;
+  const [draft, setDraft] = useState(isoStr);
+  // Friendly format for the hint: "May 4, 2026"
+  const friendly = targetDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+  // Keep the draft in sync when the stepper changes `days` and we're not editing.
+  useEffect(() => { if (!editing) setDraft(isoStr); }, [isoStr, editing]);
+
+  function commit() {
+    // Parse YYYY-MM-DD and convert to days-from-today.
+    const m = (draft || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) { setDraft(isoStr); setEditing(false); return; }
+    const picked = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    if (Number.isNaN(picked.getTime())) { setDraft(isoStr); setEditing(false); return; }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    picked.setHours(0, 0, 0, 0);
+    const diffDays = Math.round((picked.getTime() - today.getTime()) / 86400000);
+    if (diffDays < 1) { setDraft(isoStr); setEditing(false); return; }
+    onDaysChange?.(diffDays);
+    setEditing(false);
+    track("addmodal_date_used", { days: diffDays });
+  }
+
+  if (editing) {
+    return (
+      <View style={{ marginTop: -6, marginBottom: 12, flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <Text style={{ fontSize: 11, color: T.textSoft }}>Date:</Text>
+        <TextInput
+          value={draft}
+          onChangeText={setDraft}
+          onBlur={commit}
+          onSubmitEditing={commit}
+          autoFocus
+          placeholder="YYYY-MM-DD"
+          placeholderTextColor={T.muted}
+          keyboardType={Platform.OS === "ios" ? "numbers-and-punctuation" : "default"}
+          autoCorrect={false}
+          style={{ flex: 1, fontSize: 13, color: T.text, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderRadius: 8 }}
+        />
+      </View>
+    );
+  }
+
+  return (
+    <TouchableOpacity
+      onPress={() => { setDraft(isoStr); setEditing(true); }}
+      hitSlop={{ top: 6, bottom: 6, left: 8, right: 8 }}
+      style={{ marginTop: -6, marginBottom: 12, alignSelf: "flex-start", paddingVertical: 4, paddingHorizontal: 6 }}
+    >
+      <Text style={{ fontSize: 11, color: T.textSoft }}>
+        Goes bad {friendly}{" "}
+        <Text style={{ color: T.accent, fontWeight: "600" }}>· tap to pick a date</Text>
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
 // ─── Add Item Modal ───────────────────────────────────────────────────────────
 function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceipt, section, recentItems }) {
   const [name, setName] = useState("");
@@ -2685,6 +2812,15 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
               label={packaged ? "Lasts (unopened)" : "Lasts"}
               suffix="days from today"
             />
+            {/* v1.1.0 — tappable date hint that flips into a YYYY-MM-DD
+                editor. Two-way bound with closedDays: tapping the date and
+                editing it computes new days-from-today; stepper changes
+                update the visible date. Direct response to user feedback
+                that "days from today" forces mental date math. */}
+            <ExpiryDateField
+              days={closedDays}
+              onDaysChange={setClosedDays}
+            />
 
             {packaged && (
               <DayStepper
@@ -2855,40 +2991,127 @@ function ShareScreen({ householdName, memberCount, onOpenInvite, onBack }) {
 //      Manual add + check-off. Auto-suggest from low inventory is on the
 //      v1.0.9 roadmap.
 function PlanScreen({ items, householdId }) {
-  const [list, setList] = useState([]);
+  // v1.1.0 — multiple named shopping lists per household. The shopping_lists
+  // table is the new canonical source. Each item has a list_id FK. Existing
+  // households were backfilled by the migration to a single "Shopping list"
+  // list, so v1.0.x users see the same single-list experience by default.
+  const [lists, setLists] = useState([]);              // [{id,name,archived_at,item_count,unchecked_count}]
+  const [activeListId, setActiveListId] = useState(null);
+  const [list, setList] = useState([]);                // items in the active list
   const [adding, setAdding] = useState("");
   const [showOrderSheet, setShowOrderSheet] = useState(false);
-  const [loadingList, setLoadingList] = useState(true);
+  const [loadingLists, setLoadingLists] = useState(true);
+  const [loadingList, setLoadingList] = useState(false);
+  const [showCreateList, setShowCreateList] = useState(false);
+  const [newListName, setNewListName] = useState("");
+  // v1.1.0 — creator initial map: { user_id: "G" } from list_household_members
+  // RPC. Used to render a small initial badge next to items so household
+  // members can see who added what.
+  const [memberInitials, setMemberInitials] = useState({});
 
-  // v1.0.9 — shopping list is now server-side, scoped by household_id, so all
-  // members of a household see the same list. Uses Supabase row-level
-  // security (the `members read/insert/update/delete shopping list` policies)
-  // for access control. Optimistic UI: update local state first, then call
-  // Supabase. If a write fails we refetch to recover the canonical state.
-  async function refetch() {
-    if (!householdId) { setList([]); setLoadingList(false); return; }
+  // Load household lists + members in parallel.
+  async function loadLists() {
+    if (!householdId) { setLists([]); setLoadingLists(false); return; }
     try {
       const { data, error } = await supabase
-        .from("shopping_list_items")
-        .select("id, name, checked, created_at")
+        .from("shopping_lists")
+        .select("id, name, archived_at, created_by, created_at")
         .eq("household_id", householdId)
+        .is("archived_at", null)
         .order("created_at", { ascending: true });
       if (error) throw error;
-      setList((data || []).map(r => ({ id: r.id, name: r.name, checked: !!r.checked })));
+      setLists(data || []);
+      // Auto-select if exactly one list exists — keeps the v1.0.x single-list
+      // experience seamless for users who never create additional lists.
+      if ((data || []).length === 1 && !activeListId) {
+        setActiveListId(data[0].id);
+      } else if ((data || []).length === 0 && !activeListId) {
+        // Fallback: no lists at all (shouldn't happen post-migration). Stay
+        // on picker view — user can tap "+ New list" to create one.
+      }
     } catch (e) {
-      console.warn("[plan] refetch shopping list failed:", e?.message || e);
+      console.warn("[plan] loadLists failed:", e?.message || e);
+    } finally {
+      setLoadingLists(false);
+    }
+  }
+
+  async function loadMembers() {
+    if (!householdId) { setMemberInitials({}); return; }
+    try {
+      const { data, error } = await supabase.rpc("list_household_members");
+      if (error) throw error;
+      const map = {};
+      (data || []).forEach(m => {
+        const local = (m.email || "").split("@")[0] || "";
+        map[m.user_id] = (local[0] || "?").toUpperCase();
+      });
+      setMemberInitials(map);
+    } catch (e) {
+      // Non-fatal — initials are cosmetic. Silent failure.
+    }
+  }
+
+  async function loadItems(listId) {
+    if (!listId) { setList([]); return; }
+    try {
+      setLoadingList(true);
+      const { data, error } = await supabase
+        .from("shopping_list_items")
+        .select("id, name, checked, created_by, created_at")
+        .eq("list_id", listId)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      setList((data || []).map(r => ({ id: r.id, name: r.name, checked: !!r.checked, created_by: r.created_by })));
+    } catch (e) {
+      console.warn("[plan] loadItems failed:", e?.message || e);
     } finally {
       setLoadingList(false);
     }
   }
 
-  useEffect(() => { refetch(); }, [householdId]);
+  useEffect(() => { loadLists(); loadMembers(); /* eslint-disable-line */ }, [householdId]);
+  useEffect(() => { if (activeListId) loadItems(activeListId); else setList([]); /* eslint-disable-line */ }, [activeListId]);
+
+  async function createList() {
+    const trimmed = (newListName || "").trim();
+    if (!trimmed || !householdId) return;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data, error } = await supabase
+        .from("shopping_lists")
+        .insert({ household_id: householdId, name: trimmed, created_by: user?.id || null })
+        .select("id, name, archived_at, created_by, created_at")
+        .single();
+      if (error) throw error;
+      setLists(prev => [...prev, data]);
+      setActiveListId(data.id);
+      setNewListName("");
+      setShowCreateList(false);
+      track("shopping_list_created");
+    } catch (e) {
+      console.warn("[plan] createList failed:", e?.message || e);
+      Alert.alert("Couldn't create list", "Try again in a moment.");
+    }
+  }
+
+  async function archiveList(id) {
+    try {
+      const { error } = await supabase.from("shopping_lists").update({ archived_at: new Date().toISOString() }).eq("id", id);
+      if (error) throw error;
+      setLists(prev => prev.filter(l => l.id !== id));
+      if (activeListId === id) setActiveListId(null);
+      track("shopping_list_archived");
+    } catch (e) {
+      console.warn("[plan] archiveList failed:", e?.message || e);
+      Alert.alert("Couldn't archive list", "Try again in a moment.");
+    }
+  }
 
   async function addItem() {
     const trimmed = (adding || "").trim();
-    if (!trimmed || !householdId) return;
+    if (!trimmed || !householdId || !activeListId) return;
     setAdding("");
-    // Optimistic insert — temp id replaced after the server returns the real one.
     const tempId = "temp-" + Date.now();
     setList(prev => [...prev, { id: tempId, name: trimmed, checked: false }]);
     try {
@@ -2897,14 +3120,14 @@ function PlanScreen({ items, householdId }) {
         .from("shopping_list_items")
         .insert({
           household_id: householdId,
+          list_id: activeListId,
           name: trimmed,
           created_by: user?.id || null,
         })
-        .select("id, name, checked")
+        .select("id, name, checked, created_by")
         .single();
       if (error) throw error;
-      // Swap the temp row out for the real one
-      setList(prev => prev.map(i => i.id === tempId ? { id: data.id, name: data.name, checked: !!data.checked } : i));
+      setList(prev => prev.map(i => i.id === tempId ? { id: data.id, name: data.name, checked: !!data.checked, created_by: data.created_by } : i));
       track("shopping_list_item_added");
     } catch (e) {
       console.warn("[plan] add failed:", e?.message || e);
@@ -2917,17 +3140,12 @@ function PlanScreen({ items, householdId }) {
     const item = list.find(i => i.id === id);
     if (!item) return;
     const nextChecked = !item.checked;
-    // Optimistic toggle
     setList(prev => prev.map(i => i.id === id ? { ...i, checked: nextChecked } : i));
     try {
-      const { error } = await supabase
-        .from("shopping_list_items")
-        .update({ checked: nextChecked })
-        .eq("id", id);
+      const { error } = await supabase.from("shopping_list_items").update({ checked: nextChecked }).eq("id", id);
       if (error) throw error;
     } catch (e) {
       console.warn("[plan] toggle failed:", e?.message || e);
-      // Revert
       setList(prev => prev.map(i => i.id === id ? { ...i, checked: !nextChecked } : i));
     }
   }
@@ -2940,7 +3158,6 @@ function PlanScreen({ items, householdId }) {
       if (error) throw error;
     } catch (e) {
       console.warn("[plan] remove failed:", e?.message || e);
-      // Re-add on failure so the user doesn't lose the row
       if (removed) setList(prev => [...prev, removed]);
     }
   }
@@ -2956,9 +3173,12 @@ function PlanScreen({ items, householdId }) {
       track("shopping_list_cleared", { count: ids.length });
     } catch (e) {
       console.warn("[plan] clearChecked failed:", e?.message || e);
-      refetch(); // recover canonical state
+      loadItems(activeListId);
     }
   }
+
+  const activeList = lists.find(l => l.id === activeListId);
+  const showPicker = !activeListId;
 
   // Items that would actually go into the order — anything not yet checked.
   const unchecked = list.filter(i => !i.checked);
@@ -3036,70 +3256,183 @@ function PlanScreen({ items, householdId }) {
         </View>
       )}
 
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginBottom: 10, marginTop: 8 }}>
-        <Text style={[s.sectionLabel, { paddingHorizontal: 0, marginBottom: 0 }]}>// SHOPPING LIST</Text>
-        {list.some(i => i.checked) && (
-          <TouchableOpacity onPress={clearChecked}>
-            <Text style={{ fontSize: 12, color: T.accent, fontWeight: "600" }}>Clear checked</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      <View style={{ marginHorizontal: 16 }}>
-        {list.length === 0 ? (
-          <View style={[s.card, { padding: 14, marginBottom: 8 }]}>
-            <Text style={{ fontSize: 13, color: T.textSoft }}>Nothing on the list yet. Add an item below.</Text>
+      {/* v1.1.0 — Shopping list section: list-picker view OR in-list view. */}
+      {showPicker ? (
+        <>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginBottom: 10, marginTop: 8 }}>
+            <Text style={[s.sectionLabel, { paddingHorizontal: 0, marginBottom: 0 }]}>// SHOPPING LISTS</Text>
+            <TouchableOpacity onPress={() => { setNewListName(""); setShowCreateList(true); }}>
+              <Text style={{ fontSize: 12, color: T.accent, fontWeight: "600" }}>+ New list</Text>
+            </TouchableOpacity>
           </View>
-        ) : (
-          list.map(item => (
-            <View
-              key={item.id}
-              style={[s.card, { flexDirection: "row", alignItems: "center", padding: 12, marginBottom: 6 }]}
-            >
-              <TouchableOpacity onPress={() => toggle(item.id)} style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: item.checked ? T.accent : T.border, backgroundColor: item.checked ? T.accent : "transparent", alignItems: "center", justifyContent: "center", marginRight: 12 }}>
-                {item.checked && <Ionicons name="checkmark" size={14} color="#fff" />}
+          <View style={{ marginHorizontal: 16 }}>
+            {loadingLists ? (
+              <View style={[s.card, { padding: 14 }]}>
+                <Text style={{ fontSize: 13, color: T.textSoft }}>Loading lists…</Text>
+              </View>
+            ) : lists.length === 0 ? (
+              <TouchableOpacity
+                style={[s.card, { padding: 16, alignItems: "center", borderStyle: "dashed" }]}
+                onPress={() => { setNewListName(""); setShowCreateList(true); }}
+              >
+                <Text style={{ fontSize: 14, color: T.accent, fontWeight: "600" }}>+ Create your first list</Text>
+                <Text style={{ fontSize: 12, color: T.textSoft, marginTop: 4, textAlign: "center" }}>Examples: "Costco trip", "This week", "Birthday party"</Text>
               </TouchableOpacity>
-              <Text style={{ flex: 1, fontSize: 14, color: item.checked ? T.muted : T.text, textDecorationLine: item.checked ? "line-through" : "none" }}>
-                {item.name}
-              </Text>
-              <TouchableOpacity onPress={() => remove(item.id)} style={{ padding: 6 }}>
-                <Ionicons name="close" size={16} color={T.muted} />
+            ) : (
+              lists.map(l => (
+                <TouchableOpacity
+                  key={l.id}
+                  onPress={() => setActiveListId(l.id)}
+                  style={[s.card, { padding: 14, marginBottom: 8, flexDirection: "row", alignItems: "center", gap: 12 }]}
+                >
+                  <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(22,163,74,0.10)", alignItems: "center", justifyContent: "center" }}>
+                    <Ionicons name="list-outline" size={18} color={T.accent} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[s.bold, { fontSize: 15 }]}>{l.name}</Text>
+                    <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Tap to view</Text>
+                  </View>
+                  <Text style={{ color: T.muted, fontSize: 16 }}>›</Text>
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
+        </>
+      ) : (
+        <>
+          <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, marginBottom: 10, marginTop: 8, gap: 10 }}>
+            {/* Back to list-picker if there's more than one list. With only
+                one list (default state for v1.0.x users) we keep the back
+                arrow hidden so the UI feels identical to before. */}
+            {lists.length > 1 && (
+              <TouchableOpacity onPress={() => setActiveListId(null)} hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}>
+                <Ionicons name="chevron-back" size={20} color={T.accent} />
+              </TouchableOpacity>
+            )}
+            <Text style={[s.sectionLabel, { paddingHorizontal: 0, marginBottom: 0, flex: 1 }]}>
+              // {(activeList?.name || "SHOPPING LIST").toUpperCase()}
+            </Text>
+            {list.some(i => i.checked) && (
+              <TouchableOpacity onPress={clearChecked}>
+                <Text style={{ fontSize: 12, color: T.accent, fontWeight: "600" }}>Clear checked</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <View style={{ marginHorizontal: 16 }}>
+            {loadingList ? (
+              <View style={[s.card, { padding: 14, marginBottom: 8 }]}>
+                <Text style={{ fontSize: 13, color: T.textSoft }}>Loading…</Text>
+              </View>
+            ) : list.length === 0 ? (
+              <View style={[s.card, { padding: 14, marginBottom: 8 }]}>
+                <Text style={{ fontSize: 13, color: T.textSoft }}>Nothing on the list yet. Add an item below.</Text>
+              </View>
+            ) : (
+              list.map(item => {
+                const initial = item.created_by ? memberInitials[item.created_by] : null;
+                return (
+                  <View
+                    key={item.id}
+                    style={[s.card, { flexDirection: "row", alignItems: "center", padding: 12, marginBottom: 6 }]}
+                  >
+                    <TouchableOpacity onPress={() => toggle(item.id)} style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: item.checked ? T.accent : T.border, backgroundColor: item.checked ? T.accent : "transparent", alignItems: "center", justifyContent: "center", marginRight: 12 }}>
+                      {item.checked && <Ionicons name="checkmark" size={14} color="#fff" />}
+                    </TouchableOpacity>
+                    <Text style={{ flex: 1, fontSize: 14, color: item.checked ? T.muted : T.text, textDecorationLine: item.checked ? "line-through" : "none" }}>
+                      {item.name}
+                    </Text>
+                    {initial && (
+                      <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: "rgba(22,163,74,0.15)", alignItems: "center", justifyContent: "center", marginRight: 4 }}>
+                        <Text style={{ fontSize: 11, color: T.accent, fontWeight: "700" }}>{initial}</Text>
+                      </View>
+                    )}
+                    <TouchableOpacity onPress={() => remove(item.id)} style={{ padding: 6 }}>
+                      <Ionicons name="close" size={16} color={T.muted} />
+                    </TouchableOpacity>
+                  </View>
+                );
+              })
+            )}
+
+            <View style={{ flexDirection: "row", alignItems: "center", marginTop: 8, gap: 8 }}>
+              <TextInput
+                style={[s.input, { flex: 1, marginBottom: 0 }]}
+                placeholder="Add an item…"
+                placeholderTextColor={T.muted}
+                value={adding}
+                onChangeText={setAdding}
+                onSubmitEditing={addItem}
+                returnKeyType="done"
+              />
+              <TouchableOpacity
+                style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: T.accent, alignItems: "center", justifyContent: "center", opacity: adding.trim() ? 1 : 0.4 }}
+                onPress={addItem}
+                disabled={!adding.trim()}
+              >
+                <Ionicons name="add" size={22} color="#fff" />
               </TouchableOpacity>
             </View>
-          ))
-        )}
 
-        <View style={{ flexDirection: "row", alignItems: "center", marginTop: 8, gap: 8 }}>
-          <TextInput
-            style={[s.input, { flex: 1, marginBottom: 0 }]}
-            placeholder="Add an item…"
-            placeholderTextColor={T.muted}
-            value={adding}
-            onChangeText={setAdding}
-            onSubmitEditing={addItem}
-            returnKeyType="done"
-          />
-          <TouchableOpacity
-            style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: T.accent, alignItems: "center", justifyContent: "center", opacity: adding.trim() ? 1 : 0.4 }}
-            onPress={addItem}
-            disabled={!adding.trim()}
-          >
-            <Ionicons name="add" size={22} color="#fff" />
-          </TouchableOpacity>
-        </View>
+            {unchecked.length > 0 && (
+              <TouchableOpacity
+                style={[s.btnPrimary, { marginTop: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }]}
+                onPress={() => setShowOrderSheet(true)}
+              >
+                <Ionicons name="bag-handle-outline" size={18} color="#fff" />
+                <Text style={s.btnPrimaryText}>
+                  Order {unchecked.length} {unchecked.length === 1 ? "item" : "items"}
+                </Text>
+              </TouchableOpacity>
+            )}
 
-        {unchecked.length > 0 && (
-          <TouchableOpacity
-            style={[s.btnPrimary, { marginTop: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }]}
-            onPress={() => setShowOrderSheet(true)}
-          >
-            <Ionicons name="bag-handle-outline" size={18} color="#fff" />
-            <Text style={s.btnPrimaryText}>
-              Order {unchecked.length} {unchecked.length === 1 ? "item" : "items"}
+            {/* Archive list (only when more than one list exists, since
+                archiving the only list would leave the user without one) */}
+            {lists.length > 1 && (
+              <TouchableOpacity
+                onPress={() => Alert.alert(`Archive "${activeList?.name}"?`, "Items in this list will go away with it. Other lists are unaffected.", [
+                  { text: "Cancel", style: "cancel" },
+                  { text: "Archive", style: "destructive", onPress: () => archiveList(activeList.id) },
+                ])}
+                style={{ marginTop: 12, alignSelf: "center", paddingVertical: 6, paddingHorizontal: 12 }}
+              >
+                <Text style={{ color: T.muted, fontSize: 12 }}>Archive this list</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </>
+      )}
+
+      {/* New list modal */}
+      <Modal visible={showCreateList} transparent animationType="slide" onRequestClose={() => setShowCreateList(false)}>
+        <TouchableOpacity style={s.modalOverlay} activeOpacity={1} onPress={() => setShowCreateList(false)}>
+          <TouchableOpacity activeOpacity={1} style={s.modalSheet}>
+            <View style={s.sheetHandle} />
+            <Text style={[s.bold, { fontSize: 18, marginBottom: 6 }]}>New shopping list</Text>
+            <Text style={{ color: T.textSoft, fontSize: 13, marginBottom: 14 }}>
+              Name it after a store, a trip, or whatever helps you keep things separate.
             </Text>
+            <TextInput
+              style={s.input}
+              placeholder='e.g. "Costco trip"'
+              placeholderTextColor={T.muted}
+              value={newListName}
+              onChangeText={setNewListName}
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={createList}
+            />
+            <TouchableOpacity
+              style={[s.btnPrimary, { marginTop: 8, opacity: newListName.trim() ? 1 : 0.5 }]}
+              disabled={!newListName.trim()}
+              onPress={createList}
+            >
+              <Text style={s.btnPrimaryText}>Create list</Text>
+            </TouchableOpacity>
+            <View style={{ height: 16 }} />
           </TouchableOpacity>
-        )}
-      </View>
+        </TouchableOpacity>
+      </Modal>
 
       <View style={{ height: 32 }} />
 
@@ -3402,6 +3735,10 @@ export default function App() {
   // v1.0.10 — first-run tour. We check AsyncStorage on mount and after
   // onboarding completion to decide whether to show.
   const [showTour, setShowTour] = useState(false);
+  // v1.1.0 — money-saved aggregates. thisMonthCents and lifetimeCents are
+  // the cumulative dollar values of items the user marked "used" before
+  // they expired. Recomputed via loadMoneySaved() after each save event.
+  const [moneySaved, setMoneySaved] = useState({ thisMonthCents: 0, lifetimeCents: 0 });
   const toastOpacity = useRef(new Animated.Value(0)).current;
   const appState = useRef(AppState.currentState);
 
@@ -3488,6 +3825,7 @@ export default function App() {
       setupNotifications();
       loadEmailDigestSetting();
       loadHouseholdState();
+      loadMoneySaved();   // v1.1.0
     }
   }, [user]);
 
@@ -3678,6 +4016,30 @@ export default function App() {
     }
   }
 
+  // v1.1.0 — Money saved aggregates: pull all events for the household
+  // (RLS scopes to households the user belongs to) and bucket into
+  // this-calendar-month vs lifetime. Cheap query — money_saved_events is
+  // append-only and tiny, even at 10k DAU it'd be a few hundred rows/user.
+  async function loadMoneySaved() {
+    try {
+      const { data, error } = await supabase
+        .from("money_saved_events")
+        .select("value_cents, saved_at");
+      if (error) throw error;
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+      let monthCents = 0, lifetimeCents = 0;
+      for (const r of (data || [])) {
+        const v = Number(r.value_cents) || 0;
+        lifetimeCents += v;
+        if (new Date(r.saved_at).getTime() >= startOfMonth) monthCents += v;
+      }
+      setMoneySaved({ thisMonthCents: monthCents, lifetimeCents });
+    } catch (e) {
+      console.warn("[money-saved] load failed:", e?.message || e);
+    }
+  }
+
   function showToast(msg) {
     setToast(msg);
     Animated.sequence([
@@ -3794,6 +4156,39 @@ export default function App() {
   async function handleUse(id, newQty) {
     try {
       if (newQty === null) {
+        // v1.1.0 — record the saved-money event BEFORE deleting the item, so
+        // we have everything we need (name, category, value) to compute
+        // aggregate "money saved this month". Fire-and-forget — if this
+        // insert fails (e.g. offline) we don't block the use action.
+        const item = items.find(i => i.id === id);
+        if (item && householdId) {
+          const valueCents = estimatedItemValueCents(item);
+          // Only credit savings if the item was actually used in time —
+          // i.e. NOT past its expiration. Past-expiry "use" usually means
+          // the user is just clearing out spoiled food, which isn't a save.
+          const days = daysUntil(item.expiryDate);
+          const inTime = days > 0;
+          if (inTime && valueCents > 0) {
+            (async () => {
+              try {
+                const { data: { user: u } } = await supabase.auth.getUser();
+                if (!u) return;
+                await supabase.from("money_saved_events").insert({
+                  user_id: u.id,
+                  household_id: householdId,
+                  item_name: item.name || "(unnamed)",
+                  category: item.category || null,
+                  value_cents: valueCents,
+                });
+                // Trigger refetch of the savings total so the banner
+                // updates immediately. Cheap call.
+                loadMoneySaved();
+              } catch (e) {
+                console.warn("[money-saved] insert failed:", e?.message || e);
+              }
+            })();
+          }
+        }
         await dbDeleteItem(id);
         setItems(prev => prev.filter(i => i.id !== id));
         showToast("✅ Item fully used and removed!");
@@ -3883,10 +4278,10 @@ export default function App() {
         </View>
       </View>
       <View style={{ flex: 1 }}>
-        {tab === "fridge" && <FridgeScreen items={items} onDelete={handleDelete} onBulkDelete={handleBulkDelete} onAdd={(section) => { setAddSection(section || "fridge"); setShowAdd(true); }} onUpdate={handleUpdate} onUse={handleUse} loading={loading} householdName={householdName} onOpenManageInventory={() => setShowManageInventory(true)} />}
+        {tab === "fridge" && <FridgeScreen items={items} onDelete={handleDelete} onBulkDelete={handleBulkDelete} onAdd={(section) => { setAddSection(section || "fridge"); setShowAdd(true); }} onUpdate={handleUpdate} onUse={handleUse} loading={loading} householdName={householdName} onOpenManageInventory={() => setShowManageInventory(true)} moneySaved={moneySaved} />}
         {tab === "scan" && <ScanScreen onScanned={handleScanned} />}
         {tab === "plan" && <PlanScreen items={items} householdId={householdId} />}
-        {tab === "reminders" && <RemindersScreen items={items} notificationsEnabled={notificationsEnabled} onToggleNotifications={toggleNotifications} emailDigestEnabled={emailDigestEnabled} onToggleEmailDigest={toggleEmailDigest} />}
+        {tab === "reminders" && <RemindersScreen items={items} notificationsEnabled={notificationsEnabled} onToggleNotifications={toggleNotifications} emailDigestEnabled={emailDigestEnabled} onToggleEmailDigest={toggleEmailDigest} moneySaved={moneySaved} />}
         {tab === "share" && <ShareScreen householdName={householdName} memberCount={memberCount} onOpenInvite={() => setShowInvite(true)} onBack={() => setTab("fridge")} />}
         {tab === "howto" && <HowToScreen />}
       </View>

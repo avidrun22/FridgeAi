@@ -1,0 +1,7 @@
+# Universal Link fallback. Users with ok2eat installed: iOS intercepts the
+# URL via apple-app-site-association and opens the app directly — they
+# never hit this redirect. Users without the app (or on desktop) get
+# bounced to the App Store. Status 302 (temporary) so search engines
+# don't cache it.
+/open  https://apps.apple.com/us/app/ok2eat/id6761730687  302
+/open/* https://apps.apple.com/us/app/ok2eat/id6761730687  302

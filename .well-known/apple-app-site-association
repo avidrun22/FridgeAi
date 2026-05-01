@@ -1,0 +1,12 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["VU4973B972.com.gregorygoldberg.ok2eat"],
+        "components": [
+          { "/": "/open*", "comment": "Email digest 'Open ok2eat' button" }
+        ]
+      }
+    ]
+  }
+}
