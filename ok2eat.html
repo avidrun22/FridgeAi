@@ -822,9 +822,11 @@
   /* Responsive */
   @media (max-width: 768px) {
     nav { padding: 16px 20px; }
-    .nav-links { display: none; }
-    .nav-links.cta-only { display: flex; }
-    .nav-links.cta-only li:not(:last-child) { display: none; }
+    /* Keep Blog + Download visible on mobile — Features/How/Impact/Support
+       are in-page anchors a visitor can already reach by scrolling, but
+       Blog and Download have no other entry point on mobile. */
+    .nav-links { gap: 14px; }
+    .nav-links li.mobile-hide { display: none; }
     .float-card { display: none; }
     .impact-grid { grid-template-columns: 1fr; }
     .impact-card.green-card { grid-column: span 1; flex-direction: column; text-align: center; }
@@ -861,11 +863,11 @@
 <nav>
   <a href="#" class="nav-logo"><svg><use href="#avocado"/></svg> ok2eat</a>
   <ul class="nav-links">
-    <li><a href="#features">Features</a></li>
-    <li><a href="#how">How it works</a></li>
-    <li><a href="#impact">Impact</a></li>
+    <li class="mobile-hide"><a href="#features">Features</a></li>
+    <li class="mobile-hide"><a href="#how">How it works</a></li>
+    <li class="mobile-hide"><a href="#impact">Impact</a></li>
     <li><a href="/blog/">Blog</a></li>
-    <li><a href="#support">Support</a></li>
+    <li class="mobile-hide"><a href="#support">Support</a></li>
     <li><a href="https://apps.apple.com/us/app/ok2eat/id6761730687" class="nav-cta">Download</a></li>
   </ul>
 </nav>
