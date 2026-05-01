@@ -91,39 +91,62 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 });
 
 // ─── App Store update check ──────────────────────────────────────────────────
-// Bump APP_VERSION whenever app.json's expo.version changes. iTunes lookup
-// returns the latest published version of the app; we compare on launch and
-// show a soft prompt if the user is behind.
-const APP_VERSION = "1.0.9";
+// APP_VERSION reads from app.json's expo.version at runtime via expo-constants
+// — no manual bumping required. Previously this was hardcoded and got stale
+// (left at "1.0.9" through 1.0.10 and 1.1.0 ships), which caused the update
+// modal to fire even for users on the latest build.
+const _expoConstants = require("expo-constants").default;
+const APP_VERSION =
+  _expoConstants?.expoConfig?.version ||
+  _expoConstants?.manifest?.version ||
+  "1.12";
 const APP_STORE_URL = "https://apps.apple.com/app/id6761730687";
 const ITUNES_LOOKUP_URL = "https://itunes.apple.com/lookup?bundleId=com.gregorygoldberg.ok2eat";
 const APP_STORE_APP_ID = "6761730687"; // Apple's numeric app ID, used for itms:// fallback
 
-// Apple's iTunes Lookup API normalizes "1.0.6" to "1.06" in the `version`
-// field — collapsing the trailing-zero minor segment. Without normalization,
-// a naïve parser treats "1.06" as [1, 6] and "1.0.6" as [1, 0, 6], which
-// makes them unequal. We re-expand any segment that starts with "0" back
-// into its individual digits so both string forms parse identically.
+// Apple's iTunes Lookup API normalizes "X.Y.Z" by concatenating the last
+// two segments into one: "1.0.6" → "1.06", "1.1.0" → "1.10", "1.0.10" →
+// "1.010", "1.0.9" → "1.09". The concatenated form is genuinely ambiguous
+// when parsed as a version (does "1.10" mean [1,10] or [1,1,0]?), so we
+// can't reliably disambiguate at parse time. Instead, when comparing local
+// (canonical X.Y.Z from app.json) against remote (Apple-normalized), we
+// also try Apple-normalizing local and check for string equality. If they
+// match, the versions are equal — no update needed.
+function _appleNormalize(v) {
+  const parts = String(v).split(".");
+  if (parts.length === 3) return parts[0] + "." + parts[1] + parts[2];
+  return String(v);
+}
+
 function _versionParts(v) {
   return String(v).split(".").flatMap(seg =>
     seg.length > 1 && seg.startsWith("0") ? seg.split("") : [seg]
   ).map(n => parseInt(n, 10) || 0);
 }
 
-function compareVersions(a, b) {
-  const pa = _versionParts(a);
-  const pb = _versionParts(b);
-  const len = Math.max(pa.length, pb.length);
+function compareVersions(local, remote) {
+  // Compare both versions in Apple's normalized space ("X.YZ"). This sidesteps
+  // the ambiguity of trying to parse Apple's "1.10" back into either [1,10]
+  // or [1,1,0] — both sides get folded into the same shape, then we numeric-
+  // compare segment by segment. Examples:
+  //   local "1.1.1" vs remote "1.10"  → "1.11" vs "1.10"  → [1,11] vs [1,10]  → local newer
+  //   local "1.1.0" vs remote "1.10"  → "1.10" vs "1.10"  → equal (no modal)
+  //   local "1.0.9" vs remote "1.10"  → "1.09" vs "1.10"  → [1,9]  vs [1,10]  → remote newer
+  //   local "1.0.10" vs remote "1.010" → "1.010" vs "1.010" → equal
+  if (local === remote) return 0;
+  const a = _appleNormalize(local).split(".").map(s => parseInt(s, 10) || 0);
+  const b = _appleNormalize(remote).split(".").map(s => parseInt(s, 10) || 0);
+  const len = Math.max(a.length, b.length);
   for (let i = 0; i < len; i++) {
-    const da = pa[i] || 0, db = pb[i] || 0;
+    const da = a[i] || 0, db = b[i] || 0;
     if (da < db) return -1;
     if (da > db) return 1;
   }
   return 0;
 }
 
-// Render a version string in canonical X.Y.Z form, even if Apple's API
-// returned the flattened "1.06" representation.
+// Render a version string for display. Used only for our LOCAL version
+// (which we control), so we don't need to handle Apple's normalized forms.
 function formatVersion(v) {
   const parts = _versionParts(v);
   while (parts.length < 3) parts.push(0);
@@ -4241,7 +4264,7 @@ export default function App() {
               Update available
             </Text>
             <Text style={{ fontSize: 14, color: T.textSoft, textAlign: "center", lineHeight: 20, marginBottom: 24 }}>
-              ok2eat {formatVersion(updateInfo?.latest || "")} is now on the App Store.{"\n"}You're on {formatVersion(updateInfo?.current || "")}.
+              A new version of ok2eat is on the App Store.{"\n"}You're on {formatVersion(updateInfo?.current || "")}.
             </Text>
             <TouchableOpacity
               style={{ backgroundColor: T.accent, paddingHorizontal: 32, paddingVertical: 14, borderRadius: 10, marginBottom: 8, width: "100%", alignItems: "center" }}
