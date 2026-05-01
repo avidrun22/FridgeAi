@@ -237,24 +237,6 @@ const isPackagedCategory = (cat) => PACKAGED_CATEGORIES.has(cat);
 // based on USDA FoodKeeper guidance; the user can override per item.
 const OPENED_DAYS_MAP = { "Protein": 3, "Beverages": 7, "Dry Goods": 30, "Other": 7 };
 
-// v1.1.0 — fallback dollar value per item by category, used by the Money
-// Saved counter when a per-item value isn't known (e.g. items added before
-// receipt scanning, or items added without receipt context). Conservative
-// estimates intended to undercount rather than overstate. Stored in CENTS.
-// Stage 2 (later) replaces these with real prices from receipt scans.
-const CATEGORY_VALUE_CENTS = {
-  "Dairy": 400,         // $4   — gallon of milk, tub of yogurt, block of cheese
-  "Protein": 800,       // $8   — chicken breast, salmon, ground beef
-  "Produce": 300,       // $3   — bag of greens, carton of berries
-  "Dry Goods": 400,     // $4   — pasta, cereal, rice
-  "Beverages": 500,     // $5   — juice, kombucha, soda 6-pack
-  "Other": 500,         // $5   — fallback
-};
-function estimatedItemValueCents(item) {
-  if (Number.isFinite(item?.value_cents) && item.value_cents > 0) return item.value_cents;
-  const cat = item?.category || "Other";
-  return CATEGORY_VALUE_CENTS[cat] || CATEGORY_VALUE_CENTS["Other"];
-}
 function categorize(tags) { if (!tags) return "Other"; const joined = tags.join(" ").toLowerCase(); for (const [key, val] of Object.entries(CATEGORY_MAP)) { if (joined.includes(key)) return val; } return "Other"; }
 
 const GUESS_MAP = {
@@ -848,7 +830,7 @@ function CategoryFilterButton({ value, options, onChange }) {
   );
 }
 
-function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, loading, householdName, onOpenManageInventory, moneySaved }) {
+function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, loading, householdName, onOpenManageInventory }) {
   const [filter, setFilter] = useState("All");
   const [selectedItem, setSelectedItem] = useState(null);
   const [useItem, setUseItem] = useState(null);
@@ -1027,23 +1009,6 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
             <Text style={s.statLabel}>Expired</Text>
           </TouchableOpacity>
         </View>
-        {/* v1.1.0 — Money Saved banner. Only shows once the user has at
-            least one save event, so a fresh user isn't greeted with $0. */}
-        {moneySaved && moneySaved.thisMonthCents > 0 && (
-          <View style={{ marginHorizontal: 16, marginBottom: 16, backgroundColor: "rgba(22,163,74,0.10)", borderWidth: 1, borderColor: "rgba(22,163,74,0.25)", borderRadius: 14, padding: 14, flexDirection: "row", alignItems: "center", gap: 12 }}>
-            <Text style={{ fontSize: 28 }}>💰</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 13, color: T.textSoft, fontWeight: "500" }}>Saved this month</Text>
-              <Text style={{ fontSize: 22, color: T.accent, fontWeight: "800", letterSpacing: -0.3 }}>${(moneySaved.thisMonthCents / 100).toFixed(2)}</Text>
-            </View>
-            {moneySaved.lifetimeCents > moneySaved.thisMonthCents && (
-              <View style={{ alignItems: "flex-end" }}>
-                <Text style={{ fontSize: 11, color: T.muted, fontWeight: "500" }}>LIFETIME</Text>
-                <Text style={{ fontSize: 14, color: T.textSoft, fontWeight: "700" }}>${(moneySaved.lifetimeCents / 100).toFixed(2)}</Text>
-              </View>
-            )}
-          </View>
-        )}
         <View style={{ marginHorizontal: 16, marginBottom: 16 }}>
           <CategoryFilterButton
             value={filter}
@@ -1444,7 +1409,7 @@ function RecipesScreen({ items }) {
 }
 
 // ─── Reminders Screen ─────────────────────────────────────────────────────────
-function RemindersScreen({ items, notificationsEnabled, onToggleNotifications, emailDigestEnabled, onToggleEmailDigest, moneySaved }) {
+function RemindersScreen({ items, notificationsEnabled, onToggleNotifications, emailDigestEnabled, onToggleEmailDigest }) {
   const [dismissed, setDismissed] = useState([]);
   const [reorderItem, setReorderItem] = useState(null);
   const autoReminders = items.filter(i => daysUntil(i.expiryDate) <= 3 && !dismissed.includes("auto-" + i.id)).map(i => ({ id: "auto-" + i.id, type: "toss", text: `Check ${i.name}`, detail: `Expires in ${Math.max(0, daysUntil(i.expiryDate))} day(s)`, time: formatDate(i.expiryDate), emoji: i.emoji, urgent: daysUntil(i.expiryDate) <= 1 }));
@@ -1469,25 +1434,6 @@ function RemindersScreen({ items, notificationsEnabled, onToggleNotifications, e
   return (
     <ScrollView style={s.screen} showsVerticalScrollIndicator={false}>
       <View style={s.headerRow}><View><Text style={s.pageTitle}>Reminders</Text><Text style={s.pageSubtitle}>{allReminders.length} active</Text></View></View>
-
-      {/* v1.1.0 — Money Saved aggregates. Always shows here (vs. only-when-nonzero
-          on Fridge) since this is the dedicated screen for app-level metrics. */}
-      <View style={{ marginHorizontal: 16, marginBottom: 12, backgroundColor: "rgba(22,163,74,0.10)", borderWidth: 1, borderColor: "rgba(22,163,74,0.25)", borderRadius: 14, padding: 16 }}>
-        <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 8, paddingHorizontal: 0, color: T.accent }]}>MONEY SAVED</Text>
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end" }}>
-          <View>
-            <Text style={{ fontSize: 11, color: T.textSoft, fontWeight: "600", letterSpacing: 0.5 }}>THIS MONTH</Text>
-            <Text style={{ fontSize: 28, color: T.accent, fontWeight: "800", letterSpacing: -0.5, marginTop: 2 }}>${((moneySaved?.thisMonthCents || 0) / 100).toFixed(2)}</Text>
-          </View>
-          <View style={{ alignItems: "flex-end" }}>
-            <Text style={{ fontSize: 11, color: T.textSoft, fontWeight: "600", letterSpacing: 0.5 }}>LIFETIME</Text>
-            <Text style={{ fontSize: 18, color: T.text, fontWeight: "700", marginTop: 2 }}>${((moneySaved?.lifetimeCents || 0) / 100).toFixed(2)}</Text>
-          </View>
-        </View>
-        <Text style={{ fontSize: 11, color: T.muted, marginTop: 10, lineHeight: 16 }}>
-          Estimated dollar value of items you used before they expired. Add receipts to make these numbers more accurate.
-        </Text>
-      </View>
 
       {/* Reminders — push + email channels combined into one card so the
           "wait, are these the same thing?" confusion goes away. v1.0.9. */}
@@ -3302,14 +3248,16 @@ function PlanScreen({ items, householdId }) {
         <>
           <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, marginBottom: 10, marginTop: 8, gap: 10 }}>
             {/* Back to list-picker if there's more than one list. With only
-                one list (default state for v1.0.x users) we keep the back
-                arrow hidden so the UI feels identical to before. */}
+                one list (default state) we hide the back arrow — but ALWAYS
+                show the "+ New list" button so single-list users can create
+                additional lists without navigating to a picker view they
+                can't see. */}
             {lists.length > 1 && (
               <TouchableOpacity onPress={() => setActiveListId(null)} hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}>
                 <Ionicons name="chevron-back" size={20} color={T.accent} />
               </TouchableOpacity>
             )}
-            <Text style={[s.sectionLabel, { paddingHorizontal: 0, marginBottom: 0, flex: 1 }]}>
+            <Text style={[s.sectionLabel, { paddingHorizontal: 0, marginBottom: 0, flex: 1 }]} numberOfLines={1}>
               // {(activeList?.name || "SHOPPING LIST").toUpperCase()}
             </Text>
             {list.some(i => i.checked) && (
@@ -3317,6 +3265,9 @@ function PlanScreen({ items, householdId }) {
                 <Text style={{ fontSize: 12, color: T.accent, fontWeight: "600" }}>Clear checked</Text>
               </TouchableOpacity>
             )}
+            <TouchableOpacity onPress={() => { setNewListName(""); setShowCreateList(true); }}>
+              <Text style={{ fontSize: 12, color: T.accent, fontWeight: "600" }}>+ New list</Text>
+            </TouchableOpacity>
           </View>
 
           <View style={{ marginHorizontal: 16 }}>
@@ -3735,10 +3686,6 @@ export default function App() {
   // v1.0.10 — first-run tour. We check AsyncStorage on mount and after
   // onboarding completion to decide whether to show.
   const [showTour, setShowTour] = useState(false);
-  // v1.1.0 — money-saved aggregates. thisMonthCents and lifetimeCents are
-  // the cumulative dollar values of items the user marked "used" before
-  // they expired. Recomputed via loadMoneySaved() after each save event.
-  const [moneySaved, setMoneySaved] = useState({ thisMonthCents: 0, lifetimeCents: 0 });
   const toastOpacity = useRef(new Animated.Value(0)).current;
   const appState = useRef(AppState.currentState);
 
@@ -3825,7 +3772,6 @@ export default function App() {
       setupNotifications();
       loadEmailDigestSetting();
       loadHouseholdState();
-      loadMoneySaved();   // v1.1.0
     }
   }, [user]);
 
@@ -4016,29 +3962,6 @@ export default function App() {
     }
   }
 
-  // v1.1.0 — Money saved aggregates: pull all events for the household
-  // (RLS scopes to households the user belongs to) and bucket into
-  // this-calendar-month vs lifetime. Cheap query — money_saved_events is
-  // append-only and tiny, even at 10k DAU it'd be a few hundred rows/user.
-  async function loadMoneySaved() {
-    try {
-      const { data, error } = await supabase
-        .from("money_saved_events")
-        .select("value_cents, saved_at");
-      if (error) throw error;
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-      let monthCents = 0, lifetimeCents = 0;
-      for (const r of (data || [])) {
-        const v = Number(r.value_cents) || 0;
-        lifetimeCents += v;
-        if (new Date(r.saved_at).getTime() >= startOfMonth) monthCents += v;
-      }
-      setMoneySaved({ thisMonthCents: monthCents, lifetimeCents });
-    } catch (e) {
-      console.warn("[money-saved] load failed:", e?.message || e);
-    }
-  }
 
   function showToast(msg) {
     setToast(msg);
@@ -4156,39 +4079,6 @@ export default function App() {
   async function handleUse(id, newQty) {
     try {
       if (newQty === null) {
-        // v1.1.0 — record the saved-money event BEFORE deleting the item, so
-        // we have everything we need (name, category, value) to compute
-        // aggregate "money saved this month". Fire-and-forget — if this
-        // insert fails (e.g. offline) we don't block the use action.
-        const item = items.find(i => i.id === id);
-        if (item && householdId) {
-          const valueCents = estimatedItemValueCents(item);
-          // Only credit savings if the item was actually used in time —
-          // i.e. NOT past its expiration. Past-expiry "use" usually means
-          // the user is just clearing out spoiled food, which isn't a save.
-          const days = daysUntil(item.expiryDate);
-          const inTime = days > 0;
-          if (inTime && valueCents > 0) {
-            (async () => {
-              try {
-                const { data: { user: u } } = await supabase.auth.getUser();
-                if (!u) return;
-                await supabase.from("money_saved_events").insert({
-                  user_id: u.id,
-                  household_id: householdId,
-                  item_name: item.name || "(unnamed)",
-                  category: item.category || null,
-                  value_cents: valueCents,
-                });
-                // Trigger refetch of the savings total so the banner
-                // updates immediately. Cheap call.
-                loadMoneySaved();
-              } catch (e) {
-                console.warn("[money-saved] insert failed:", e?.message || e);
-              }
-            })();
-          }
-        }
         await dbDeleteItem(id);
         setItems(prev => prev.filter(i => i.id !== id));
         showToast("✅ Item fully used and removed!");
@@ -4278,10 +4168,10 @@ export default function App() {
         </View>
       </View>
       <View style={{ flex: 1 }}>
-        {tab === "fridge" && <FridgeScreen items={items} onDelete={handleDelete} onBulkDelete={handleBulkDelete} onAdd={(section) => { setAddSection(section || "fridge"); setShowAdd(true); }} onUpdate={handleUpdate} onUse={handleUse} loading={loading} householdName={householdName} onOpenManageInventory={() => setShowManageInventory(true)} moneySaved={moneySaved} />}
+        {tab === "fridge" && <FridgeScreen items={items} onDelete={handleDelete} onBulkDelete={handleBulkDelete} onAdd={(section) => { setAddSection(section || "fridge"); setShowAdd(true); }} onUpdate={handleUpdate} onUse={handleUse} loading={loading} householdName={householdName} onOpenManageInventory={() => setShowManageInventory(true)} />}
         {tab === "scan" && <ScanScreen onScanned={handleScanned} />}
         {tab === "plan" && <PlanScreen items={items} householdId={householdId} />}
-        {tab === "reminders" && <RemindersScreen items={items} notificationsEnabled={notificationsEnabled} onToggleNotifications={toggleNotifications} emailDigestEnabled={emailDigestEnabled} onToggleEmailDigest={toggleEmailDigest} moneySaved={moneySaved} />}
+        {tab === "reminders" && <RemindersScreen items={items} notificationsEnabled={notificationsEnabled} onToggleNotifications={toggleNotifications} emailDigestEnabled={emailDigestEnabled} onToggleEmailDigest={toggleEmailDigest} />}
         {tab === "share" && <ShareScreen householdName={householdName} memberCount={memberCount} onOpenInvite={() => setShowInvite(true)} onBack={() => setTab("fridge")} />}
         {tab === "howto" && <HowToScreen />}
       </View>

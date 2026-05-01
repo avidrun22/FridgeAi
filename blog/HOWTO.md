@@ -20,7 +20,7 @@ mv blog/drafts/MY-SLUG.html blog/MY-SLUG.html
 
 # 5. Deploy
 # In Telegram: /deploy
-# Or from the Mac: python3 ~/fridgeai-native/.appstoreconnect/deploy_website.py
+# Or from the Mac: python3 ~/fridgeai-native/scripts/deploy_website.py
 ```
 
 ## What goes in each step
