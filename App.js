@@ -3,7 +3,7 @@ import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   StyleSheet, SafeAreaView, StatusBar, Modal, Alert,
   Animated, Platform, ActivityIndicator, AppState, KeyboardAvoidingView,
-  PanResponder, Dimensions, Keyboard, InputAccessoryView,
+  PanResponder, Dimensions, Keyboard, InputAccessoryView, Image,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Linking, Share } from "react-native";
@@ -2618,6 +2618,13 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
   // default from category maps; user can override.
   const [closedDays, setClosedDays] = useState(EXPIRY_MAP["Other"] || 7);
   const [openedDays, setOpenedDays] = useState(OPENED_DAYS_MAP["Other"] || 7);
+  // v1.16 Phase 1 — type-ahead search results from the local product catalog.
+  // Calls public.search_products(query) RPC. Debounced 300ms client-side.
+  // suppressSearch flips to true when user picks a result, so re-renders
+  // from setName() don't immediately re-fire the search.
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [suppressSearch, setSuppressSearch] = useState(false);
   const categories = ["Dairy", "Protein", "Produce", "Dry Goods", "Beverages", "Other"];
   const emojiMap = { Dairy: "🥛", Protein: "🍗", Produce: "🥬", "Dry Goods": "🥣", Beverages: "🍶", Other: "📦" };
 
@@ -2627,8 +2634,54 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
       setName(""); setCategory("Other"); setInitialQty(""); setInitialUnit("");
       setClosedDays(EXPIRY_MAP["Other"] || 7);
       setOpenedDays(OPENED_DAYS_MAP["Other"] || 7);
+      setSearchResults([]); setSearching(false); setSuppressSearch(false);
     }
   }, [visible]);
+
+  // v1.16 Phase 1 — debounced type-ahead. Watches `name`. Skips if user just
+  // picked a result (suppressSearch is true for one tick). Skips queries
+  // shorter than 2 chars to avoid noisy returns.
+  useEffect(() => {
+    if (!visible) return;
+    if (suppressSearch) { setSuppressSearch(false); return; }
+    const trimmed = (name || "").trim();
+    if (trimmed.length < 2) { setSearchResults([]); return; }
+    let cancelled = false;
+    setSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        const { data, error } = await supabase.rpc("search_products", {
+          query: trimmed,
+          result_limit: 5,
+        });
+        if (cancelled) return;
+        setSearchResults(error ? [] : (data || []));
+      } catch (e) {
+        if (!cancelled) setSearchResults([]);
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 300);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [name, visible]);
+
+  // v1.16 Phase 1 — picking a search result populates the form. Sets name,
+  // category, emoji from the catalog row. Suppresses the next search-fire
+  // so we don't immediately re-query for the just-picked name.
+  function handlePickResult(result) {
+    const cat = (result.category && categories.includes(result.category)) ? result.category : "Other";
+    setSuppressSearch(true);
+    setName(result.name || "");
+    setCategory(cat);
+    setClosedDays(EXPIRY_MAP[cat] || 7);
+    setOpenedDays(OPENED_DAYS_MAP[cat] || 7);
+    setSearchResults([]);
+    track("addmodal_search_result_picked", {
+      source: result.source,
+      has_image: !!result.image_url,
+      has_brand: !!result.brand,
+    });
+  }
 
   // When the user picks a different category, snap the day defaults to that
   // category's typical shelf life so they don't have to remember it.
@@ -2765,6 +2818,51 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
 
             <Text style={s.inputLabel}>Item name *</Text>
             <TextInput style={s.input} placeholder="e.g. Almond Butter" placeholderTextColor={T.muted} value={name} onChangeText={setName} />
+
+            {/* v1.16 Phase 1 — type-ahead results from local product catalog.
+                Renders below the name input when ≥2 chars typed. Tapping a
+                result populates name/category/emoji and clears the dropdown. */}
+            {(searching || searchResults.length > 0) && (
+              <View style={{ marginTop: -10, marginBottom: 12, backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderRadius: 10, overflow: "hidden" }}>
+                {searching && searchResults.length === 0 && (
+                  <View style={{ padding: 12, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <ActivityIndicator size="small" color={T.muted} />
+                    <Text style={{ fontSize: 12, color: T.textSoft }}>Searching products…</Text>
+                  </View>
+                )}
+                {searchResults.map((r, idx) => (
+                  <TouchableOpacity
+                    key={r.id || `${r.source}-${idx}`}
+                    onPress={() => handlePickResult(r)}
+                    style={{ flexDirection: "row", alignItems: "center", padding: 10, gap: 10, borderTopWidth: idx === 0 ? 0 : 1, borderTopColor: T.border }}
+                    accessibilityLabel={`Pick ${r.name}`}
+                  >
+                    {r.image_url ? (
+                      <Image
+                        source={{ uri: r.image_url }}
+                        style={{ width: 36, height: 36, borderRadius: 6, backgroundColor: T.bg }}
+                      />
+                    ) : (
+                      <View style={{ width: 36, height: 36, borderRadius: 6, backgroundColor: T.bg, alignItems: "center", justifyContent: "center" }}>
+                        {/* v1.16 Phase 1 — image_url + emoji not stored to save space.
+                            Compute emoji client-side from the category. Falls back to
+                            generic 📦 for "Other" or unknown categories. */}
+                        <Text style={{ fontSize: 20 }}>{r.emoji || emojiMap[r.category] || "📦"}</Text>
+                      </View>
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 14, fontWeight: "600", color: T.text }} numberOfLines={1}>
+                        {r.name}
+                      </Text>
+                      <Text style={{ fontSize: 11, color: T.textSoft, marginTop: 2 }} numberOfLines={1}>
+                        {[r.brand, r.category].filter(Boolean).join(" · ")}
+                      </Text>
+                    </View>
+                    <Ionicons name="add-circle" size={20} color={T.accent} />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
 
             <View style={{ flexDirection: "row", gap: 10 }}>
               <View style={{ flex: 1 }}>
