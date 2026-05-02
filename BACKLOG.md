@@ -31,6 +31,13 @@ Last reviewed: 2026-04-28
 
   Track 1 builds audience trust (ok2eat as a real founder/product). Track 2 builds search traffic + gives direct-affiliate programs reasons to approve us. Both signals are exactly what Impact named in their 2026-04-30 feedback email.
 
+- [ ] **v1.13 hotfix — three bug fixes from real-user feedback** (queued 2026-05-01). Tight, single-day turnaround on issues Greg surfaced after submitting v1.12:
+  1. **Swipe-to-delete regression on FridgeScreen rows.** Worked in v1.0.10, broke (silently) by v1.11. Root cause: the inner `TouchableOpacity` claimed the responder on touch, leaving our outer `PanResponder` to fight a bubble-phase `onMoveShouldSetPanResponder` it kept losing. Fixes: (a) added `onMoveShouldSetPanResponderCapture` so the parent claims the gesture in the capture phase, before the child Touchable; (b) routed `onSwipeRight`/`onSwipeLeft`/`disabled` through refs that update on every render (the `useRef(PanResponder.create(...))` pattern captures first-render closure values, which goes stale once props change); (c) added `onPanResponderTerminationRequest: () => false` so a parent ScrollView can't take the gesture mid-swipe.
+  2. **AddModal Cancel button.** Tapping outside the modal sheet already closed it via the overlay `onPress=onClose`, but users reported feeling stuck. Added an explicit "Cancel" button below "Add to Fridge", styled as a low-emphasis text link.
+  3. **Numeric keyboard coverage + dismissibility.** Two issues bundled: (a) iOS keyboard covered the focused input on AddModal — fixed by adding `automaticallyAdjustKeyboardInsets={true}` and `contentInsetAdjustmentBehavior="automatic"` to AddModal's ScrollView (same pattern v1.11 applied to PlanScreen). (b) iOS number-pad keyboards have no Return key — users had no obvious way to dismiss. Wired up an `InputAccessoryView` (nativeID `"addModalDone"`) with a green "Done" button → `Keyboard.dismiss()`. Attached via `inputAccessoryViewID` to the Amount field and the DayStepper inputs. iOS only; Android numeric keyboards already have a back/done affordance.
+
+  Bumped 1.12/15 → 1.13/16. Single-file change (App.js + app.json). Build cycle: `prebuild --clean → sed MARKETING_VERSION=1.13 → sed CURRENT_PROJECT_VERSION=16 → archive → upload → submit`. Test plan in TestFlight: (1) horizontal swipe right on a fridge row triggers "Use it all", swipe left triggers Delete confirm; (2) AddModal Cancel button closes modal; (3) tap Amount field → Done toolbar appears above number-pad keyboard, tapping Done dismisses it.
+
 - [ ] **v1.12 hotfix — update prompt loop fix** (queued 2026-05-01). Two bugs caught from real-user screenshot:
   1. **`APP_VERSION` was hardcoded to `"1.0.9"`** and never bumped through the 1.0.10 or 1.11 ships, so the in-app update modal compared the wrong local version against Apple and fired for users already on the latest. Fixed by pulling `APP_VERSION` from `expo-constants` (`Constants.expoConfig.version`) so it auto-syncs with `app.json` going forward — no manual bump needed on future ships.
   2. **Modal version display was misformatted.** `formatVersion("1.10")` rendered as `"1.10.0"` in the modal because the parser padded 2-segment versions to 3. Compounding this: Apple's iTunes Lookup API can return versions in normalized 2-segment form (`"X.YZ"` instead of `"X.Y.Z"`), and our `compareVersions` got confused mixing 2- and 3-segment shapes. Fixed by rewriting `compareVersions` to fold both sides through `_appleNormalize()` (concat 3-segment → 2-segment) before comparing — eliminates the ambiguity. Also dropped Apple's value from the modal text entirely; now reads "A new version of ok2eat is on the App Store. You're on X.YZ."
@@ -49,7 +56,27 @@ Last reviewed: 2026-04-28
 
 > Items captured via Telegram `/idea` land here. Triage into the sections below when you've got time.
 
-*(empty — last triaged 2026-04-30: 3 items moved into Soon)*
+**2026-05-01 — Greg's batch feedback after 1.12 submission:**
+
+*Bugs (FIXED — shipped in v1.13/16, see In Progress section):*
+- ~~Swipe-to-delete on fridge items broken~~ — fixed via capture-phase responder claim + ref-based callback closures + termination-block.
+- ~~AddModal has no cancel button~~ — explicit Cancel button added below "Add to Fridge".
+- ~~Numeric input keyboard covers input area~~ — `automaticallyAdjustKeyboardInsets` on ScrollView + InputAccessoryView with Done button on number-pad inputs.
+
+*Shopping list polish (v1.14):*
+- **Multi-add to shopping list.** Mirror the fridge's BulkAddModal UX — paste/type multiple items at once. Today it's one-at-a-time which is painful when planning a real grocery run.
+- **Drag-to-reorder.** Long-press an item, drag to rearrange. Probably react-native-draggable-flatlist or similar; check it doesn't conflict with PanResponder swipe handlers on the same row.
+- **Notify household members when a new list is created.** Push notification (we already have expo-notifications wired up for digest reminders). E.g., "Greg created 'Costco trip' — tap to view."
+- **Recently-added chips on shopping list.** Same pattern as fridge AddModal — show last 6 items added across any household member, one-tap to re-add. Naturally streamlines "we always need eggs/milk/bread" trips.
+- **Checked items move to bottom + collapse** (added 2026-05-01). When a user marks an item as bought, animate it to the bottom of the list and collapse it into a compact "got these N" group. Keeps the working "still need" portion visible without forcing a manual clear. Tap the collapsed group to expand and see what was bought (or to uncheck if you grabbed something by mistake). UX precedent: Apple Reminders, Things 3.
+- **Save completed lists for reuse on similar trips** (added 2026-05-01). When all items on a list are bought (or user taps "Done"), archive the list with a snapshot of what was on it. New `archived_at` already exists on `shopping_lists` schema. New screen "Past lists" shows archived lists by date/name; user can pick one and "Start a new list from this" → creates a new list pre-populated with the same items. Solves the recurring-trip pattern: "Costco run usually has the same 15 things, plus 2-3 extras."
+
+*Database strategy (Eventually — see Eventually section for full thinking):*
+- **Build proprietary scan database OR integrate Open Food Facts.** Greg's intuition is right — scan accuracy is currently dependent on third-party barcode lookup which has gaps. Two paths to evaluate, see new entry under Eventually for the recommendation.
+
+*Truncated last bullet in source feedback ("logic from recently added items shou…") — appears to duplicate the shopping-list recently-added chips item above; if Greg meant something different, ask when he's back.*
+
+
 
 ---
 
@@ -116,6 +143,20 @@ Last reviewed: 2026-04-28
   Schema: new `value_cents` field on fridge_items (nullable, set from receipt price when scanned, otherwise null). New `money_saved_events` table (user_id, household_id, item_id, item_name, value_cents, saved_at) — written when a user marks an item used. Aggregate views computed on the client from this table or precomputed via a daily Edge Function for the email digest.
 
 - [ ] **Price comparison — featured retailers + local stores within 5 miles** — captured 2026-05-01 from Greg. When a user is about to reorder a low-stock item, show side-by-side prices across (a) the retailers we already integrate with (Instacart, Amazon, Walmart) and (b) local grocery stores within a 5-mile radius of their home address. Two-part feature: feature retailers part is mostly UI + price-API integration; local stores is a real product (geolocation permission, store-locator API, price source — likely scraped or partner data). Feels like the highest-value follow-on to "One-Tap Reorder" because it shifts ok2eat from "nudge to buy" to "spend smarter." Probably v1.3.0 or later — needs serious data sourcing investigation first. Open questions: which price API (Basket, ShopSavvy, Fetch?), how to handle locality privacy (zip-code-only opt-in vs precise lat/long?), whether to rank by price or distance.
+- [ ] **Product database — community scans + Open Food Facts integration** (captured 2026-05-01 from Greg's feedback). Today scan accuracy depends on whatever external barcode service we hit; coverage has gaps and we don't accumulate data across users. Two parallel paths, both valuable:
+
+  **Path A — Integrate Open Food Facts as primary lookup.** OFF is a free, open, crowdsourced database with ~3M+ products, barcodes, ingredients, nutrition, allergens, eco-score. Free API (no key needed), Apache-2.0 licensed. Integration is straightforward: barcode → `https://world.openfoodfacts.org/api/v2/product/{barcode}.json` → parse name, brand, category, image_url, nutriments. This dramatically expands coverage day 1 — likely covers 80%+ of US grocery items already. Also gives us nutrition data "for free" which unlocks the calorie/nutrition tracking Greg called out.
+
+  **Path B — Capture our own scans into a community table.** New `community_products` table (barcode PK, name, category, brand, image_url, scan_count, first_seen_at, last_seen_at, source). Every successful scan writes a row (or increments scan_count if exists). Two values: (1) fallback when OFF doesn't have it, (2) we can submit our entries back to OFF (they accept community contributions) which is good karma + builds publisher cred for Impact reapply.
+
+  **Recommended path:** ship A first (instant coverage upgrade, ~half a day of work), then layer B underneath as a fallback + analytics layer (couple more days). Don't build a proprietary DB without OFF as the floor — that's months of wasted bootstrap time on coverage that's already free.
+
+  **Natural-language search angle Greg called out:** OFF supports text-search via `https://world.openfoodfacts.org/cgi/search.pl?search_terms=...`. Could add a "Search Open Food Facts" button on AddModal alongside barcode/receipt scan. User types "cheerios original," gets a list of matches with images, taps one → fully populated entry. This is the killer UX for items without a scanned barcode (produce, deli, anything in a ziploc).
+
+  **Privacy note:** community-table writes should be opt-out-able and never store PII (just barcode + product metadata). The barcode itself isn't PII.
+
+  **Cost angle Greg mentioned:** OFF doesn't have prices. For "cost of goods consumed" we'd need a separate price-history layer — reasonable from receipts (Stage 2 of money-saved counter) or via the price-comparison feature already in this section. OFF + receipt prices = nutrition × spend, which is a real analytics product.
+
 - [ ] **Recipe-link UX** — instead of AI-generated recipes in email digest, link out to AllRecipes / NYT Cooking / Epicurious search URLs based on user's inventory (cost-saver vs Anthropic per-user calls)
 - [ ] **In-app recipe browsing** — see recipe details inside ok2eat instead of jumping to external sites
 - [ ] **Recipe favorites + saving** — save recipes user likes for quick re-access

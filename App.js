@@ -3,7 +3,7 @@ import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   StyleSheet, SafeAreaView, StatusBar, Modal, Alert,
   Animated, Platform, ActivityIndicator, AppState, KeyboardAvoidingView,
-  PanResponder, Dimensions,
+  PanResponder, Dimensions, Keyboard, InputAccessoryView,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Linking, Share } from "react-native";
@@ -2518,6 +2518,10 @@ function DayStepper({ value, onChange, min = 0, max = 365, label, suffix = "days
             onBlur={() => { if (!Number.isFinite(value)) set(min); }}
             keyboardType="number-pad"
             selectTextOnFocus
+            /* v1.13 — share AddModal's Done accessory so numeric keyboard is dismissable.
+               Only used inside AddModal currently; if reused elsewhere later, hoist
+               the InputAccessoryView to App root and update this ID. */
+            inputAccessoryViewID={Platform.OS === "ios" ? "addModalDone" : undefined}
             style={{ fontSize: 16, fontWeight: "700", color: T.text, textAlign: "center", padding: 0, minWidth: 40 }}
           />
           <Text style={{ fontSize: 11, color: T.textSoft, marginTop: -2 }}>{suffix}</Text>
@@ -2694,7 +2698,15 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={s.modalOverlay} activeOpacity={1} onPress={onClose}>
         <TouchableOpacity activeOpacity={1} style={s.modalSheet}>
-          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          {/* v1.13 — keyboard handling. Number-pad inputs (Amount field
+              especially) were getting covered by the iOS keyboard with no
+              auto-scroll. Same fix pattern as v1.11 PlanScreen. */}
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            automaticallyAdjustKeyboardInsets={true}
+            contentInsetAdjustmentBehavior="automatic"
+          >
             <View style={s.sheetHandle} />
             <Text style={[s.bold, { fontSize: 20, marginBottom: 14 }]}>Add Item</Text>
 
@@ -2757,13 +2769,33 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
             <View style={{ flexDirection: "row", gap: 10 }}>
               <View style={{ flex: 1 }}>
                 <Text style={s.inputLabel}>Amount</Text>
-                <TextInput style={s.input} placeholder="e.g. 1" placeholderTextColor={T.muted} value={initialQty} onChangeText={setInitialQty} keyboardType="number-pad" />
+                <TextInput
+                  style={s.input}
+                  placeholder="e.g. 1"
+                  placeholderTextColor={T.muted}
+                  value={initialQty}
+                  onChangeText={setInitialQty}
+                  keyboardType="number-pad"
+                  /* v1.13 — number-pad keyboards on iOS have no Return key,
+                     so users had no way to dismiss the keyboard. Wire up an
+                     accessory toolbar with a Done button (iOS only). */
+                  inputAccessoryViewID={Platform.OS === "ios" ? "addModalDone" : undefined}
+                />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={s.inputLabel}>Unit</Text>
                 <UnitPicker value={initialUnit} onChange={setInitialUnit} />
               </View>
             </View>
+            {Platform.OS === "ios" && (
+              <InputAccessoryView nativeID="addModalDone">
+                <View style={{ backgroundColor: "#F4F4F5", borderTopWidth: 1, borderTopColor: T.border, paddingHorizontal: 12, paddingVertical: 8, alignItems: "flex-end" }}>
+                  <TouchableOpacity onPress={() => Keyboard.dismiss()} hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}>
+                    <Text style={{ color: T.accent, fontWeight: "700", fontSize: 16 }}>Done</Text>
+                  </TouchableOpacity>
+                </View>
+              </InputAccessoryView>
+            )}
 
             <Text style={[s.inputLabel, { marginTop: 4 }]}>Category</Text>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
@@ -2808,10 +2840,21 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
             </Text>
 
             <TouchableOpacity style={s.btnPrimary} onPress={handleAdd}><Text style={s.btnPrimaryText}>Add to Fridge</Text></TouchableOpacity>
+            {/* v1.13 — explicit Cancel button below Add. Tapping outside the
+                modal sheet also closes it (overlay onPress=onClose), but
+                testers reported feeling "stuck" inside the manual-add flow
+                with no obvious escape hatch. */}
+            <TouchableOpacity
+              style={{ marginTop: 10, alignItems: "center", paddingVertical: 12 }}
+              onPress={onClose}
+              accessibilityLabel="Cancel and close add-item screen"
+            >
+              <Text style={{ color: T.textSoft, fontSize: 14, fontWeight: "600" }}>Cancel</Text>
+            </TouchableOpacity>
             {/* v1.0.10 — kept as a low-emphasis link; "Scan Receipt" tile up
                 top now opens the same multi-add screen, but the manual list
                 workflow still has its own path for users who prefer it. */}
-            <TouchableOpacity style={{ marginTop: 14, alignSelf: "center", paddingVertical: 6, paddingHorizontal: 12 }} onPress={() => { onClose(); setTimeout(() => onBulkAdd && onBulkAdd(), 350); }}>
+            <TouchableOpacity style={{ marginTop: 6, alignSelf: "center", paddingVertical: 6, paddingHorizontal: 12 }} onPress={() => { onClose(); setTimeout(() => onBulkAdd && onBulkAdd(), 350); }}>
               <Text style={{ color: T.textSoft, fontSize: 13, fontWeight: "500", textDecorationLine: "underline" }}>Add a list of items manually →</Text>
             </TouchableOpacity>
             <View style={{ height: 16 }} />
@@ -3444,7 +3487,7 @@ function PlanScreen({ items, householdId }) {
   );
 }
 
-// ─── SwipeableRow (v1.0.10) ──────────────────────────────────────────────────
+// ─── SwipeableRow (v1.0.10, regression-hardened in v1.13) ───────────────────
 // PanResponder-based swipe-to-action wrapper around fridge item rows. Swipe
 // LEFT (drag finger left) reveals "Delete"; swipe RIGHT reveals "Use it all".
 // We use PanResponder rather than react-native-gesture-handler to avoid a
@@ -3452,16 +3495,45 @@ function PlanScreen({ items, householdId }) {
 // inner child still work — the responder only activates after the user moves
 // horizontally past 12px AND the gesture is more horizontal than vertical
 // (so vertical scrolls in the list still scroll the parent ScrollView).
+//
+// v1.13 — fixes "swipe-to-delete not working" regression. Two issues:
+//   1) The inner TouchableOpacity claims the responder on touch start, then
+//      fights the bubble-phase onMoveShouldSetPanResponder on horizontal
+//      drags. Solution: also claim in the *capture phase* so the parent
+//      decides before the child Touchable.
+//   2) PanResponder created via useRef captures the FIRST render's closure
+//      values for `disabled`, `onSwipeRight`, `onSwipeLeft`. When the row
+//      re-renders with different props, the captured callbacks are stale.
+//      Solution: route handlers through refs that are kept current.
 function SwipeableRow({ children, onSwipeRight, onSwipeLeft, disabled }) {
   const translateX = useRef(new Animated.Value(0)).current;
   const swipeWidth = 100;
   const trigger = 70;
 
+  // Keep latest prop values in refs so the responder closures (created once)
+  // always see current values, not the initial-render snapshot.
+  const disabledRef = useRef(disabled);
+  const onSwipeRightRef = useRef(onSwipeRight);
+  const onSwipeLeftRef = useRef(onSwipeLeft);
+  disabledRef.current = disabled;
+  onSwipeRightRef.current = onSwipeRight;
+  onSwipeLeftRef.current = onSwipeLeft;
+
+  const shouldClaim = (_, g) =>
+    !disabledRef.current &&
+    Math.abs(g.dx) > 12 &&
+    Math.abs(g.dx) > Math.abs(g.dy) * 1.5;
+
   const panResponder = useRef(
     PanResponder.create({
+      // Claim in the capture phase so the parent wins over the inner
+      // TouchableOpacity, which also tries to handle this gesture.
+      onMoveShouldSetPanResponderCapture: shouldClaim,
+      onMoveShouldSetPanResponder: shouldClaim,
       onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, g) =>
-        !disabled && Math.abs(g.dx) > 12 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
+      onStartShouldSetPanResponderCapture: () => false,
+      // Don't yield the responder mid-swipe to a parent ScrollView.
+      onPanResponderTerminationRequest: () => false,
       onPanResponderGrant: () => {
         translateX.setOffset(0);
         translateX.setValue(0);
@@ -3473,17 +3545,17 @@ function SwipeableRow({ children, onSwipeRight, onSwipeLeft, disabled }) {
       },
       onPanResponderRelease: (_, g) => {
         const dx = g.dx;
-        if (dx > trigger && onSwipeRight) {
+        if (dx > trigger && onSwipeRightRef.current) {
           // Animate to the right, fire callback, then snap back so the row
           // doesn't appear to vanish — the parent state is what removes /
           // updates the item.
           Animated.timing(translateX, { toValue: swipeWidth, duration: 120, useNativeDriver: true }).start(() => {
-            onSwipeRight();
+            onSwipeRightRef.current && onSwipeRightRef.current();
             Animated.timing(translateX, { toValue: 0, duration: 200, useNativeDriver: true }).start();
           });
-        } else if (dx < -trigger && onSwipeLeft) {
+        } else if (dx < -trigger && onSwipeLeftRef.current) {
           Animated.timing(translateX, { toValue: -swipeWidth, duration: 120, useNativeDriver: true }).start(() => {
-            onSwipeLeft();
+            onSwipeLeftRef.current && onSwipeLeftRef.current();
             Animated.timing(translateX, { toValue: 0, duration: 200, useNativeDriver: true }).start();
           });
         } else {
