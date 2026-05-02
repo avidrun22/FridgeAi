@@ -3027,6 +3027,12 @@ function PlanScreen({ items, householdId }) {
   // fridge AddModal's recent-items chips. Computed from the most recent
   // unique items added by anyone in the household, capped at 6.
   const [recentShoppingNames, setRecentShoppingNames] = useState([]);
+  // v1.13 — past lists. Archived lists show in a collapsed-by-default
+  // section below the active lists. Tapping one offers to clone it into
+  // a new active list — solves "Costco trip is usually the same 15 items."
+  const [archivedLists, setArchivedLists] = useState([]);   // [{id,name,archived_at,item_count}]
+  const [archivedExpanded, setArchivedExpanded] = useState(false);
+  const [loadingArchived, setLoadingArchived] = useState(false);
   // v1.1.0 — creator initial map: { user_id: "G" } from list_household_members
   // RPC. Used to render a small initial badge next to items so household
   // members can see who added what.
@@ -3093,6 +3099,89 @@ function PlanScreen({ items, householdId }) {
     }
   }
 
+  // v1.13 — load archived shopping lists for the "Past lists" section.
+  // Includes a count of items per list via PostgREST relation embedding.
+  // Capped at 20 most-recent — we don't need decades of history.
+  async function loadArchivedLists() {
+    if (!householdId) { setArchivedLists([]); return; }
+    try {
+      setLoadingArchived(true);
+      const { data, error } = await supabase
+        .from("shopping_lists")
+        .select("id, name, archived_at, shopping_list_items(count)")
+        .eq("household_id", householdId)
+        .not("archived_at", "is", null)
+        .order("archived_at", { ascending: false })
+        .limit(20);
+      if (error) throw error;
+      const enriched = (data || []).map(l => ({
+        id: l.id,
+        name: l.name,
+        archived_at: l.archived_at,
+        item_count: (l.shopping_list_items && l.shopping_list_items[0] && l.shopping_list_items[0].count) || 0,
+      }));
+      setArchivedLists(enriched);
+    } catch (e) {
+      console.warn("[plan] loadArchivedLists failed:", e?.message || e);
+    } finally {
+      setLoadingArchived(false);
+    }
+  }
+
+  // v1.13 — clone an archived list into a new active list. Copies all the
+  // archived items (preserving names, dropping checked state). The new list
+  // gets a name like "Costco trip · May 2" so users can tell it apart from
+  // the original at a glance.
+  async function cloneArchivedList(archived) {
+    if (!householdId || !archived?.id) return;
+    try {
+      // Fetch the items from the archived list. We strip check state — a
+      // cloned list should start fresh, with everything still to-buy.
+      const { data: items, error: itemsErr } = await supabase
+        .from("shopping_list_items")
+        .select("name")
+        .eq("list_id", archived.id);
+      if (itemsErr) throw itemsErr;
+
+      const names = (items || []).map(i => (i.name || "").trim()).filter(Boolean);
+      if (names.length === 0) {
+        Alert.alert("Nothing to copy", "That list doesn't have any items.");
+        return;
+      }
+
+      // New list name: archived name + short date suffix.
+      const today = new Date();
+      const monthDay = today.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const newName = `${archived.name} · ${monthDay}`;
+
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data: newList, error: newErr } = await supabase
+        .from("shopping_lists")
+        .insert({ household_id: householdId, name: newName, created_by: user?.id || null })
+        .select("id, name, archived_at, created_by, created_at")
+        .single();
+      if (newErr) throw newErr;
+
+      // Bulk-insert the items into the new list.
+      const rows = names.map(name => ({
+        household_id: householdId,
+        list_id: newList.id,
+        name,
+        created_by: user?.id || null,
+      }));
+      const { error: insErr } = await supabase.from("shopping_list_items").insert(rows);
+      if (insErr) throw insErr;
+
+      // Update local state and switch to the new list.
+      setLists(prev => [...prev, newList]);
+      setActiveListId(newList.id);
+      track("shopping_list_cloned", { source_id: archived.id, item_count: names.length });
+    } catch (e) {
+      console.warn("[plan] cloneArchivedList failed:", e?.message || e);
+      Alert.alert("Couldn't reuse list", "Try again in a moment.");
+    }
+  }
+
   // v1.13 — load most recent unique item names added across ANY of the
   // household's lists (active or archived). Powers the quick-add chips
   // above the add row. Pulls more rows than we need so we can dedupe
@@ -3122,7 +3211,7 @@ function PlanScreen({ items, householdId }) {
     }
   }
 
-  useEffect(() => { loadLists(); loadMembers(); loadRecentShoppingNames(); /* eslint-disable-line */ }, [householdId]);
+  useEffect(() => { loadLists(); loadMembers(); loadRecentShoppingNames(); loadArchivedLists(); /* eslint-disable-line */ }, [householdId]);
   useEffect(() => { if (activeListId) loadItems(activeListId); else setList([]); /* eslint-disable-line */ }, [activeListId]);
 
   async function createList() {
@@ -3154,6 +3243,8 @@ function PlanScreen({ items, householdId }) {
       setLists(prev => prev.filter(l => l.id !== id));
       if (activeListId === id) setActiveListId(null);
       track("shopping_list_archived");
+      // v1.13 — refresh past-lists so the just-archived list shows up there.
+      loadArchivedLists();
     } catch (e) {
       console.warn("[plan] archiveList failed:", e?.message || e);
       Alert.alert("Couldn't archive list", "Try again in a moment.");
@@ -3419,6 +3510,56 @@ function PlanScreen({ items, householdId }) {
                 </TouchableOpacity>
               ))
             )}
+
+            {/* v1.13 — Past lists. Collapsed by default; archived lists open
+                here so users can clone a recurring trip (Costco run, etc.)
+                instead of typing the same 15 items each week. */}
+            {archivedLists.length > 0 && (
+              <View style={{ marginTop: 18 }}>
+                <TouchableOpacity
+                  onPress={() => setArchivedExpanded(v => !v)}
+                  style={{ flexDirection: "row", alignItems: "center", paddingVertical: 6, paddingHorizontal: 4 }}
+                >
+                  <Ionicons name="time-outline" size={16} color={T.muted} />
+                  <Text style={{ fontSize: 12, color: T.muted, fontWeight: "700", letterSpacing: 0.5, marginLeft: 6, flex: 1 }}>
+                    PAST LISTS · {archivedLists.length}
+                  </Text>
+                  <Ionicons name={archivedExpanded ? "chevron-up" : "chevron-down"} size={14} color={T.muted} />
+                </TouchableOpacity>
+                {archivedExpanded && (
+                  <>
+                    {archivedLists.map(al => {
+                      const archivedDate = new Date(al.archived_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+                      return (
+                        <TouchableOpacity
+                          key={al.id}
+                          onPress={() => Alert.alert(
+                            `Reuse "${al.name}"?`,
+                            `Start a new shopping list with the ${al.item_count} ${al.item_count === 1 ? "item" : "items"} from this past list. The original stays archived.`,
+                            [
+                              { text: "Cancel", style: "cancel" },
+                              { text: "Start new list", onPress: () => cloneArchivedList(al) },
+                            ]
+                          )}
+                          style={[s.card, { padding: 12, marginTop: 8, flexDirection: "row", alignItems: "center", gap: 10, opacity: 0.85 }]}
+                        >
+                          <View style={{ width: 32, height: 32, borderRadius: 9, backgroundColor: "rgba(0,0,0,0.04)", alignItems: "center", justifyContent: "center" }}>
+                            <Ionicons name="archive-outline" size={15} color={T.muted} />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[s.bold, { fontSize: 14, color: T.text }]} numberOfLines={1}>{al.name}</Text>
+                            <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 2 }}>
+                              {al.item_count} {al.item_count === 1 ? "item" : "items"} · archived {archivedDate}
+                            </Text>
+                          </View>
+                          <Text style={{ color: T.accent, fontSize: 11, fontWeight: "700" }}>REUSE</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </>
+                )}
+              </View>
+            )}
           </View>
         </>
       ) : (
@@ -3492,8 +3633,27 @@ function PlanScreen({ items, householdId }) {
                 return (
                   <>
                     {pending.length === 0 && checkedItems.length > 0 && (
-                      <View style={[s.card, { padding: 12, marginBottom: 6, alignItems: "center" }]}>
-                        <Text style={{ fontSize: 13, color: T.textSoft }}>🎉 All caught up — nothing left to grab.</Text>
+                      <View style={[s.card, { padding: 16, marginBottom: 6, alignItems: "center", backgroundColor: "rgba(22,163,74,0.05)", borderColor: "rgba(22,163,74,0.20)" }]}>
+                        <Text style={{ fontSize: 14, color: T.text, fontWeight: "700", marginBottom: 4 }}>🎉 All caught up</Text>
+                        <Text style={{ fontSize: 12, color: T.textSoft, textAlign: "center", marginBottom: 12 }}>
+                          Save this list to your past trips so you can reuse it next time.
+                        </Text>
+                        {/* v1.13 — "Save & start fresh" archives the list and
+                            returns the user to the picker view. The list will
+                            re-appear in PAST LISTS, ready to clone. */}
+                        <TouchableOpacity
+                          onPress={() => Alert.alert(
+                            "Save this trip?",
+                            "We'll archive this list so you can reuse it later. Other lists are unaffected.",
+                            [
+                              { text: "Cancel", style: "cancel" },
+                              { text: "Save & start fresh", onPress: () => archiveList(activeListId) },
+                            ]
+                          )}
+                          style={{ paddingHorizontal: 18, paddingVertical: 10, borderRadius: 10, backgroundColor: T.accent }}
+                        >
+                          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>Save &amp; start fresh</Text>
+                        </TouchableOpacity>
                       </View>
                     )}
                     {pending.map(renderRow)}
@@ -3617,19 +3777,23 @@ function PlanScreen({ items, householdId }) {
               </TouchableOpacity>
             )}
 
-            {/* Archive list (only when more than one list exists, since
-                archiving the only list would leave the user without one) */}
-            {lists.length > 1 && (
-              <TouchableOpacity
-                onPress={() => Alert.alert(`Archive "${activeList?.name}"?`, "Items in this list will go away with it. Other lists are unaffected.", [
+            {/* v1.13 — Archive this list. Previously gated on lists.length > 1
+                because archiving the only list left users without one. With
+                Past Lists in v1.13, that's no longer a dead end — archived
+                lists can be cloned back. So we always show this affordance. */}
+            <TouchableOpacity
+              onPress={() => Alert.alert(
+                `Archive "${activeList?.name}"?`,
+                "This list moves to Past Lists. You can reuse it later or pick from the others.",
+                [
                   { text: "Cancel", style: "cancel" },
                   { text: "Archive", style: "destructive", onPress: () => archiveList(activeList.id) },
-                ])}
-                style={{ marginTop: 12, alignSelf: "center", paddingVertical: 6, paddingHorizontal: 12 }}
-              >
-                <Text style={{ color: T.muted, fontSize: 12 }}>Archive this list</Text>
-              </TouchableOpacity>
-            )}
+                ]
+              )}
+              style={{ marginTop: 12, alignSelf: "center", paddingVertical: 6, paddingHorizontal: 12 }}
+            >
+              <Text style={{ color: T.muted, fontSize: 12 }}>Archive this list</Text>
+            </TouchableOpacity>
           </View>
         </>
       )}
