@@ -3016,6 +3016,17 @@ function PlanScreen({ items, householdId }) {
   const [loadingList, setLoadingList] = useState(false);
   const [showCreateList, setShowCreateList] = useState(false);
   const [newListName, setNewListName] = useState("");
+  // v1.13 — bulk-add state. User taps "Add many", types one item per line
+  // (or comma-separated), we parse + batch-insert.
+  const [showBulkAdd, setShowBulkAdd] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  // v1.13 — checked items collapse to a "Got N" group at the bottom by default.
+  // Tap the group header to expand and see / un-check / remove individual items.
+  const [checkedExpanded, setCheckedExpanded] = useState(false);
+  // v1.13 — recently-added names (shared across household). Mirrors the
+  // fridge AddModal's recent-items chips. Computed from the most recent
+  // unique items added by anyone in the household, capped at 6.
+  const [recentShoppingNames, setRecentShoppingNames] = useState([]);
   // v1.1.0 — creator initial map: { user_id: "G" } from list_household_members
   // RPC. Used to render a small initial badge next to items so household
   // members can see who added what.
@@ -3082,7 +3093,36 @@ function PlanScreen({ items, householdId }) {
     }
   }
 
-  useEffect(() => { loadLists(); loadMembers(); /* eslint-disable-line */ }, [householdId]);
+  // v1.13 — load most recent unique item names added across ANY of the
+  // household's lists (active or archived). Powers the quick-add chips
+  // above the add row. Pulls more rows than we need so we can dedupe
+  // case-insensitively in JS, then truncates to 6.
+  async function loadRecentShoppingNames() {
+    if (!householdId) { setRecentShoppingNames([]); return; }
+    try {
+      const { data, error } = await supabase
+        .from("shopping_list_items")
+        .select("name, created_at")
+        .eq("household_id", householdId)
+        .order("created_at", { ascending: false })
+        .limit(60);
+      if (error) throw error;
+      const seen = new Set();
+      const out = [];
+      for (const r of data || []) {
+        const k = (r.name || "").trim().toLowerCase();
+        if (!k || seen.has(k)) continue;
+        seen.add(k);
+        out.push(r.name.trim());
+        if (out.length >= 6) break;
+      }
+      setRecentShoppingNames(out);
+    } catch (e) {
+      // Silent — chips are cosmetic.
+    }
+  }
+
+  useEffect(() => { loadLists(); loadMembers(); loadRecentShoppingNames(); /* eslint-disable-line */ }, [householdId]);
   useEffect(() => { if (activeListId) loadItems(activeListId); else setList([]); /* eslint-disable-line */ }, [activeListId]);
 
   async function createList() {
@@ -3141,10 +3181,81 @@ function PlanScreen({ items, householdId }) {
       if (error) throw error;
       setList(prev => prev.map(i => i.id === tempId ? { id: data.id, name: data.name, checked: !!data.checked, created_by: data.created_by } : i));
       track("shopping_list_item_added");
+      // v1.13 — optimistic update of the recent chips so the freshly added
+      // name jumps to the top of the chip row.
+      setRecentShoppingNames(prev => {
+        const k = trimmed.toLowerCase();
+        const filtered = prev.filter(n => n.toLowerCase() !== k);
+        return [trimmed, ...filtered].slice(0, 6);
+      });
     } catch (e) {
       console.warn("[plan] add failed:", e?.message || e);
       setList(prev => prev.filter(i => i.id !== tempId));
       Alert.alert("Couldn't add to list", "Try again in a moment.");
+    }
+  }
+
+  // v1.13 — bulk add. Takes an array of trimmed names and batch-inserts them
+  // into Supabase. Uses optimistic UI: temp IDs appear immediately, then the
+  // real DB rows replace them on success. On failure, we reload from server
+  // rather than try to surgically revert (simpler + safer at small scale).
+  async function bulkAddItems(names) {
+    if (!householdId || !activeListId) return;
+    const cleaned = (names || []).map(n => (n || "").trim()).filter(Boolean);
+    if (cleaned.length === 0) return;
+
+    const tempBase = Date.now();
+    const tempItems = cleaned.map((name, i) => ({
+      id: `temp-${tempBase}-${i}`,
+      name,
+      checked: false,
+    }));
+    setList(prev => [...prev, ...tempItems]);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const rows = cleaned.map(name => ({
+        household_id: householdId,
+        list_id: activeListId,
+        name,
+        created_by: user?.id || null,
+      }));
+      const { data, error } = await supabase
+        .from("shopping_list_items")
+        .insert(rows)
+        .select("id, name, checked, created_by");
+      if (error) throw error;
+
+      // Replace the temp rows with the real ones returned from Supabase. We
+      // assume order is preserved by the insert returning clause; if not,
+      // worst case is some duplicate visual flicker until next loadItems().
+      setList(prev => {
+        const tempIds = new Set(tempItems.map(t => t.id));
+        const withoutTemps = prev.filter(i => !tempIds.has(i.id));
+        const real = (data || []).map(r => ({ id: r.id, name: r.name, checked: !!r.checked, created_by: r.created_by }));
+        return [...withoutTemps, ...real];
+      });
+      track("shopping_list_bulk_added", { count: cleaned.length });
+      // Optimistic chip update — newest names go to the front, dedupe.
+      setRecentShoppingNames(prev => {
+        const newSet = new Set();
+        const merged = [];
+        for (const n of [...cleaned.slice().reverse(), ...prev]) {
+          const k = n.toLowerCase();
+          if (newSet.has(k)) continue;
+          newSet.add(k);
+          merged.push(n);
+          if (merged.length >= 6) break;
+        }
+        return merged;
+      });
+    } catch (e) {
+      console.warn("[plan] bulkAdd failed:", e?.message || e);
+      // Pessimistic rollback: drop the temp rows and refetch authoritative state.
+      const tempIds = new Set(tempItems.map(t => t.id));
+      setList(prev => prev.filter(i => !tempIds.has(i.id)));
+      Alert.alert("Couldn't add to list", "Some items may not have been saved. Pull down to refresh.");
+      loadItems(activeListId);
     }
   }
 
@@ -3346,30 +3457,122 @@ function PlanScreen({ items, householdId }) {
                 <Text style={{ fontSize: 13, color: T.textSoft }}>Nothing on the list yet. Add an item below.</Text>
               </View>
             ) : (
-              list.map(item => {
-                const initial = item.created_by ? memberInitials[item.created_by] : null;
+              (() => {
+                /* v1.14 — checked items collapse to a "Got these N" group at the
+                   bottom of the list, with the working "still need" portion
+                   staying visible. Tap the group header to expand. */
+                const pending = list.filter(i => !i.checked);
+                const checkedItems = list.filter(i => i.checked);
+
+                const renderRow = (item) => {
+                  const initial = item.created_by ? memberInitials[item.created_by] : null;
+                  return (
+                    <View
+                      key={item.id}
+                      style={[s.card, { flexDirection: "row", alignItems: "center", padding: 12, marginBottom: 6 }]}
+                    >
+                      <TouchableOpacity onPress={() => toggle(item.id)} style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: item.checked ? T.accent : T.border, backgroundColor: item.checked ? T.accent : "transparent", alignItems: "center", justifyContent: "center", marginRight: 12 }}>
+                        {item.checked && <Ionicons name="checkmark" size={14} color="#fff" />}
+                      </TouchableOpacity>
+                      <Text style={{ flex: 1, fontSize: 14, color: item.checked ? T.muted : T.text, textDecorationLine: item.checked ? "line-through" : "none" }}>
+                        {item.name}
+                      </Text>
+                      {initial && (
+                        <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: "rgba(22,163,74,0.15)", alignItems: "center", justifyContent: "center", marginRight: 4 }}>
+                          <Text style={{ fontSize: 11, color: T.accent, fontWeight: "700" }}>{initial}</Text>
+                        </View>
+                      )}
+                      <TouchableOpacity onPress={() => remove(item.id)} style={{ padding: 6 }}>
+                        <Ionicons name="close" size={16} color={T.muted} />
+                      </TouchableOpacity>
+                    </View>
+                  );
+                };
+
                 return (
-                  <View
-                    key={item.id}
-                    style={[s.card, { flexDirection: "row", alignItems: "center", padding: 12, marginBottom: 6 }]}
-                  >
-                    <TouchableOpacity onPress={() => toggle(item.id)} style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: item.checked ? T.accent : T.border, backgroundColor: item.checked ? T.accent : "transparent", alignItems: "center", justifyContent: "center", marginRight: 12 }}>
-                      {item.checked && <Ionicons name="checkmark" size={14} color="#fff" />}
-                    </TouchableOpacity>
-                    <Text style={{ flex: 1, fontSize: 14, color: item.checked ? T.muted : T.text, textDecorationLine: item.checked ? "line-through" : "none" }}>
-                      {item.name}
-                    </Text>
-                    {initial && (
-                      <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: "rgba(22,163,74,0.15)", alignItems: "center", justifyContent: "center", marginRight: 4 }}>
-                        <Text style={{ fontSize: 11, color: T.accent, fontWeight: "700" }}>{initial}</Text>
+                  <>
+                    {pending.length === 0 && checkedItems.length > 0 && (
+                      <View style={[s.card, { padding: 12, marginBottom: 6, alignItems: "center" }]}>
+                        <Text style={{ fontSize: 13, color: T.textSoft }}>🎉 All caught up — nothing left to grab.</Text>
                       </View>
                     )}
-                    <TouchableOpacity onPress={() => remove(item.id)} style={{ padding: 6 }}>
-                      <Ionicons name="close" size={16} color={T.muted} />
-                    </TouchableOpacity>
-                  </View>
+                    {pending.map(renderRow)}
+                    {checkedItems.length > 0 && (
+                      <>
+                        <TouchableOpacity
+                          onPress={() => setCheckedExpanded(v => !v)}
+                          style={[s.card, { flexDirection: "row", alignItems: "center", padding: 12, marginTop: 6, marginBottom: 6, backgroundColor: "rgba(22,163,74,0.06)", borderColor: "rgba(22,163,74,0.20)" }]}
+                          accessibilityLabel={checkedExpanded ? "Hide bought items" : "Show bought items"}
+                        >
+                          <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: T.accent, alignItems: "center", justifyContent: "center", marginRight: 12 }}>
+                            <Ionicons name="checkmark" size={14} color="#fff" />
+                          </View>
+                          <Text style={{ flex: 1, fontSize: 13, color: T.accent, fontWeight: "700" }}>
+                            Got {checkedItems.length} {checkedItems.length === 1 ? "item" : "items"}
+                          </Text>
+                          <Ionicons name={checkedExpanded ? "chevron-up" : "chevron-down"} size={16} color={T.accent} />
+                        </TouchableOpacity>
+                        {checkedExpanded && checkedItems.map(renderRow)}
+                      </>
+                    )}
+                  </>
                 );
-              })
+              })()
+            )}
+
+            {/* v1.13 — recently-added chips. Mirrors the fridge AddModal pattern.
+                Pulled from the household's recent shopping_list_items, capped at
+                6, deduped case-insensitively. One tap re-adds the name to the
+                current list. */}
+            {recentShoppingNames.length > 0 && (
+              <View style={{ marginTop: 14 }}>
+                <Text style={{ color: T.textSoft, fontSize: 11, fontWeight: "700", letterSpacing: 0.5, marginBottom: 8 }}>RECENTLY ADDED · TAP TO ADD AGAIN</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                  {recentShoppingNames.map((n, idx) => (
+                    <TouchableOpacity
+                      key={n + "_" + idx}
+                      onPress={async () => {
+                        setAdding(n);
+                        // Defer to next tick so the input visually reflects the
+                        // tapped name, then trigger the same add flow as Enter.
+                        setTimeout(() => {
+                          setAdding(""); // clear before optimistic insert
+                          // Re-implement the addItem core inline so we don't
+                          // race with setAdding's batched state.
+                          (async () => {
+                            if (!householdId || !activeListId) return;
+                            const tempId = "temp-" + Date.now();
+                            setList(prev => [...prev, { id: tempId, name: n, checked: false }]);
+                            try {
+                              const { data: { user } } = await supabase.auth.getUser();
+                              const { data, error } = await supabase
+                                .from("shopping_list_items")
+                                .insert({ household_id: householdId, list_id: activeListId, name: n, created_by: user?.id || null })
+                                .select("id, name, checked, created_by")
+                                .single();
+                              if (error) throw error;
+                              setList(prev => prev.map(i => i.id === tempId ? { id: data.id, name: data.name, checked: !!data.checked, created_by: data.created_by } : i));
+                              track("shopping_list_chip_tapped");
+                              setRecentShoppingNames(prev => {
+                                const k = n.toLowerCase();
+                                const filtered = prev.filter(x => x.toLowerCase() !== k);
+                                return [n, ...filtered].slice(0, 6);
+                              });
+                            } catch (e) {
+                              console.warn("[plan] chip add failed:", e?.message || e);
+                              setList(prev => prev.filter(i => i.id !== tempId));
+                            }
+                          })();
+                        }, 0);
+                      }}
+                      style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 18, backgroundColor: T.card, borderWidth: 1, borderColor: T.border, marginRight: 8 }}
+                    >
+                      <Text style={{ fontSize: 13, fontWeight: "600", color: T.text, maxWidth: 140 }} numberOfLines={1}>{n}</Text>
+                      <Text style={{ fontSize: 13, color: T.accent, fontWeight: "700" }}>+</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
             )}
 
             <View style={{ flexDirection: "row", alignItems: "center", marginTop: 8, gap: 8 }}>
@@ -3390,6 +3593,17 @@ function PlanScreen({ items, householdId }) {
                 <Ionicons name="add" size={22} color="#fff" />
               </TouchableOpacity>
             </View>
+
+            {/* v1.13 — bulk-add. Single-item-at-a-time was the top friction point
+                in real-user feedback. Same UX pattern as the fridge BulkAddModal:
+                multiline input, one item per line, batch-insert. */}
+            <TouchableOpacity
+              style={{ marginTop: 10, alignSelf: "center", paddingVertical: 8, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 6 }}
+              onPress={() => { setBulkText(""); setShowBulkAdd(true); }}
+            >
+              <Ionicons name="list" size={14} color={T.accent} />
+              <Text style={{ color: T.accent, fontSize: 13, fontWeight: "600" }}>Add multiple items</Text>
+            </TouchableOpacity>
 
             {unchecked.length > 0 && (
               <TouchableOpacity
@@ -3419,6 +3633,69 @@ function PlanScreen({ items, householdId }) {
           </View>
         </>
       )}
+
+      {/* v1.13 — bulk-add modal. One item per line (trailing/leading spaces
+          OK). Empty lines are skipped. Save batches all into Supabase in
+          one insert via bulkAddItems(). */}
+      <Modal visible={showBulkAdd} transparent animationType="slide" onRequestClose={() => setShowBulkAdd(false)}>
+        <TouchableOpacity style={s.modalOverlay} activeOpacity={1} onPress={() => setShowBulkAdd(false)}>
+          <TouchableOpacity activeOpacity={1} style={s.modalSheet}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              automaticallyAdjustKeyboardInsets={true}
+              contentInsetAdjustmentBehavior="automatic"
+            >
+              <View style={s.sheetHandle} />
+              <Text style={[s.bold, { fontSize: 18, marginBottom: 6 }]}>Add multiple items</Text>
+              <Text style={{ color: T.textSoft, fontSize: 13, marginBottom: 14 }}>
+                One item per line. Or paste a list from elsewhere — we'll split it on line breaks.
+              </Text>
+              <TextInput
+                style={[s.input, { minHeight: 160, textAlignVertical: "top", paddingTop: 12 }]}
+                placeholder={"eggs\nmilk\nbread\navocados (3)\nsourdough"}
+                placeholderTextColor={T.muted}
+                value={bulkText}
+                onChangeText={setBulkText}
+                multiline
+                autoFocus
+                autoCorrect={false}
+                autoCapitalize="none"
+              />
+              {(() => {
+                const parsed = (bulkText || "").split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+                return (
+                  <Text style={{ color: T.muted, fontSize: 11, marginTop: 6, marginBottom: 10 }}>
+                    {parsed.length === 0
+                      ? "Type or paste items above."
+                      : `${parsed.length} ${parsed.length === 1 ? "item" : "items"} ready to add.`}
+                  </Text>
+                );
+              })()}
+              <TouchableOpacity
+                style={[s.btnPrimary, { opacity: bulkText.trim() ? 1 : 0.5 }]}
+                disabled={!bulkText.trim()}
+                onPress={async () => {
+                  const names = (bulkText || "").split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+                  if (names.length === 0) return;
+                  setShowBulkAdd(false);
+                  setBulkText("");
+                  await bulkAddItems(names);
+                }}
+              >
+                <Text style={s.btnPrimaryText}>Add to list</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ marginTop: 10, alignItems: "center", paddingVertical: 12 }}
+                onPress={() => setShowBulkAdd(false)}
+              >
+                <Text style={{ color: T.textSoft, fontSize: 14, fontWeight: "600" }}>Cancel</Text>
+              </TouchableOpacity>
+              <View style={{ height: 16 }} />
+            </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
 
       {/* New list modal */}
       <Modal visible={showCreateList} transparent animationType="slide" onRequestClose={() => setShowCreateList(false)}>

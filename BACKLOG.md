@@ -31,12 +31,26 @@ Last reviewed: 2026-04-28
 
   Track 1 builds audience trust (ok2eat as a real founder/product). Track 2 builds search traffic + gives direct-affiliate programs reasons to approve us. Both signals are exactly what Impact named in their 2026-04-30 feedback email.
 
-- [ ] **v1.13 hotfix — three bug fixes from real-user feedback** (queued 2026-05-01). Tight, single-day turnaround on issues Greg surfaced after submitting v1.12:
+- [ ] **v1.13 — three bug fixes + three shopping-list features** (queued 2026-05-01, scope expanded after Greg requested rolling v1.14 work in). Six things in one ship:
+
+  *Bug fixes from real-user feedback:*
   1. **Swipe-to-delete regression on FridgeScreen rows.** Worked in v1.0.10, broke (silently) by v1.11. Root cause: the inner `TouchableOpacity` claimed the responder on touch, leaving our outer `PanResponder` to fight a bubble-phase `onMoveShouldSetPanResponder` it kept losing. Fixes: (a) added `onMoveShouldSetPanResponderCapture` so the parent claims the gesture in the capture phase, before the child Touchable; (b) routed `onSwipeRight`/`onSwipeLeft`/`disabled` through refs that update on every render (the `useRef(PanResponder.create(...))` pattern captures first-render closure values, which goes stale once props change); (c) added `onPanResponderTerminationRequest: () => false` so a parent ScrollView can't take the gesture mid-swipe.
   2. **AddModal Cancel button.** Tapping outside the modal sheet already closed it via the overlay `onPress=onClose`, but users reported feeling stuck. Added an explicit "Cancel" button below "Add to Fridge", styled as a low-emphasis text link.
   3. **Numeric keyboard coverage + dismissibility.** Two issues bundled: (a) iOS keyboard covered the focused input on AddModal — fixed by adding `automaticallyAdjustKeyboardInsets={true}` and `contentInsetAdjustmentBehavior="automatic"` to AddModal's ScrollView (same pattern v1.11 applied to PlanScreen). (b) iOS number-pad keyboards have no Return key — users had no obvious way to dismiss. Wired up an `InputAccessoryView` (nativeID `"addModalDone"`) with a green "Done" button → `Keyboard.dismiss()`. Attached via `inputAccessoryViewID` to the Amount field and the DayStepper inputs. iOS only; Android numeric keyboards already have a back/done affordance.
 
-  Bumped 1.12/15 → 1.13/16. Single-file change (App.js + app.json). Build cycle: `prebuild --clean → sed MARKETING_VERSION=1.13 → sed CURRENT_PROJECT_VERSION=16 → archive → upload → submit`. Test plan in TestFlight: (1) horizontal swipe right on a fridge row triggers "Use it all", swipe left triggers Delete confirm; (2) AddModal Cancel button closes modal; (3) tap Amount field → Done toolbar appears above number-pad keyboard, tapping Done dismisses it.
+  *Shopping list polish (originally queued for v1.14, rolled into v1.13 per Greg):*
+  4. **Multi-add to shopping list.** New "Add multiple items" link below the single-add row opens a modal with a multiline text input. Users type or paste one item per line; on Save, all items batch-insert into Supabase via new `bulkAddItems()` function with optimistic UI (temp IDs replaced by real DB rows on success, pessimistic refetch on failure). Modal has v1.13 keyboard fix + Cancel button. Replaces the pain point of typing+saving 15 items individually for a Costco run.
+  5. **Checked items collapse to bottom.** List render splits into pending (always shown) + checked (collapsed by default into a "Got N items" group with chevron). Tap the group to expand/collapse. When everything is checked, an empty state appears: "🎉 All caught up — nothing left to grab." No DB schema change; split is purely client-side off the existing `checked` column.
+  6. **Recently-added chips on shopping list.** Mirrors the fridge AddModal pattern. New `loadRecentShoppingNames()` queries the household's most recent unique item names (across all lists, archived included), capped at 6, deduped case-insensitively. Chips render above the add-input row; tap a chip to re-add that name to the current list. Optimistic local update keeps the chip row fresh after each add.
+
+  Bumped 1.12/15 → 1.13/16. Single-file change (App.js + app.json). Build cycle: `prebuild --clean → sed MARKETING_VERSION=1.13 → sed CURRENT_PROJECT_VERSION=16 → archive → upload → submit`.
+
+  *Test plan in TestFlight:*
+  - Fridge: horizontal swipe right on a row triggers "Use it all"; swipe left triggers Delete confirm.
+  - AddModal: Cancel button closes modal; tap Amount field → Done toolbar appears above number-pad keyboard, tapping Done dismisses it.
+  - Plan: tap "Add multiple items" → modal opens, paste 5 lines, save → all 5 appear on the list. Check 3 items → they collapse into "Got 3 items" group at bottom; tap to expand. Add a couple items → recently-added chips populate; tap a chip → that name jumps to top of list.
+
+  *Deferred to v1.14:* drag-to-reorder (needs new native dep), push notifications when a household member creates a list (needs Edge Function + APNs wiring), save completed lists for reuse on similar trips (needs new "Past lists" screen + reuse-list flow).
 
 - [ ] **v1.12 hotfix — update prompt loop fix** (queued 2026-05-01). Two bugs caught from real-user screenshot:
   1. **`APP_VERSION` was hardcoded to `"1.0.9"`** and never bumped through the 1.0.10 or 1.11 ships, so the in-app update modal compared the wrong local version against Apple and fired for users already on the latest. Fixed by pulling `APP_VERSION` from `expo-constants` (`Constants.expoConfig.version`) so it auto-syncs with `app.json` going forward — no manual bump needed on future ships.
@@ -56,25 +70,7 @@ Last reviewed: 2026-04-28
 
 > Items captured via Telegram `/idea` land here. Triage into the sections below when you've got time.
 
-**2026-05-01 — Greg's batch feedback after 1.12 submission:**
-
-*Bugs (FIXED — shipped in v1.13/16, see In Progress section):*
-- ~~Swipe-to-delete on fridge items broken~~ — fixed via capture-phase responder claim + ref-based callback closures + termination-block.
-- ~~AddModal has no cancel button~~ — explicit Cancel button added below "Add to Fridge".
-- ~~Numeric input keyboard covers input area~~ — `automaticallyAdjustKeyboardInsets` on ScrollView + InputAccessoryView with Done button on number-pad inputs.
-
-*Shopping list polish (v1.14):*
-- **Multi-add to shopping list.** Mirror the fridge's BulkAddModal UX — paste/type multiple items at once. Today it's one-at-a-time which is painful when planning a real grocery run.
-- **Drag-to-reorder.** Long-press an item, drag to rearrange. Probably react-native-draggable-flatlist or similar; check it doesn't conflict with PanResponder swipe handlers on the same row.
-- **Notify household members when a new list is created.** Push notification (we already have expo-notifications wired up for digest reminders). E.g., "Greg created 'Costco trip' — tap to view."
-- **Recently-added chips on shopping list.** Same pattern as fridge AddModal — show last 6 items added across any household member, one-tap to re-add. Naturally streamlines "we always need eggs/milk/bread" trips.
-- **Checked items move to bottom + collapse** (added 2026-05-01). When a user marks an item as bought, animate it to the bottom of the list and collapse it into a compact "got these N" group. Keeps the working "still need" portion visible without forcing a manual clear. Tap the collapsed group to expand and see what was bought (or to uncheck if you grabbed something by mistake). UX precedent: Apple Reminders, Things 3.
-- **Save completed lists for reuse on similar trips** (added 2026-05-01). When all items on a list are bought (or user taps "Done"), archive the list with a snapshot of what was on it. New `archived_at` already exists on `shopping_lists` schema. New screen "Past lists" shows archived lists by date/name; user can pick one and "Start a new list from this" → creates a new list pre-populated with the same items. Solves the recurring-trip pattern: "Costco run usually has the same 15 things, plus 2-3 extras."
-
-*Database strategy (Eventually — see Eventually section for full thinking):*
-- **Build proprietary scan database OR integrate Open Food Facts.** Greg's intuition is right — scan accuracy is currently dependent on third-party barcode lookup which has gaps. Two paths to evaluate, see new entry under Eventually for the recommendation.
-
-*Truncated last bullet in source feedback ("logic from recently added items shou…") — appears to duplicate the shopping-list recently-added chips item above; if Greg meant something different, ask when he's back.*
+*(empty — last triaged 2026-05-01: of the 6 items from Greg's May 1 batch feedback, all 6 rolled into v1.13 (3 bug fixes + multi-add + checked-collapse + recently-added chips). Drag-to-reorder, household-create push notification, save-completed-lists deferred to v1.14 — see Eventually section. Database strategy (Open Food Facts) also captured under Eventually.)*
 
 
 
@@ -175,6 +171,8 @@ Last reviewed: 2026-04-28
 ---
 
 ## ✅ Done
+
+- [x] 2026-05-01 — **v1.12 APPROVED + LIVE.** Single-purpose hotfix: in-app update prompt was looping for users on the latest build. Two root causes — `APP_VERSION` was hardcoded to `"1.0.9"` and never bumped through 1.10/1.11 ships (causing every user on every newer build to fail the version compare); and Apple's iTunes Lookup API normalizes `"X.Y.Z"` to `"X.YZ"` (concatenating last two segments), which broke the parser on multi-digit forms like `"1.10"`. Fixes: `APP_VERSION` now reads from `expo-constants` at runtime (auto-syncs with app.json forever); `compareVersions` rewritten to fold both sides through `_appleNormalize()` before comparing, sidestepping the parsing ambiguity entirely; modal text dropped Apple's normalized version number, now reads "A new version of ok2eat is on the App Store. You're on X.YZ." Naming correction logged: prior conversation referred to ships as "1.0.10" and "1.1.0" but App Store Connect actually has them stored as `"1.10"` and `"1.11"` (literal 2-segment strings, likely from a `sed` quirk during the build cycle that flattened the dot). Going forward: 2-segment patches `1.13`, `1.14`, etc.
 
 - [x] 2026-05-01 — **v1.1.0 APPROVED + LIVE.** Four things shipped (Money-Saved scope cut after Greg's QA pass):
   1. **PlanScreen keyboard fix** — `automaticallyAdjustKeyboardInsets`, `contentInsetAdjustmentBehavior="automatic"`, `keyboardShouldPersistTaps="handled"` on the ScrollView. Real-user complaint was that the keyboard covered the shopping-list input.
