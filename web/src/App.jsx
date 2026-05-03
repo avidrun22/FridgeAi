@@ -3,6 +3,9 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { supabase } from "./lib/supabase.js";
 import AuthScreen from "./components/AuthScreen.jsx";
 import Fridge from "./screens/Fridge.jsx";
+import Plan from "./screens/Plan.jsx";
+import Alerts from "./screens/Alerts.jsx";
+import HowTo from "./screens/HowTo.jsx";
 
 // Root component. Wraps the auth state listener and the router.
 // Single rule: if no session, show AuthScreen. Otherwise, render the routes.
@@ -37,6 +40,9 @@ export default function App() {
     <Routes>
       <Route path="/"        element={<Navigate to="/fridge" replace />} />
       <Route path="/fridge"  element={<Fridge user={session.user} />} />
+      <Route path="/alerts"  element={<Alerts user={session.user} />} />
+      <Route path="/plan"    element={<Plan user={session.user} />} />
+      <Route path="/how-to"  element={<HowTo user={session.user} />} />
       <Route path="*"        element={<Navigate to="/fridge" replace />} />
     </Routes>
   );

@@ -55,12 +55,51 @@ US_TAGS = {"en:united-states", "en:usa"}
 # change one, change the other. (Long-term we should generate one from the
 # other; for now just keep them aligned.)
 CATEGORY_PATTERNS = [
-    (re.compile(r":dairie?s|:milks|:yogurts|:cheeses|:butters|:creams\b", re.I), "Dairy"),
-    (re.compile(r":meats|:poultry|:fish|:seafoods|:eggs|:tofu|:legumes|:sausages|:hams|:bacons", re.I), "Protein"),
-    (re.compile(r":vegetables|:fruits|:fresh|:salads|:produce|:plant-based-foods\b", re.I), "Produce"),
-    (re.compile(r":beverages|:waters|:juices|:sodas|:teas|:coffees|:wines|:beers|:smoothies|:plant-based-beverages", re.I), "Beverages"),
-    (re.compile(r":cereals|:rices|:pastas|:breads|:bakery|:snacks|:chips|:crackers|:condiments|:spices|:oils|:sugars|:sauces|:spreads|:breakfasts|:chocolates?|:cocoa|:candies|:confectioneries|:desserts|:cookies|:biscuits|:flours|:nuts|:seeds|:dried", re.I), "Dry Goods"),
+    # Dairy: any milk/cheese/yogurt/butter/cream/probiotic + variants
+    (re.compile(r":dairie?s|:milks?\b|:yogurts?|:cheeses?|:butters?\b|:creams?\b|:probiotic|:kefirs?|:ice-creams?|:dairy-substitutes", re.I), "Dairy"),
+    # Protein: meats, fish, eggs, plant-based meat alternatives
+    (re.compile(r":meats?\b|:poultry|:fish|:seafoods?|:eggs?\b|:tofu|:tempeh|:legumes|:sausages?|:hams?\b|:bacons?|:meat-alternatives|:meat-substitutes|:protein-bars|:jerk?ies?\b|:salmons?", re.I), "Protein"),
+    # Produce: fruits, vegetables, fresh — keep BEFORE Dry Goods
+    (re.compile(r":vegetables|:fruits|:fresh\b|:fresh-foods|:salads|:produce|:tubers|:roots|:leafy|:berries|:citrus|:tomatoes|:onions|:garlic|:peppers|:greens", re.I), "Produce"),
+    # Beverages: drinks of all types
+    (re.compile(r":beverages|:drinks|:waters?\b|:juices?|:sodas?|:teas?\b|:coffees?|:wines?|:beers?|:cocktails|:smoothies|:plant-based-beverages|:non-alcoholic|:alcoholic", re.I), "Beverages"),
+    # Dry Goods: pantry, packaged, baking, sweet, savory, condiments, oils
+    (re.compile(r":cereals|:rices?\b|:pastas?|:noodles|:breads?\b|:bakery|:bakery-products|:snacks?\b|:chips|:crisps|:crackers|:condiments|:dressings|:vinegars|:spices?|:herbs|:oils?\b|:fats\b|:sugars?\b|:salts?\b|:sauces?|:spreads?|:breakfasts?|:chocolates?|:cocoa|:candies|:sweets|:confectioneries|:desserts|:cookies|:biscuits|:cakes|:pastries|:flours?|:nuts?\b|:nut-butters|:seeds?\b|:dried|:dry-goods|:canned|:preserved|:jams|:jellies|:honeys?|:syrups?|:peanut-butters|:granolas?|:oats?\b|:wheats?|:beans?\b|:lentils?|:soups", re.I), "Dry Goods"),
 ]
+
+# v1.16 Phase 1 v3.3 — Name-keyword fallback for products whose categories_tags
+# are empty or too generic to map (en:groceries, en:processed-foods, etc.).
+# Tested empirically: ~63% of OFF rows fell to "Other" with tag-based only.
+# This list catches the common cases by inspecting the product NAME itself.
+# Order matters — first hit wins. Keep specific terms before generic ones.
+NAME_KEYWORDS = [
+    # Dry Goods — nut butters MUST run before Dairy ("butter" alone matches dairy).
+    # This is a special case: "almond butter", "peanut butter", "nut butter"
+    # are pantry items, not dairy.
+    (re.compile(r"\b(peanut|almond|cashew|hazelnut|sunflower|pumpkin seed|tahini|nut)\s*butter\b", re.I), "Dry Goods"),
+    # Dairy — milk/cheese/yogurt/butter (after the nut-butter exclusion above)
+    (re.compile(r"\b(milks?|yogurts?|yoghurts?|kefir|cheeses?|butters?|creams?|cottage|sour cream|half[\s-]and[\s-]half|ghee|whey|ice cream|gelato)\b", re.I), "Dairy"),
+    # Protein
+    (re.compile(r"\b(chicken|beef|pork|turkey|lamb|salmon|tuna|cod|tilapia|shrimp|crab|lobster|fish|hams?|bacon|sausages?|hot ?dogs?|jerky|tofu|tempeh|seitan|eggs?|protein bars?)\b", re.I), "Protein"),
+    # Produce — fruits + vegetables (use s? so plurals match: apples, bananas, etc.)
+    (re.compile(r"\b(apples?|bananas?|oranges?|grapes?|berries?|strawberr|blueberr|raspberr|blackberr|lemons?|limes?|peaches?|pears?|plums?|melons?|watermelon|cantaloupe|pineapples?|mangoes?|kiwi|avocados?|tomatoes?|lettuce|spinach|kale|arugula|cabbages?|broccoli|cauliflower|carrots?|celery|cucumbers?|zucchini|squash|pumpkins?|peppers?|onions?|garlic|potatoes?|sweet potatoes?|mushrooms?|herbs?|cilantro|parsley|basil)\b", re.I), "Produce"),
+    # Beverages
+    (re.compile(r"\b(water|juices?|sodas?|cola|pepsi|coke|sprite|fanta|teas?|coffees?|espresso|latte|cappuccino|wines?|beers?|ciders?|cocktails?|kombucha|smoothies?|shakes?|drinks?|seltzers?|sparkling)\b", re.I), "Beverages"),
+    # Dry Goods — anything packaged, baked, sweet, savory pantry
+    (re.compile(r"\b(bread|bagels?|tortillas?|pitas?|wraps?|crackers?|chips?|pretzels?|popcorn|cookies?|cakes?|brownies?|cereals?|granolas?|oats?|oatmeal|pastas?|noodles?|rice|quinoa|barley|flours?|sugars?|salt|pepper|spices?|seasonings?|sauces?|ketchup|mustard|mayo|mayonnaise|dressings?|vinegar|oils?|olive oil|jams?|jellies?|honey|syrups?|chocolates?|candy|gum|nuts?|almonds?|peanuts?|cashews?|walnuts?|pistachios?|seeds?|beans?|lentils?|soups?|broths?|stocks?|canned|jar|cans?|pickles?|relish|salsa|hummus|spread|spreads)\b", re.I), "Dry Goods"),
+]
+
+
+def infer_category_from_name(name):
+    """Last-resort category inference from the product name itself.
+
+    Used when categories_tags didn't yield a useful category (returned "Other").
+    Empirical: lifts the categorized rate from ~37% to ~70%+ depending on
+    coverage of the name keywords below."""
+    for pattern, category in NAME_KEYWORDS:
+        if pattern.search(name or ""):
+            return category
+    return "Other"
 
 EMOJI_MAP = {
     "Dairy":     "🥛",
@@ -156,6 +195,9 @@ def normalize_product(product):
             brand = first_word
 
     category = infer_category(product.get("categories_tags") or [])
+    if category == "Other":
+        # Name-keyword fallback for products with empty/generic OFF tags.
+        category = infer_category_from_name(name)
 
     # 2026-05-02 v3.2 — full nutrient panel restored after Supabase Pro
     # upgrade (8 GB ceiling instead of 500 MB). Pulls a useful subset of the

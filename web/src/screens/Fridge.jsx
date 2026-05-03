@@ -4,6 +4,7 @@ import { rowToItem, daysUntil, expiryColor, expiryLabel, formatQty } from "../li
 import { CONTAINERS, CATEGORY_EMOJI } from "../lib/constants.js";
 import AddItemModal from "../components/AddItemModal.jsx";
 import ItemDetailModal from "../components/ItemDetailModal.jsx";
+import Layout from "../components/Layout.jsx";
 
 // Round 3 — full CRUD. Click any row to open the detail modal (edit / use /
 // mark-as-opened / delete). Click the "+ Add item" button to insert a new
@@ -68,19 +69,8 @@ export default function Fridge({ user }) {
   const expired = inContainer.filter(i => daysUntil(i.expiryDate) <= 0).length;
 
   return (
-    <div className="min-h-full bg-bg">
-      <header className="sticky top-0 bg-card border-b border-border px-6 py-3 flex items-center justify-between z-30">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-accent flex items-center justify-center text-white text-xs font-bold">o</div>
-          <span className="text-accent font-extrabold tracking-tight text-sm">ok2eat</span>
-          <span className="text-muted text-xs ml-3 hidden sm:inline">{user?.email}</span>
-        </div>
-        <button onClick={signOut} className="text-textSoft text-xs hover:text-danger">
-          Sign out
-        </button>
-      </header>
-
-      <main className="max-w-3xl mx-auto px-6 py-8">
+    <Layout user={user}>
+      <>
         <div className="flex items-baseline justify-between mb-6 gap-4">
           <div>
             <h1 className="text-2xl font-bold text-text tracking-tight">My Fridge</h1>
@@ -180,23 +170,23 @@ export default function Fridge({ user }) {
             );
           })}
         </div>
-      </main>
 
-      <AddItemModal
-        open={showAdd}
-        onClose={() => setShowAdd(false)}
-        onAdded={handleAdded}
-        householdId={householdId}
-        defaultContainer={activeContainer}
-      />
+        <AddItemModal
+          open={showAdd}
+          onClose={() => setShowAdd(false)}
+          onAdded={handleAdded}
+          householdId={householdId}
+          defaultContainer={activeContainer}
+        />
 
-      <ItemDetailModal
-        open={!!selectedItem}
-        item={selectedItem}
-        onClose={() => setSelectedItem(null)}
-        onUpdated={handleUpdated}
-        onRemoved={handleRemoved}
-      />
-    </div>
+        <ItemDetailModal
+          open={!!selectedItem}
+          item={selectedItem}
+          onClose={() => setSelectedItem(null)}
+          onUpdated={handleUpdated}
+          onRemoved={handleRemoved}
+        />
+      </>
+    </Layout>
   );
 }
