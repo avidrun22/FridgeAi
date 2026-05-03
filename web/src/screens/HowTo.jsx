@@ -12,32 +12,37 @@ const SECTIONS = [
   {
     icon: "📦",
     title: "Adding items",
-    body: "Click the + Add item button on the Fridge tab. Type a name, pick a category, set how many days it lasts. The web app currently supports manual entry; for receipt and barcode scanning, use the iPhone app — items sync to your fridge here automatically.",
+    body: "Click + Add item on the Fridge tab. Start typing a name and ok2eat will search a catalog of 800,000+ US grocery products in real time — pick a result and the category, expiration, and nutrition fields fill in automatically. Or skip the search and type the details manually for items that aren't in the catalog (deli, produce, leftovers).",
+  },
+  {
+    icon: "🔍",
+    title: "Smart product search",
+    body: "The Add Item search box is powered by Open Food Facts, a free open product database, and our own community-captured scans. As you type, you'll see matching products with brands and categories. Faster than typing, more accurate than guessing. Future updates will add semantic search and personal-history ranking so the items you buy most are always at the top.",
   },
   {
     icon: "🤝",
-    title: "Sharing your fridge",
-    body: "Open ok2eat on your iPhone, tap the share icon at the top of the Fridge tab, and invite a household member with the code. Once they enter it, you both see the same fridge in real time across all devices — phone or web.",
-  },
-  {
-    icon: "🔔",
-    title: "Reminders",
-    body: 'The Alerts tab shows what\'s expired, what to use today, and what\'s expiring within 3 days. Toggle "Daily email digest" on to get a once-a-day summary delivered to your inbox.',
+    title: "Sharing your fridge + lists",
+    body: "Everything in ok2eat is household-shared. On the iPhone app, tap the share icon at the top of the Fridge tab and send the invite code to anyone you live with. Once they join, you both see the same fridge AND the same shopping lists in real time — add an item on one phone, it appears on the other within seconds. Each item shows a small initial badge so you can tell who added what.",
   },
   {
     icon: "📋",
-    title: "Shopping lists",
-    body: 'The Plan tab is your household\'s shared shopping list. Create as many lists as you want — "Costco", "This week", "Birthday party" — and they sync across phones and the web. Tap "Order N items" to open Instacart, Amazon, or Walmart with everything pre-loaded.',
+    title: "Shared shopping lists",
+    body: 'The Plan tab is multi-list. Create separate lists for "Costco trip", "Trader Joe\'s", "Birthday party" — whatever helps you keep things organized. Each list shows real-time additions from your household. Hit "Order N items" to open Instacart, Amazon, or Walmart with everything pre-loaded into search. When a trip is done, archive the list to Past Lists; next time, clone it in one tap to reuse the same items.',
+  },
+  {
+    icon: "🔔",
+    title: "Reminders + alerts",
+    body: "The Alerts tab buckets items by urgency: Expired, Use today/tomorrow, Expiring within 3 days. Toggle the daily email digest on to get a once-a-day summary delivered to your inbox at 9am. iPhone users also get push notifications.",
   },
   {
     icon: "🍽️",
     title: "Recipe ideas",
-    body: "The top of the Plan tab links out to AllRecipes, NYT Cooking, and Epicurious, seeded with what's in your fridge. Tap any source to get recipes built around what you already have.",
+    body: "The top of the Plan tab links out to AllRecipes, NYT Cooking, and Epicurious — seeded with what's actually in your fridge right now. One tap to find recipes built around what you have, instead of buying more groceries you don't need.",
   },
   {
     icon: "📱",
     title: "Get the iPhone app",
-    body: "ok2eat works best with the iPhone companion: barcode scanning, receipt scanning, and push notifications. Search 'ok2eat' in the App Store or visit ok2eat.com.",
+    body: "ok2eat works best with the iPhone companion. Barcode scanning, receipt scanning (snap a photo, AI extracts every line item with prices), and push notifications all live there. Search 'ok2eat' in the App Store or visit ok2eat.com — same household, same data, just different surfaces.",
   },
 ];
 

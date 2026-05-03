@@ -4,22 +4,22 @@ import { RETAILERS } from "../lib/constants.js";
 import Modal from "../components/Modal.jsx";
 import Layout from "../components/Layout.jsx";
 
-// Round 4 — Plan tab. Mirrors the iOS PlanScreen behavior at parity:
+// Plan tab — full parity with iOS v1.13:
 //  - Recipe search links (AllRecipes / NYT Cooking / Epicurious) seeded from
-//    the most-recent fridge_items.
-//  - Multiple shopping lists per household (shopping_lists table + list_id FK
-//    on shopping_list_items) — matches iOS v1.1.0 schema.
-//  - Per-list view with check/uncheck, single-item add, clear-checked,
-//    archive-list.
-//  - "Order N items" retailer picker (Instacart, Amazon, Walmart) that opens
-//    the chosen retailer with all unchecked items pre-loaded into search.
+//    most-recent fridge_items.
+//  - Multiple shopping lists per household (shopping_lists table + list_id FK).
+//  - List picker (when 0 or 2+ lists) and in-list view.
+//  - Single-add and bulk-add (paste multiple items at once).
+//  - Recently-added chips above the input — household-shared, last 6 unique
+//    names, tap to re-add.
+//  - Checked items collapse to a "Got N" group at the bottom of the list.
+//  - "Save & start fresh" CTA when everything's checked → archives the list.
+//  - Past lists section in the picker view → tap to clone an archived list
+//    back into a new active one (preserves names, drops check state).
+//  - "Order N items" retailer picker (Instacart, Amazon, Walmart).
 //
-// Deferred to a follow-up commit:
-//  - Bulk add (paste multiple items at once)
-//  - Recently-added chips
-//  - Past lists / clone archived list
-//  - Checked items collapse to bottom
-//  - Realtime sync between household members
+// Deferred: realtime sync between household members (Supabase Realtime
+// channel on shopping_list_items would push updates without polling).
 export default function Plan({ user }) {
   const [householdId, setHouseholdId] = useState(null);
   const [lists, setLists] = useState([]);            // active lists
@@ -39,6 +39,21 @@ export default function Plan({ user }) {
 
   // Fridge items for the recipe-links seed.
   const [fridgeItems, setFridgeItems] = useState([]);
+
+  // Bulk-add modal
+  const [showBulkAdd, setShowBulkAdd] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+
+  // Recently-added chips (top 6 unique names across the household).
+  const [recentNames, setRecentNames] = useState([]);
+
+  // Checked-items collapse — "Got N" group at the bottom is collapsed by
+  // default; tap to expand.
+  const [checkedExpanded, setCheckedExpanded] = useState(false);
+
+  // Past lists (archived) — collapsed-by-default section in the picker view.
+  const [archivedLists, setArchivedLists] = useState([]);
+  const [archivedExpanded, setArchivedExpanded] = useState(false);
 
   async function loadEverything() {
     try {
@@ -69,11 +84,66 @@ export default function Plan({ user }) {
         .order("created_at", { ascending: false })
         .limit(20);
       setFridgeItems(fi || []);
+
+      // Load recently-added shopping names + archived lists in parallel.
+      // Both are non-critical (nice-to-have UI), so silent failures are fine.
+      loadRecentNames(hh);
+      loadArchivedLists(hh);
     } catch (e) {
       setErr(e?.message || "Couldn't load lists.");
     } finally {
       setLoadingLists(false);
     }
+  }
+
+  // Pull last 60 shopping_list_items (any list, archived included) and
+  // dedupe by name to surface the household's last 6 unique additions.
+  async function loadRecentNames(hh) {
+    if (!hh) { setRecentNames([]); return; }
+    try {
+      const { data, error } = await supabase
+        .from("shopping_list_items")
+        .select("name, created_at")
+        .eq("household_id", hh)
+        .order("created_at", { ascending: false })
+        .limit(60);
+      if (error) throw error;
+      const seen = new Set();
+      const out = [];
+      for (const r of data || []) {
+        const k = (r.name || "").trim().toLowerCase();
+        if (!k || seen.has(k)) continue;
+        seen.add(k);
+        out.push(r.name.trim());
+        if (out.length >= 6) break;
+      }
+      setRecentNames(out);
+    } catch (_) {
+      // Silent — chips are cosmetic.
+    }
+  }
+
+  // Pull the 20 most-recently-archived lists with item counts via PostgREST
+  // relation embedding (same pattern as iOS).
+  async function loadArchivedLists(hh) {
+    if (!hh) { setArchivedLists([]); return; }
+    try {
+      const { data, error } = await supabase
+        .from("shopping_lists")
+        .select("id, name, archived_at, shopping_list_items(count)")
+        .eq("household_id", hh)
+        .not("archived_at", "is", null)
+        .order("archived_at", { ascending: false })
+        .limit(20);
+      if (error) throw error;
+      const enriched = (data || []).map(l => ({
+        id: l.id,
+        name: l.name,
+        archived_at: l.archived_at,
+        item_count: (l.shopping_list_items?.[0]?.count) || 0,
+      }));
+      setArchivedLists(enriched);
+    } catch (_) { /* silent */ }
   }
 
   async function loadItems(listId) {
@@ -127,6 +197,8 @@ export default function Plan({ user }) {
       if (error) throw error;
       setLists(prev => prev.filter(l => l.id !== id));
       if (activeListId === id) setActiveListId(null);
+      // Refresh past-lists so the archived list appears immediately.
+      loadArchivedLists(householdId);
     } catch (e) {
       setErr(e?.message || "Couldn't archive list.");
     }
@@ -152,9 +224,112 @@ export default function Plan({ user }) {
         .single();
       if (error) throw error;
       setItems(prev => prev.map(i => i.id === tempId ? { id: data.id, name: data.name, checked: !!data.checked } : i));
+      // Bump the just-added name to the top of the recent chips.
+      setRecentNames(prev => {
+        const k = name.toLowerCase();
+        const filtered = prev.filter(n => n.toLowerCase() !== k);
+        return [name, ...filtered].slice(0, 6);
+      });
     } catch (e) {
       setItems(prev => prev.filter(i => i.id !== tempId));
       setErr(e?.message || "Couldn't add item.");
+    }
+  }
+
+  // Batch insert. Optimistic UI: temp IDs render immediately, replaced by
+  // real Supabase rows on success; pessimistic refetch on failure.
+  async function bulkAddItems(names) {
+    if (!householdId || !activeListId) return;
+    const cleaned = (names || []).map(n => (n || "").trim()).filter(Boolean);
+    if (cleaned.length === 0) return;
+    const tempBase = Date.now();
+    const tempItems = cleaned.map((name, i) => ({
+      id: `temp-${tempBase}-${i}`,
+      name,
+      checked: false,
+    }));
+    setItems(prev => [...prev, ...tempItems]);
+    try {
+      const { data: { user: u } } = await supabase.auth.getUser();
+      const rows = cleaned.map(name => ({
+        household_id: householdId,
+        list_id: activeListId,
+        name,
+        created_by: u?.id || null,
+      }));
+      const { data, error } = await supabase
+        .from("shopping_list_items")
+        .insert(rows)
+        .select("id, name, checked");
+      if (error) throw error;
+      setItems(prev => {
+        const tempIds = new Set(tempItems.map(t => t.id));
+        const withoutTemps = prev.filter(i => !tempIds.has(i.id));
+        const real = (data || []).map(r => ({ id: r.id, name: r.name, checked: !!r.checked }));
+        return [...withoutTemps, ...real];
+      });
+      // Refresh chips so just-added names jump to the top.
+      setRecentNames(prev => {
+        const newSet = new Set();
+        const merged = [];
+        for (const n of [...cleaned.slice().reverse(), ...prev]) {
+          const k = n.toLowerCase();
+          if (newSet.has(k)) continue;
+          newSet.add(k);
+          merged.push(n);
+          if (merged.length >= 6) break;
+        }
+        return merged;
+      });
+    } catch (e) {
+      const tempIds = new Set(tempItems.map(t => t.id));
+      setItems(prev => prev.filter(i => !tempIds.has(i.id)));
+      setErr("Some items may not have been saved.");
+      loadItems(activeListId);
+    }
+  }
+
+  // Copy an archived list's items into a NEW active list. Strips check
+  // state. New list name auto-generated as "<old> · <Mon D>" so users can
+  // tell clones apart.
+  async function cloneArchivedList(archived) {
+    if (!householdId || !archived?.id) return;
+    try {
+      const { data: srcItems, error: srcErr } = await supabase
+        .from("shopping_list_items")
+        .select("name")
+        .eq("list_id", archived.id);
+      if (srcErr) throw srcErr;
+      const names = (srcItems || []).map(i => (i.name || "").trim()).filter(Boolean);
+      if (names.length === 0) {
+        setErr("That list doesn't have any items.");
+        return;
+      }
+      const today = new Date();
+      const monthDay = today.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const newName = `${archived.name} · ${monthDay}`;
+
+      const { data: { user: u } } = await supabase.auth.getUser();
+      const { data: newList, error: newErr } = await supabase
+        .from("shopping_lists")
+        .insert({ household_id: householdId, name: newName, created_by: u?.id || null })
+        .select("id, name, archived_at, created_at")
+        .single();
+      if (newErr) throw newErr;
+
+      const rows = names.map(name => ({
+        household_id: householdId,
+        list_id: newList.id,
+        name,
+        created_by: u?.id || null,
+      }));
+      const { error: insErr } = await supabase.from("shopping_list_items").insert(rows);
+      if (insErr) throw insErr;
+
+      setLists(prev => [...prev, newList]);
+      setActiveListId(newList.id);
+    } catch (e) {
+      setErr(e?.message || "Couldn't reuse that list.");
     }
   }
 
@@ -306,70 +481,179 @@ export default function Plan({ user }) {
           </div>
 
           {showPicker ? (
-            <div className="space-y-2">
-              {loadingLists ? (
-                <div className="rounded-xl border border-border bg-card p-4 text-sm text-textSoft">Loading lists…</div>
-              ) : lists.length === 0 ? (
-                <button
-                  onClick={() => { setNewListName(""); setShowCreateList(true); }}
-                  className="w-full rounded-xl border border-dashed border-border bg-card p-6 hover:border-accent transition"
-                >
-                  <p className="text-accent font-semibold text-sm">+ Create your first list</p>
-                  <p className="text-textSoft text-xs mt-1">e.g. "Costco trip", "This week", "Birthday party"</p>
-                </button>
-              ) : (
-                lists.map(l => (
+            <>
+              <div className="space-y-2">
+                {loadingLists ? (
+                  <div className="rounded-xl border border-border bg-card p-4 text-sm text-textSoft">Loading lists…</div>
+                ) : lists.length === 0 ? (
                   <button
-                    key={l.id}
-                    onClick={() => setActiveListId(l.id)}
-                    className="w-full rounded-xl border border-border bg-card p-4 flex items-center gap-3 text-left hover:border-accent/60 transition"
+                    onClick={() => { setNewListName(""); setShowCreateList(true); }}
+                    className="w-full rounded-xl border border-dashed border-border bg-card p-6 hover:border-accent transition"
                   >
-                    <div className="w-9 h-9 rounded-lg bg-accent/10 flex items-center justify-center text-accent">
-                      📝
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-text font-semibold truncate">{l.name}</p>
-                      <p className="text-textSoft text-xs mt-0.5">Tap to view</p>
-                    </div>
-                    <span className="text-muted text-xl">›</span>
+                    <p className="text-accent font-semibold text-sm">+ Create your first list</p>
+                    <p className="text-textSoft text-xs mt-1">e.g. "Costco trip", "This week", "Birthday party"</p>
                   </button>
-                ))
+                ) : (
+                  lists.map(l => (
+                    <button
+                      key={l.id}
+                      onClick={() => setActiveListId(l.id)}
+                      className="w-full rounded-xl border border-border bg-card p-4 flex items-center gap-3 text-left hover:border-accent/60 transition"
+                    >
+                      <div className="w-9 h-9 rounded-lg bg-accent/10 flex items-center justify-center text-accent">
+                        📝
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-text font-semibold truncate">{l.name}</p>
+                        <p className="text-textSoft text-xs mt-0.5">Tap to view</p>
+                      </div>
+                      <span className="text-muted text-xl">›</span>
+                    </button>
+                  ))
+                )}
+              </div>
+
+              {/* Past lists — collapsed-by-default. Tap a row to clone its items
+                  into a new active list. Solves the recurring-trip pattern. */}
+              {archivedLists.length > 0 && (
+                <div className="mt-6">
+                  <button
+                    onClick={() => setArchivedExpanded(v => !v)}
+                    className="flex items-center gap-2 text-[10px] font-bold tracking-widest text-muted uppercase hover:text-accent w-full"
+                  >
+                    🕐 <span className="flex-1 text-left">Past lists · {archivedLists.length}</span>
+                    <span>{archivedExpanded ? "▲" : "▼"}</span>
+                  </button>
+                  {archivedExpanded && (
+                    <div className="space-y-2 mt-3">
+                      {archivedLists.map(al => {
+                        const archivedDate = new Date(al.archived_at).toLocaleDateString("en-US", {
+                          month: "short", day: "numeric", year: "numeric",
+                        });
+                        return (
+                          <button
+                            key={al.id}
+                            onClick={() => {
+                              if (confirm(`Reuse "${al.name}"? Start a new list with the ${al.item_count} ${al.item_count === 1 ? "item" : "items"} from this past list. The original stays archived.`)) {
+                                cloneArchivedList(al);
+                              }
+                            }}
+                            className="w-full rounded-xl border border-border bg-card p-3 flex items-center gap-3 text-left opacity-85 hover:opacity-100 hover:border-accent/40 transition"
+                          >
+                            <div className="w-8 h-8 rounded-lg bg-bg flex items-center justify-center text-muted text-sm">
+                              📦
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-text font-semibold text-sm truncate">{al.name}</p>
+                              <p className="text-textSoft text-[11px] mt-0.5">
+                                {al.item_count} {al.item_count === 1 ? "item" : "items"} · archived {archivedDate}
+                              </p>
+                            </div>
+                            <span className="text-accent text-[10px] font-bold tracking-wider">REUSE</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               )}
-            </div>
+            </>
           ) : (
             <>
-              {loadingList ? (
-                <div className="rounded-xl border border-border bg-card p-4 text-sm text-textSoft">Loading…</div>
-              ) : items.length === 0 ? (
-                <div className="rounded-xl border border-border bg-card p-4 text-sm text-textSoft">
-                  Nothing on the list yet. Add an item below.
-                </div>
-              ) : (
-                <div className="space-y-1.5">
-                  {items.map(item => (
-                    <div key={item.id} className="rounded-xl border border-border bg-card p-3 flex items-center gap-3">
-                      <button
-                        onClick={() => toggle(item.id)}
-                        className={`w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center transition ${
-                          item.checked
-                            ? "bg-accent border-accent text-white"
-                            : "bg-transparent border-border hover:border-accent"
-                        }`}
-                      >
-                        {item.checked && <span className="text-xs leading-none">✓</span>}
-                      </button>
-                      <span className={`flex-1 text-sm ${item.checked ? "text-muted line-through" : "text-text"}`}>
-                        {item.name}
-                      </span>
-                      <button
-                        onClick={() => remove(item.id)}
-                        className="text-muted hover:text-danger text-xs"
-                        aria-label="Remove"
-                      >
-                        ✕
-                      </button>
+              {(() => {
+                // Split items: pending always visible, checked collapsed at the bottom.
+                const pending = items.filter(i => !i.checked);
+                const checkedItems = items.filter(i => i.checked);
+                const renderRow = (item) => (
+                  <div key={item.id} className="rounded-xl border border-border bg-card p-3 flex items-center gap-3">
+                    <button
+                      onClick={() => toggle(item.id)}
+                      className={`w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center transition ${
+                        item.checked
+                          ? "bg-accent border-accent text-white"
+                          : "bg-transparent border-border hover:border-accent"
+                      }`}
+                    >
+                      {item.checked && <span className="text-xs leading-none">✓</span>}
+                    </button>
+                    <span className={`flex-1 text-sm ${item.checked ? "text-muted line-through" : "text-text"}`}>
+                      {item.name}
+                    </span>
+                    <button
+                      onClick={() => remove(item.id)}
+                      className="text-muted hover:text-danger text-xs"
+                      aria-label="Remove"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                );
+                if (loadingList) {
+                  return <div className="rounded-xl border border-border bg-card p-4 text-sm text-textSoft">Loading…</div>;
+                }
+                if (items.length === 0) {
+                  return (
+                    <div className="rounded-xl border border-border bg-card p-4 text-sm text-textSoft">
+                      Nothing on the list yet. Add an item below.
                     </div>
-                  ))}
+                  );
+                }
+                return (
+                  <div className="space-y-1.5">
+                    {pending.length === 0 && checkedItems.length > 0 && (
+                      <div className="rounded-xl border border-accent/20 bg-accent/5 p-5 text-center">
+                        <p className="text-text font-bold text-base">🎉 All caught up</p>
+                        <p className="text-textSoft text-xs mt-1.5">
+                          Save this list to your past trips so you can reuse it next time.
+                        </p>
+                        {activeList && (
+                          <button
+                            onClick={() => archiveList(activeList.id)}
+                            className="mt-3 px-4 py-2 rounded-lg bg-accent text-white text-sm font-semibold hover:bg-accent/90"
+                          >
+                            Save &amp; start fresh
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {pending.map(renderRow)}
+                    {checkedItems.length > 0 && (
+                      <>
+                        <button
+                          onClick={() => setCheckedExpanded(v => !v)}
+                          className="w-full rounded-xl border border-accent/30 bg-accent/5 p-3 flex items-center gap-3 hover:bg-accent/10 transition"
+                        >
+                          <span className="w-5 h-5 rounded-full bg-accent text-white flex items-center justify-center text-xs flex-shrink-0">✓</span>
+                          <span className="flex-1 text-left text-sm font-bold text-accent">
+                            Got {checkedItems.length} {checkedItems.length === 1 ? "item" : "items"}
+                          </span>
+                          <span className="text-accent text-sm">{checkedExpanded ? "▲" : "▼"}</span>
+                        </button>
+                        {checkedExpanded && checkedItems.map(renderRow)}
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Recently-added chips — household-shared. Tap to re-add. */}
+              {recentNames.length > 0 && (
+                <div className="mt-5">
+                  <p className="text-[10px] font-bold tracking-widest text-textSoft uppercase mb-2">
+                    Recently added · tap to add again
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {recentNames.map((n, idx) => (
+                      <button
+                        key={n + "_" + idx}
+                        onClick={() => bulkAddItems([n])}
+                        className="px-3 py-1.5 rounded-full border border-border bg-card text-sm hover:border-accent transition flex items-center gap-1.5"
+                      >
+                        <span className="text-text">{n}</span>
+                        <span className="text-accent font-bold">+</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -391,6 +675,13 @@ export default function Plan({ user }) {
                   +
                 </button>
               </div>
+
+              <button
+                onClick={() => { setBulkText(""); setShowBulkAdd(true); }}
+                className="block mx-auto mt-3 text-xs text-accent font-semibold hover:underline flex items-center gap-1"
+              >
+                📋 Add multiple items at once
+              </button>
 
               {unchecked.length > 0 && (
                 <button
@@ -414,6 +705,42 @@ export default function Plan({ user }) {
         </section>
 
       {/* ─── New list dialog ───────────────────────────────────────────────── */}
+      {/* ─── Bulk-add modal ─────────────────────────────────────────────── */}
+      <Modal open={showBulkAdd} onClose={() => setShowBulkAdd(false)} title="Add multiple items">
+        <p className="text-sm text-textSoft mb-3">
+          One item per line. Or paste a list from elsewhere — we'll split it on line breaks.
+        </p>
+        <textarea
+          value={bulkText}
+          onChange={(e) => setBulkText(e.target.value)}
+          placeholder={"eggs\nmilk\nbread\navocados (3)\nsourdough"}
+          autoFocus
+          rows={8}
+          className="w-full rounded-lg border border-border bg-card px-4 py-2 text-sm focus:outline-none focus:border-accent mb-2 font-mono"
+        />
+        <p className="text-textSoft text-xs mb-3">
+          {(() => {
+            const parsed = (bulkText || "").split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+            return parsed.length === 0
+              ? "Type or paste items above."
+              : `${parsed.length} ${parsed.length === 1 ? "item" : "items"} ready to add.`;
+          })()}
+        </p>
+        <button
+          onClick={async () => {
+            const names = (bulkText || "").split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+            if (names.length === 0) return;
+            setShowBulkAdd(false);
+            setBulkText("");
+            await bulkAddItems(names);
+          }}
+          disabled={!bulkText.trim()}
+          className="w-full rounded-full bg-accent text-white py-2 text-sm font-semibold disabled:opacity-50 hover:bg-accent/90"
+        >
+          Add to list
+        </button>
+      </Modal>
+
       <Modal open={showCreateList} onClose={() => setShowCreateList(false)} title="New shopping list">
         <p className="text-sm text-textSoft mb-4">
           Name it after a store, a trip, or whatever helps you keep things separate.
