@@ -2,7 +2,7 @@
   "expo": {
     "name": "ok2eat",
     "slug": "ok2eat",
-    "version": "1.13",
+    "version": "1.14",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -14,7 +14,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.gregorygoldberg.ok2eat",
-      "buildNumber": "17",
+      "buildNumber": "18",
       "associatedDomains": ["applinks:ok2eat.com"],
       "infoPlist": {
         "NSCameraUsageDescription": "ok2eat needs camera access to scan barcodes",

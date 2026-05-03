@@ -289,8 +289,82 @@ function productFromOFF(p, barcode) {
   return { name: fullName.trim(), category, emoji: EMOJI_MAP[category], defaultExpiry: EXPIRY_MAP[category], code: barcode || p.code || null, nutritionGrade: p.nutrition_grades || null, nutrition: hasNutrition ? nutrition : null, ingredients: p.ingredients_text_en || p.ingredients_text || null };
 }
 
-async function lookupBarcode(barcode) { const res = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`); const data = await res.json(); if (data.status !== 1 || !data.product) return null; return productFromOFF(data.product, barcode); }
-async function searchProducts(query) { const encoded = encodeURIComponent(query); const res = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encoded}&search_simple=1&action=process&json=1&page_size=20&fields=product_name,product_name_en,brands,categories_tags,nutrition_grades,nutriments,serving_size,ingredients_text_en,code`); const data = await res.json(); if (!data.products) return []; return data.products.filter(p => p.product_name || p.product_name_en).slice(0, 10).map(p => productFromOFF(p, p.code)); }
+// v1.14 — Open Food Facts lookups now route through lib/openFoodFacts.js,
+// which adds: 4s timeout (barcode) / 6s timeout (search), User-Agent header
+// per OFF's etiquette guidelines, empirically-tuned category patterns
+// (Nutella → Dry Goods etc.), brand fallback heuristic, image_url capture,
+// and a relevance guard on text search that drops the random-product
+// false-positives we saw on the legacy direct call.
+//
+// Consumers expect the OLD `productFromOFF` shape (combined brand+name into
+// `name`, `nutrition` object with serving + saturatedFat + fiber + sugars,
+// `nutritionGrade`, `code`). The lib emits a richer shape (`brand`, `name`,
+// `nutriments` object with fewer fields, `nutriScore`, `barcode`, plus new
+// fields: `imageUrl`, `allergens`, `isOrganic`, `ecoScore`, `quantity`,
+// `servingSize`, `source`). adaptOFFProduct bridges the two — old fields
+// map back to their original names; new fields are appended for any
+// consumer that wants to opt in (e.g. AddModal could surface `imageUrl`
+// later without another refactor).
+const _offLib = require("./lib/openFoodFacts.js");
+
+function adaptOFFProduct(p) {
+  if (!p) return null;
+  const cat = p.category;
+  // Old shape merged brand into name when name didn't already include it.
+  // Preserve that behavior so existing AddModal copy + recently-used chips
+  // render the same string for a given barcode.
+  const fullName = p.brand && p.name && !p.name.toLowerCase().includes(p.brand.toLowerCase())
+    ? `${p.brand} ${p.name}`
+    : (p.name || "Unknown Product");
+  // Build the OLD `nutrition` object shape from the lib's slimmer
+  // `nutriments`. Lib doesn't expose saturatedFat / fiber / sugars per_100g
+  // (they require fields the v2 endpoint omits), so those stay null. UI
+  // already handles null gracefully (renders nothing).
+  const n = p.nutriments || {};
+  const hasNutrition = Object.values(n).some(v => v != null);
+  const nutrition = hasNutrition
+    ? {
+        serving: p.servingSize || "100g",
+        calories: n.calories_per_100g ?? null,
+        fat: n.fat_g ?? null,
+        saturatedFat: null,
+        carbs: n.carbs_g ?? null,
+        sugars: n.sugar_g ?? null,
+        fiber: null,
+        protein: n.protein_g ?? null,
+        salt: n.salt_g ?? null,
+      }
+    : null;
+  return {
+    // ── Old-shape fields (existing consumers) ────────────────────────
+    name: fullName.trim(),
+    category: cat,
+    emoji: p.emoji,
+    defaultExpiry: EXPIRY_MAP[cat] || 7,
+    code: p.barcode || null,
+    nutritionGrade: p.nutriScore || null,
+    nutrition,
+    ingredients: p.ingredients || null,
+    // ── Bonus fields from the new lib (opt-in for callers) ──────────
+    brand: p.brand || null,
+    imageUrl: p.imageUrl || null,
+    allergens: p.allergens || [],
+    isOrganic: !!p.isOrganic,
+    ecoScore: p.ecoScore || null,
+    quantity: p.quantity || null,
+    source: p.source || null,
+  };
+}
+
+async function lookupBarcode(barcode) {
+  const product = await _offLib.lookupByBarcode(barcode);
+  return adaptOFFProduct(product);
+}
+
+async function searchProducts(query) {
+  const products = await _offLib.searchByText(query, { pageSize: 10 });
+  return products.map(adaptOFFProduct).filter(Boolean);
+}
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 const T = { bg: "#F7FAF7", surface: "#FFFFFF", card: "#FFFFFF", accent: "#16A34A", warn: "#EA580C", danger: "#DC2626", muted: "#9CA3AF", text: "#111827", textSoft: "#6B7280", border: "#E5E7EB" };
@@ -1663,7 +1737,14 @@ function BulkAddModal({ visible, onClose, onAddItems, section }) {
       if (source === "camera") {
         const perm = await ImagePicker.requestCameraPermissionsAsync();
         if (!perm.granted) {
-          Alert.alert("Permission Required", "Please allow camera access to scan receipts.");
+          Alert.alert(
+            "Permission Required",
+            "Please allow camera access in Settings to scan receipts.",
+            [
+              { text: "Cancel", style: "cancel" },
+              { text: "Open Settings", onPress: () => Linking.openSettings() },
+            ]
+          );
           return;
         }
         result = await ImagePicker.launchCameraAsync({
@@ -1674,7 +1755,14 @@ function BulkAddModal({ visible, onClose, onAddItems, section }) {
       } else {
         const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (!perm.granted) {
-          Alert.alert("Permission Required", "Please allow photo library access to upload receipts.");
+          Alert.alert(
+            "Permission Required",
+            "Please allow photo library access in Settings to upload receipts.",
+            [
+              { text: "Cancel", style: "cancel" },
+              { text: "Open Settings", onPress: () => Linking.openSettings() },
+            ]
+          );
           return;
         }
         result = await ImagePicker.launchImageLibraryAsync({
@@ -4475,7 +4563,16 @@ export default function App() {
         setNotificationsEnabled(true);
         showToast("🔔 Daily digest enabled!");
       } else {
-        Alert.alert("Permission Required", "Please enable notifications in your iPhone Settings to use this feature.");
+        // v1.14 — once iOS denies, requestPermissionsAsync() can't re-prompt.
+        // Deep-link to Settings so the user has a one-tap path to fix it.
+        Alert.alert(
+          "Permission Required",
+          "Please enable notifications for ok2eat in Settings to use this feature.",
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Open Settings", onPress: () => Linking.openSettings() },
+          ]
+        );
       }
     }
   }
