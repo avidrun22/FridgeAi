@@ -1,15 +1,27 @@
+import { useState } from "react";
 import { NavLink } from "react-router-dom";
 import { supabase } from "../lib/supabase.js";
+import HouseholdShareModal from "./HouseholdShareModal.jsx";
 
 // Shared layout for every authenticated screen. Single source of truth for
 // the header brand, the top nav (Fridge / Alerts / Plan / How To), and the
 // sign-out button. Mirrors the iOS bottom-nav structure (Fridge / Alerts /
 // Plan / How To) on a top bar that fits desktop + mobile widths.
+// v1.16 — adds a "Share" button that opens the household invite/redeem modal.
 export default function Layout({ user, children }) {
+  const [showShare, setShowShare] = useState(false);
+
   const navLinkClass = ({ isActive }) =>
     isActive
       ? "text-accent font-semibold"
       : "text-textSoft hover:text-accent";
+
+  // After someone redeems a code, force a hard reload so every screen
+  // re-fetches against the new household_id. Cheaper than threading a
+  // refetch callback through every screen.
+  function handleJoined() {
+    window.location.reload();
+  }
 
   return (
     <div className="min-h-full bg-bg">
@@ -25,6 +37,14 @@ export default function Layout({ user, children }) {
           </nav>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowShare(true)}
+            className="px-3 py-1 rounded-full border border-border text-xs font-semibold text-textSoft hover:border-accent hover:text-accent transition flex items-center gap-1"
+            title="Share fridge + lists with someone in your household"
+          >
+            <span>👥</span>
+            <span className="hidden sm:inline">Share</span>
+          </button>
           {user?.email && (
             <span className="text-muted text-xs hidden md:inline">{user.email}</span>
           )}
@@ -40,6 +60,12 @@ export default function Layout({ user, children }) {
       <main className="max-w-3xl mx-auto px-6 py-8">
         {children}
       </main>
+
+      <HouseholdShareModal
+        open={showShare}
+        onClose={() => setShowShare(false)}
+        onJoined={handleJoined}
+      />
     </div>
   );
 }

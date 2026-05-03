@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase.js";
 import { rowToItem, daysUntil, expiryColor, expiryLabel, formatQty } from "../lib/helpers.js";
-import { CONTAINERS, CATEGORY_EMOJI } from "../lib/constants.js";
+import { CONTAINERS, CATEGORIES, CATEGORY_EMOJI } from "../lib/constants.js";
 import AddItemModal from "../components/AddItemModal.jsx";
+import BulkAddItemsModal from "../components/BulkAddItemsModal.jsx";
 import ItemDetailModal from "../components/ItemDetailModal.jsx";
 import Layout from "../components/Layout.jsx";
 
@@ -16,7 +17,11 @@ export default function Fridge({ user }) {
   const [activeContainer, setActiveContainer] = useState("fridge");
   const [householdId, setHouseholdId] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [showBulkAdd, setShowBulkAdd] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
+  // v1.16 — search + category filter for the active container
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filter, setFilter] = useState("All"); // "All" | "Dairy" | "Protein" | … | "expiring" | "expired"
 
   async function refetch() {
     try {
@@ -68,6 +73,19 @@ export default function Fridge({ user }) {
   }).length;
   const expired = inContainer.filter(i => daysUntil(i.expiryDate) <= 0).length;
 
+  // v1.16 — apply category filter then text search to the in-container set.
+  const categoryFiltered = filter === "All"
+    ? inContainer
+    : filter === "expiring"
+      ? inContainer.filter(i => { const d = daysUntil(i.expiryDate); return d > 0 && d <= 3; })
+      : filter === "expired"
+        ? inContainer.filter(i => daysUntil(i.expiryDate) <= 0)
+        : inContainer.filter(i => i.category === filter);
+  const searchTerm = searchQuery.trim().toLowerCase();
+  const visible = searchTerm
+    ? categoryFiltered.filter(i => (i.name || "").toLowerCase().includes(searchTerm))
+    : categoryFiltered;
+
   return (
     <Layout user={user}>
       <>
@@ -78,12 +96,20 @@ export default function Fridge({ user }) {
               {loading ? "Loading…" : `${items.length} items tracked across containers`}
             </p>
           </div>
-          <button
-            onClick={() => setShowAdd(true)}
-            className="px-4 py-2 rounded-full bg-accent text-white text-sm font-semibold hover:bg-accent/90 flex items-center gap-1.5 whitespace-nowrap"
-          >
-            <span className="text-lg leading-none">+</span> Add item
-          </button>
+          <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+            <button
+              onClick={() => setShowAdd(true)}
+              className="px-4 py-2 rounded-full bg-accent text-white text-sm font-semibold hover:bg-accent/90 flex items-center gap-1.5 whitespace-nowrap"
+            >
+              <span className="text-lg leading-none">+</span> Add item
+            </button>
+            <button
+              onClick={() => setShowBulkAdd(true)}
+              className="text-xs text-accent hover:underline whitespace-nowrap"
+            >
+              + Add multiple
+            </button>
+          </div>
         </div>
 
         <div className="flex gap-2 mb-4 flex-wrap">
@@ -103,20 +129,68 @@ export default function Fridge({ user }) {
         </div>
 
         {!loading && containerCount > 0 && (
-          <div className="grid grid-cols-3 gap-2 mb-6">
+          <div className="grid grid-cols-3 gap-2 mb-4">
             <div className="rounded-lg border border-border bg-card p-3 text-center">
               <p className="text-xl font-bold text-text">{containerCount}</p>
               <p className="text-[10px] text-textSoft uppercase tracking-wide">Total</p>
             </div>
-            <div className="rounded-lg border border-border bg-card p-3 text-center">
+            <button
+              onClick={() => setFilter(filter === "expiring" ? "All" : "expiring")}
+              className={`rounded-lg border p-3 text-center transition ${
+                filter === "expiring" ? "border-warn bg-warn/5" : "border-border bg-card hover:border-warn/50"
+              }`}
+            >
               <p className="text-xl font-bold" style={{ color: expiringSoon > 0 ? "#EA580C" : "#1C261C" }}>{expiringSoon}</p>
               <p className="text-[10px] text-textSoft uppercase tracking-wide">Expiring soon</p>
-            </div>
-            <div className="rounded-lg border border-border bg-card p-3 text-center">
+            </button>
+            <button
+              onClick={() => setFilter(filter === "expired" ? "All" : "expired")}
+              className={`rounded-lg border p-3 text-center transition ${
+                filter === "expired" ? "border-danger bg-danger/5" : "border-border bg-card hover:border-danger/50"
+              }`}
+            >
               <p className="text-xl font-bold" style={{ color: expired > 0 ? "#DC2626" : "#1C261C" }}>{expired}</p>
               <p className="text-[10px] text-textSoft uppercase tracking-wide">Expired</p>
-            </div>
+            </button>
           </div>
+        )}
+
+        {/* v1.16 — search bar + category filter chips. Mirrors iOS v1.0.10. */}
+        {!loading && containerCount > 0 && (
+          <>
+            <div className="relative mb-3">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted text-sm">🔍</span>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={`Search ${CONTAINERS.find(c => c.id === activeContainer)?.label.toLowerCase() || "items"}…`}
+                className="w-full rounded-full border border-border bg-card pl-9 pr-9 py-2 text-sm focus:outline-none focus:border-accent"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-danger text-sm"
+                  aria-label="Clear search"
+                >✕</button>
+              )}
+            </div>
+            <div className="flex gap-1.5 mb-4 flex-wrap">
+              {["All", ...CATEGORIES].map(c => (
+                <button
+                  key={c}
+                  onClick={() => setFilter(c)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium border transition ${
+                    filter === c
+                      ? "bg-accent/10 border-accent text-accent"
+                      : "bg-card border-border text-textSoft hover:border-accent"
+                  }`}
+                >
+                  {c === "All" ? "All" : `${CATEGORY_EMOJI[c]} ${c}`}
+                </button>
+              ))}
+            </div>
+          </>
         )}
 
         {err && (
@@ -125,26 +199,43 @@ export default function Fridge({ user }) {
           </div>
         )}
 
-        {!loading && inContainer.length === 0 && !err && (
+        {!loading && visible.length === 0 && !err && (
           <div className="rounded-xl border border-border bg-card p-10 text-center">
-            <div className="text-5xl mb-3">🧊</div>
+            <div className="text-5xl mb-3">{searchQuery || filter !== "All" ? "🔍" : "🧊"}</div>
             <p className="text-text font-semibold">
-              {items.length === 0 ? "Your fridge is empty" : `Nothing in ${CONTAINERS.find(c => c.id === activeContainer)?.label}`}
+              {searchQuery
+                ? `No items match "${searchQuery}"`
+                : filter !== "All"
+                  ? `Nothing matches the ${filter} filter`
+                  : items.length === 0
+                    ? "Your fridge is empty"
+                    : `Nothing in ${CONTAINERS.find(c => c.id === activeContainer)?.label}`}
             </p>
             <p className="text-textSoft text-sm mt-1 mb-4">
-              Tap "Add item" above to add something.
+              {searchQuery || filter !== "All"
+                ? "Try clearing the filter."
+                : 'Tap "Add item" above to add something.'}
             </p>
-            <button
-              onClick={() => setShowAdd(true)}
-              className="px-5 py-2 rounded-full bg-accent text-white text-sm font-semibold hover:bg-accent/90"
-            >
-              + Add item
-            </button>
+            {searchQuery || filter !== "All" ? (
+              <button
+                onClick={() => { setSearchQuery(""); setFilter("All"); }}
+                className="px-5 py-2 rounded-full border border-border text-sm font-semibold text-textSoft hover:bg-card"
+              >
+                Clear filters
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowAdd(true)}
+                className="px-5 py-2 rounded-full bg-accent text-white text-sm font-semibold hover:bg-accent/90"
+              >
+                + Add item
+              </button>
+            )}
           </div>
         )}
 
         <div className="space-y-2">
-          {inContainer.map(it => {
+          {visible.map(it => {
             const days = daysUntil(it.expiryDate);
             const color = expiryColor(days);
             return (
@@ -174,6 +265,14 @@ export default function Fridge({ user }) {
         <AddItemModal
           open={showAdd}
           onClose={() => setShowAdd(false)}
+          onAdded={handleAdded}
+          householdId={householdId}
+          defaultContainer={activeContainer}
+        />
+
+        <BulkAddItemsModal
+          open={showBulkAdd}
+          onClose={() => setShowBulkAdd(false)}
           onAdded={handleAdded}
           householdId={householdId}
           defaultContainer={activeContainer}
