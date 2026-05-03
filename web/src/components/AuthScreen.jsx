@@ -19,6 +19,27 @@ export default function AuthScreen() {
   const [msg, setMsg]       = useState(null);
   const [err, setErr]       = useState(null);
 
+  // v1.16 — Sign in with Apple via Supabase OAuth. Supabase brokers the
+  // redirect to Apple, then bounces back to /. Same email as iOS Apple
+  // sign-in lands on the same auth.users row (Supabase links identities
+  // by email when the project setting is on).
+  async function handleAppleSignIn() {
+    setErr(null); setMsg(null); setBusy(true);
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "apple",
+        options: {
+          redirectTo: window.location.origin + "/",
+        },
+      });
+      if (error) throw error;
+      // Browser is redirecting to Apple now — no further UI needed.
+    } catch (e) {
+      setErr(e?.message || "Couldn't start Apple sign-in.");
+      setBusy(false);
+    }
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     setErr(null);
@@ -95,6 +116,30 @@ export default function AuthScreen() {
           <h1 className="text-xl font-bold text-text mb-1">{titleByMode[mode]}</h1>
           <p className="text-textSoft text-sm mb-5">{subtitleByMode[mode]}</p>
 
+          {/* Sign in with Apple — first-class option, matches iOS. Hidden on
+              the password-reset flow to keep that screen single-purpose. */}
+          {mode !== "reset" && (
+            <>
+              <button
+                type="button"
+                onClick={handleAppleSignIn}
+                disabled={busy}
+                className="w-full rounded-lg bg-black text-white text-sm font-semibold py-2.5 flex items-center justify-center gap-2 hover:bg-zinc-800 disabled:opacity-50 transition mb-3"
+              >
+                <svg width="14" height="16" viewBox="0 0 14 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                  <path d="M11.624 8.475c-.02-2.043 1.668-3.024 1.745-3.07-.951-1.39-2.43-1.58-2.954-1.602-1.257-.128-2.453.74-3.092.74-.65 0-1.625-.722-2.674-.701-1.376.02-2.643.799-3.351 2.03-1.43 2.476-.366 6.143 1.027 8.155.682.985 1.494 2.09 2.557 2.05 1.027-.041 1.415-.665 2.656-.665 1.231 0 1.589.665 2.674.644 1.103-.02 1.802-1.005 2.476-1.99.78-1.142 1.103-2.247 1.122-2.304-.025-.011-2.155-.827-2.176-3.287zM9.6 2.481c.566-.687.95-1.643.846-2.594-.815.034-1.808.544-2.394 1.232-.524.61-.987 1.585-.864 2.519.911.07 1.844-.46 2.412-1.157z"/>
+                </svg>
+                Sign in with Apple
+              </button>
+
+              <div className="flex items-center gap-3 my-4">
+                <div className="flex-1 h-px bg-border" />
+                <span className="text-xs text-muted">or with email</span>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+            </>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-3">
             <div>
               <label className="block text-xs text-textSoft mb-1">Email</label>
@@ -164,11 +209,11 @@ export default function AuthScreen() {
           </div>
         </div>
 
-        {/* Apple Sign In hint — drives the few users who signed up via Apple
-            on iOS to use the relay email if that's what shows on their iPhone. */}
+        {/* Apple Sign In hint — confirms the Apple button is the same identity
+            as iOS Apple sign-in so iPhone users don't end up with two accounts. */}
         {mode === "magic" && (
           <p className="text-center text-xs text-muted mt-4 leading-relaxed">
-            Signed up with "Sign in with Apple" on iPhone? Use the email shown on your <span className="text-textSoft">iPhone Settings → Apple Account → ok2eat</span>. The relay address forwards to your real inbox.
+            Signed up with "Sign in with Apple" on iPhone? Use the Apple button above — same account, no separate password needed.
           </p>
         )}
 
