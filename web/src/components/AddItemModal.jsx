@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Modal from "./Modal.jsx";
 import DayStepper from "./DayStepper.jsx";
+import ExpiryDateField from "./ExpiryDateField.jsx";
 import { supabase } from "../lib/supabase.js";
 import {
   CATEGORIES, CATEGORY_EMOJI, CONTAINERS,
@@ -257,6 +258,9 @@ export default function AddItemModal({ open, onClose, onAdded, householdId, defa
           label={packaged ? "Lasts (unopened)" : "Lasts"}
           suffix="days from today"
         />
+        {/* v1.16+ — date-picker hint, parity with iOS ExpiryDateField.
+            Two-way bound with closedDays via the ExpiryDateField component. */}
+        <ExpiryDateField days={closedDays} onDaysChange={setClosedDays} />
 
         {packaged && (
           <DayStepper
