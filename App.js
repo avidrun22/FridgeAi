@@ -477,6 +477,10 @@ function UseItemModal({ item, visible, onClose, onUse }) {
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      {/* v1.15 — KeyboardAvoidingView lifts the sheet above the numeric keyboard
+          when autoFocus opens it. Without this, the Use/Use-it-all/Cancel buttons
+          are hidden behind the keyboard and users can't see what to tap. */}
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
       <TouchableOpacity style={s.modalOverlay} activeOpacity={1} onPress={onClose}>
         <TouchableOpacity activeOpacity={1} style={s.modalSheet}>
           <View style={s.sheetHandle} />
@@ -522,6 +526,7 @@ function UseItemModal({ item, visible, onClose, onUse }) {
           </TouchableOpacity>
         </TouchableOpacity>
       </TouchableOpacity>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -4049,6 +4054,9 @@ function PlanScreen({ items, householdId }) {
 
       {/* New list modal */}
       <Modal visible={showCreateList} transparent animationType="slide" onRequestClose={() => setShowCreateList(false)}>
+        {/* v1.15 — KeyboardAvoidingView so the autofocus keyboard doesn't
+            cover the Create-list button. Same pattern as UseItemModal. */}
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
         <TouchableOpacity style={s.modalOverlay} activeOpacity={1} onPress={() => setShowCreateList(false)}>
           <TouchableOpacity activeOpacity={1} style={s.modalSheet}>
             <View style={s.sheetHandle} />
@@ -4076,6 +4084,7 @@ function PlanScreen({ items, householdId }) {
             <View style={{ height: 16 }} />
           </TouchableOpacity>
         </TouchableOpacity>
+        </KeyboardAvoidingView>
       </Modal>
 
       <View style={{ height: 32 }} />
