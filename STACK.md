@@ -166,7 +166,7 @@ Reorder picker order in app: Instacart → Amazon → Walmart.
 
 | Tool | What it shows | Access |
 |---|---|---|
-| **PostHog** | DAU/WAU/MAU, session length, custom events (signups, item adds, swipes, reorders, recipes, household invites, etc.), retention cohorts, funnels | [app.posthog.com](https://app.posthog.com) |
+| **PostHog** | DAU/WAU/MAU, session length, custom events (signups, item adds, swipes, reorders, recipes, household invites, etc.), retention cohorts, funnels | [app.posthog.com](https://app.posthog.com). Project ID `382774`. |
 | **Supabase Reports** | Database IOPS, CPU, memory, connection counts, query performance | Supabase Dashboard → Reports |
 | **Daily metrics digest** | Combined Supabase + PostHog snapshot, sent at 9pm Pacific via launchd cron | Email |
 | **Telegram bot ops** | `/metrics`, `/users`, `/recent` — instant pull of key numbers from anywhere | Telegram chat |
@@ -174,6 +174,34 @@ Reorder picker order in app: Instacart → Amazon → Walmart.
 | **Google Search Console** | Search impressions, clicks, indexing status | search.google.com/search-console |
 
 PostHog instrumentation lives in `App.js`: `track(event, properties)` helper at line 32. ~25+ events tracked across signups, item interactions, household flows, recipes, reorders.
+
+### ok2eat Growth dashboard (PostHog)
+
+URL: [posthog.com/project/382774/dashboard/1540697](https://us.posthog.com/project/382774/dashboard/1540697)
+
+Built 2026-05-04 from the Product Analytics template + 3 ok2eat-specific
+insights. Anchor metrics for "is the app actually growing" reviews.
+
+| # | Insight | What it tells you |
+|---|---|---|
+| 1 | Daily active users (last 30 days) | Today's heartbeat — uses `Application Opened` event |
+| 2 | Weekly active users (last 90 days) | Smoother trendline — uses `Application Opened` |
+| 3 | Retention | Weekly cohort retention table |
+| 4 | Growth accounting | New / returning / resurrected / dormant users per week |
+| 5 | Daily signups | `user_signed_up` unique users per day, last 30 days |
+| 6 | Activation funnel: Sign up → first item | Conversion from `user_signed_up` to `item_added_manual` |
+| 7 | Top features used | All events broken down by event name — feature usage ranking |
+
+**Conventions for adding new insights to this dashboard:**
+- Use `Application Opened` (not `Pageview` or `user_signed_in`) for any
+  active-user metric — it's the canonical mobile "user opened the app"
+  signal that PostHog auto-captures.
+- Default chart date range: 30 days for daily-cadence insights, 90 days
+  for weekly-cadence.
+- For funnels, name them `<Step 1> → <Step N>` so the title self-documents.
+- For top-N rankings, use Trends with breakdown by Event metadata → Event
+  (sent as `event`), then switch chart type to horizontal Bar for clean
+  ranking.
 
 ---
 
