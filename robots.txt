@@ -1,0 +1,8 @@
+# robots.txt for ok2eat.com
+# All crawlers allowed; sitemap declared below.
+# Updated 2026-05-04.
+
+User-agent: *
+Allow: /
+
+Sitemap: https://ok2eat.com/sitemap.xml
