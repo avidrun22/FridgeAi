@@ -9,21 +9,22 @@ Read it back from anywhere with **`/backlog`** (or open the file).
 
 > Convention: `[ ]` = open, `[x]` = done. Date prefix is when the item was captured. Strike through items as you ship by moving them to **Done**.
 
-Last reviewed: 2026-05-04 (v1.14 shipped: catalog + AddModal type-ahead, OFF lib refactor, push notif hardening, Settings deep-link, Apple Sign In on web. v1.15+v1.16 plans were absorbed into v1.14, so the catalog/search arc resequenced: new v1.15 = pending items + notify-household + recipe favorites + keyboard fix; v1.16 = Smart Cook Night; v1.17 = SMS Group Fridge. Added ADHD-positioning marketing pivot to In Progress per Reddit research findings.)
+Last reviewed: 2026-05-05 (v1.14 shipped: catalog + AddModal type-ahead, OFF lib refactor, push notif hardening, Settings deep-link, Apple Sign In on web. v1.15+v1.16 plans were absorbed into v1.14, so the catalog/search arc resequenced: new v1.15 = pending items + notify-household + recipe favorites + keyboard fix; v1.16 = Smart Cook Night; v1.17 = SMS Group Fridge. Marketing pivot evolved 2026-05-04→2026-05-05: ADHD-specific framing replaced with broader "what do we have to eat?" hero — preserves founder-voice empathy, broadens appeal beyond a single audience without losing it. Two founder-series posts shipped this week: post 2 (the question reframe, 2026-05-04) and post 3 (grocery bill -25%, 2026-05-05).)
 
 ---
 
 ## 🎯 In progress
 
-- [ ] **ADHD-positioning marketing pivot** (captured 2026-05-04 from Reddit research) — strongest single growth lever identified: ADHD adults (~17M US, vocal community, share apps that work) are ok2eat's natural target without any product change. Real Reddit quotes: *"the last time you cleaned your fridge, you threw away forgotten produce... Wednesday you forget about the vegetables in the crisper drawer"* — that IS ok2eat's user. Plan: hero copy rewrite ("ok2eat remembers what's in your fridge so you don't have to" / "for brains that buy spinach with real intentions and find it liquefied a week later") + founder-voice blog post + r/ADHD launch post. Full brief in `docs/adhd-marketing-pivot-2026-05-04.md`. Risk: keep medical-claim language out of App Store metadata (Apple review sensitivity); ADHD positioning lives on website + Reddit only. Effort: ~1 day for copy + 7-10 days incl. Reddit account prep before launch post.
+- [x] **"What do we have to eat?" marketing pivot** (shipped 2026-05-05; supersedes 2026-05-04 ADHD-specific pivot) — broader, more universal framing while preserving founder-voice empathy that resonates with the ADHD audience. Live across: hero h1 + subhead, og/title meta, JSON-LD MobileApplication.description, how-it-works h2 ("From 'what do we want?' to 'what do we have?'"), final CTA h2 ("Stop staring at the fridge."), founder note. Companion blog posts: `/blog/what-do-we-have-to-eat.html` (2026-05-04) + `/blog/cut-grocery-bill-25-percent.html` (2026-05-05). All three URLs submitted to Search Console for priority recrawl. Original ADHD pivot brief preserved at `docs/adhd-marketing-pivot-2026-05-04.md` for reference. Old ADHD-specific draft (`blog/adhd-fridge-blindness.html`) deleted. Twitter/X thread draft saved at `_twitter_thread_draft.txt` (Greg posting manually). Reddit launch deferred to Greg.
 
 - [ ] **Twice-weekly blog cadence (Tue + Thu)** — strategic move after Impact rejection: build content on ok2eat.com so the site has substance to crawl when reapplying. Scheduled task `ok2eat-blog-post-nudge` (cron `0 9 * * 2,4`) sends a Telegram nudge every Tue/Thu 9am Pacific. Workflow doc lives at `blog/HOWTO.md`.
 
   **Founder series** (in order, personal voice — track 1):
     1. Why I built ok2eat ✅ live 2026-04-29
-    2. How I cut my grocery bill by optimizing what I already have
-    3. How I always know what to buy when I'm not at home
-    4. What real spending data taught me about my habits
+    2. Dinner used to be "what do we want?" Now it's "what do we have?" ✅ live 2026-05-04
+    3. How we cut our grocery bill 25% (without coupons or bulk shopping) ✅ live 2026-05-05
+    4. How I always know what to buy when I'm not at home
+    5. What real spending data taught me about my habits
 
   **Post-founder rotation — 4-post arc explicitly aligned with Impact's 2026-04-30 feedback** (they want "active, high-quality content" + "growing follower base" before reapplying). Each post is SEO-evergreen AND a natural fit for direct-affiliate placements:
     1. **"Sell-by, use-by, best-by: a complete guide to expiration date labels"** — myth-busting, very high search volume on each label term. Internal links to ok2eat. Affiliate angle: pantry/storage products (Vitacost, Thrive Market).

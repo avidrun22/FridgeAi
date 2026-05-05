@@ -53,6 +53,20 @@ Two manual steps before deploy:
 
 `/deploy` in Telegram is the production-deploy button. Roughly 30-second turnaround. The deploy script picks up everything new in `blog/` automatically — no need to update its asset list.
 
+### 5. Blast to subscribers
+
+After the post is live, fan it out to the newsletter audience:
+
+```
+python3 scripts/send_post_blast.py blog/MY-SLUG.html
+```
+
+The script scrapes the post's `<title>` (subject) and `<meta name="description">` (preheader), prints them, and asks for confirmation before firing. Use `--dry-run` to see exactly what the email looks like (returns rendered HTML bytes + a 800-char preview without creating a Resend broadcast). Use `--subject "..."` / `--preview "..."` to override either field.
+
+The blast goes out via Resend's Broadcasts API tied to the same audience the signup form populates, so unsubscribes are honored automatically. Each blast shows up in the Resend dashboard as `blog-YYYY-MM-DD-SLUG` with open/click metrics.
+
+One-time setup: add `cron_secret` to `.appstoreconnect/telegram_config.json` (same value as the `CRON_SECRET` Supabase env var that protects send-daily-digest). Without it the script exits 1 with a clear message.
+
 ## Editing a published post
 
 Same workflow, minus the move. Open `blog/MY-SLUG.html` in your editor, save, `/deploy`. The change is live in ~30 seconds.
