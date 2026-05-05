@@ -3,9 +3,12 @@
 Deploy ok2eat.com to Netlify via the API.
 
 Reads ok2eat.html (rendered as /index.html) plus everything under blog/, join/,
-privacy/, and a few well-known files (security.txt, apple-app-site-association,
-_headers, _redirects). POSTs to Netlify's digest-deploy endpoint and prints
-the public URL when ready.
+privacy/, and a few well-known root files (security.txt,
+apple-app-site-association, _headers, _redirects, sitemap.xml, robots.txt).
+POSTs to Netlify's digest-deploy endpoint and prints the public URL when ready.
+
+Adding a new root-level file? Append it to ASSETS below — auto-include only
+covers files inside blog/, join/, privacy/ directories, not the repo root.
 
 Config:
   Reads `netlify_token` and `netlify_site_name` from
@@ -56,6 +59,11 @@ ASSETS: list[tuple[str, Path, bool]] = [
     ("/.well-known/apple-app-site-association", PROJECT_ROOT / ".well-known" / "apple-app-site-association", False),
     ("/_headers", PROJECT_ROOT / "_headers", False),
     ("/_redirects", PROJECT_ROOT / "_redirects", False),
+    # SEO discovery files at the site root. Sitemap is referenced from
+    # robots.txt and submitted to Search Console; future blog posts get
+    # auto-discovered when sitemap.xml's lastmod is updated and re-deployed.
+    ("/sitemap.xml", PROJECT_ROOT / "sitemap.xml", False),
+    ("/robots.txt", PROJECT_ROOT / "robots.txt", False),
 ]
 
 # Auto-include every file under these top-level directories (recursively).
