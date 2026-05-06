@@ -406,7 +406,11 @@ Deno.serve(async (req) => {
     // tap from email). Falls back to ok2eat.com landing for non-install
     // users. Requires apple-app-site-association at /.well-known/ + the
     // associatedDomains entitlement in v1.1.0+ of the app.
-    const appUrl = "https://ok2eat.com/open";
+    //
+    // v1.15 — UTM-tagged so the iOS deep link handler fires
+    // `digest_email_opened` in PostHog when a user clicks through. Without
+    // these tags we couldn't measure click-through from the digest.
+    const appUrl = "https://ok2eat.com/open?utm_source=email_digest&utm_medium=email&utm_campaign=daily_digest";
 
     const subject = buildSubject(expiring.length, expired.length);
     const html = buildEmailHtml({

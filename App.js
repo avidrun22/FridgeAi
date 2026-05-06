@@ -943,6 +943,45 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
   // name substring across the active container.
   const [searchQuery, setSearchQuery] = useState("");
 
+  // v1.15 — expiring_soon_viewed. Fires once per fridge load when items are
+  // present and at least one is within 3 days of expiring. This is the moment
+  // the value prop is delivered ("hey, your bell peppers are about to go bad")
+  // — by tracking it we can correlate retention with whether users actually
+  // hit that moment vs. bouncing on an empty fridge.
+  const [expiringSeenForLoad, setExpiringSeenForLoad] = useState(false);
+  useEffect(() => {
+    if (loading || expiringSeenForLoad) return;
+    if (items.length === 0) return;
+    const expiringCount = items.filter(i => {
+      const d = daysUntil(i.expiryDate);
+      return d > 0 && d <= 3;
+    }).length;
+    const expiredCount = items.filter(i => daysUntil(i.expiryDate) <= 0).length;
+    track("expiring_soon_viewed", {
+      total_items: items.length,
+      expiring_count: expiringCount,
+      expired_count: expiredCount,
+      has_actionable: expiringCount > 0 || expiredCount > 0,
+    });
+    setExpiringSeenForLoad(true);
+  }, [loading, items.length, expiringSeenForLoad]);
+
+  // v1.15 — search_used. Debounced fire on actual search activity (not every
+  // keystroke). 600ms after the user stops typing AND the query has at least
+  // 2 chars AND it produces a different filter than empty.
+  const searchFireTimer = useRef(null);
+  const lastSearchFired = useRef("");
+  useEffect(() => {
+    if (searchFireTimer.current) clearTimeout(searchFireTimer.current);
+    const q = searchQuery.trim();
+    if (q.length < 2 || q === lastSearchFired.current) return;
+    searchFireTimer.current = setTimeout(() => {
+      track("search_used", { query_length: q.length, container: activeSection });
+      lastSearchFired.current = q;
+    }, 600);
+    return () => { if (searchFireTimer.current) clearTimeout(searchFireTimer.current); };
+  }, [searchQuery, activeSection]);
+
   function toggleSelected(id) {
     setSelectedIds(prev => {
       const next = new Set(prev);
@@ -1501,7 +1540,23 @@ function RecipesScreen({ items }) {
       <View style={[s.card, { margin: 16, padding: 14, marginBottom: 16 }]}><Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 8, paddingHorizontal: 0 }]}>YOUR FRIDGE INGREDIENTS</Text><View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>{items.map(i => <View key={i.id} style={s.pill}><Text style={s.pillText}>{i.emoji} {i.name.split(" ")[0]}</Text></View>)}</View></View>
       <Text style={s.sectionLabel}>// {recipes.length > 0 ? "AI GENERATED" : "SUGGESTED"} RECIPES</Text>
       {displayRecipes.map((recipe, i) => (
-        <TouchableOpacity key={i} style={[s.card, { margin: 16, marginBottom: 12, padding: 16 }]} onPress={() => setSelected(recipe)}>
+        <TouchableOpacity
+          key={i}
+          style={[s.card, { margin: 16, marginBottom: 12, padding: 16 }]}
+          onPress={() => {
+            // v1.15 — recipe_tapped fires when user opens a specific recipe
+            // (intent-of-cooking signal, distinct from recipe_generated which
+            // is just "the AI returned options"). source=ai vs source=suggested
+            // tells us whether the AI Generate flow or the static fallback list
+            // is what users engage with.
+            track("recipe_tapped", {
+              source: recipes.length > 0 ? "ai" : "suggested",
+              position: i,
+              recipe_name: recipe.name,
+            });
+            setSelected(recipe);
+          }}
+        >
           <View style={{ flexDirection: "row", gap: 14 }}><View style={s.recipeEmojiBox}><Text style={{ fontSize: 28 }}>{recipe.emoji}</Text></View><View style={{ flex: 1 }}><Text style={[s.bold, { fontSize: 16 }]}>{recipe.name}</Text><Text style={{ color: T.textSoft, fontSize: 12, marginTop: 4 }}>⏱ {recipe.time}  ·  {recipe.difficulty}</Text><Text style={{ color: T.muted, fontSize: 12, marginTop: 6, lineHeight: 18 }} numberOfLines={2}>{recipe.description}</Text></View></View>
         </TouchableOpacity>
       ))}
@@ -4312,7 +4367,13 @@ function TourModal({ visible, onClose }) {
   const scrollRef = useRef(null);
 
   useEffect(() => {
-    if (visible) setPage(0);
+    if (visible) {
+      setPage(0);
+      // v1.15 — tour_started gives us the denominator for tour_completed.
+      // Previously we only knew completion count (1/30d); now we'll know how
+      // many people actually saw the tour modal at all.
+      track("tour_started");
+    }
   }, [visible]);
 
   const cards = [
@@ -4335,7 +4396,13 @@ function TourModal({ visible, onClose }) {
 
   async function finish() {
     try { await AsyncStorage.setItem(TOUR_SEEN_KEY, "1"); } catch (e) { /* noop */ }
-    track("tour_completed", { last_page: page });
+    // v1.15 — split signal: completed=true means the user reached the last
+    // card and tapped "Get started"; completed=false means they hit Skip
+    // earlier. last_page tells us where they bailed when they did.
+    track("tour_completed", {
+      last_page: page,
+      completed: page === cards.length - 1,
+    });
     onClose();
   }
 
@@ -4468,6 +4535,45 @@ export default function App() {
       appStateSub.remove();
       notifSub.remove();
     };
+  }, []);
+
+  // v1.15 — Deep link / Universal Link listener. Fires `digest_email_opened`
+  // when the user clicks the "Open ok2eat" CTA in a daily digest email
+  // (those CTAs carry utm_source=email_digest). Generalized: any URL with
+  // utm_source attribution will fire `link_followed` so we can also see
+  // X-thread / blog-CTA traffic landing in the app.
+  useEffect(() => {
+    const fireFromUrl = (url) => {
+      if (!url || typeof url !== "string") return;
+      try {
+        // Pull query params manually — the `URL` global isn't fully
+        // implemented in older RN runtimes, and we only need a couple of keys.
+        const qIdx = url.indexOf("?");
+        if (qIdx < 0) return;
+        const search = url.slice(qIdx + 1);
+        const params = {};
+        for (const part of search.split("&")) {
+          const [k, v] = part.split("=").map(decodeURIComponent);
+          if (k) params[k] = v ?? "";
+        }
+        const src = params.utm_source;
+        if (!src) return;
+        if (src === "email_digest") {
+          track("digest_email_opened", {
+            campaign: params.utm_campaign || "daily_digest",
+            medium: params.utm_medium || "email",
+          });
+        }
+        track("link_followed", {
+          source: src,
+          medium: params.utm_medium || "",
+          campaign: params.utm_campaign || "",
+        });
+      } catch (e) { /* analytics never crashes the app */ }
+    };
+    Linking.getInitialURL().then(fireFromUrl).catch(() => { /* noop */ });
+    const sub = Linking.addEventListener("url", (event) => fireFromUrl(event?.url));
+    return () => sub.remove();
   }, []);
 
   // Check for App Store update once per session, deferred slightly so it
