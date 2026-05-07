@@ -14,7 +14,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.gregorygoldberg.ok2eat",
-      "buildNumber": "19",
+      "buildNumber": "20",
       "associatedDomains": ["applinks:ok2eat.com"],
       "infoPlist": {
         "NSCameraUsageDescription": "ok2eat uses your camera to read grocery receipts and scan product barcodes. Photos stay on your device.",

@@ -1908,9 +1908,24 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
   // presetMode="sample" (from the empty-state "Try a sample receipt" CTA).
   // Tells the user the data isn't real yet and they should edit or commit it.
   const [isSample, setIsSample] = useState(false);
+  // v1.15 hotfix — capture the presetMode AT MODAL OPEN, not on every change.
+  // Without this ref, the parent calling onPresetConsumed→setBulkAddPresetMode(null)
+  // re-fires the visible/presetMode useEffect with presetMode=null, which
+  // wipes the sample rows back to 3 empty rows. The ref pins the mode for
+  // the lifetime of this modal session.
+  const presetForThisOpenRef = useRef(null);
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      presetForThisOpenRef.current = null;
+      return;
+    }
+    // Only initialize once per open. If the parent has already cleared
+    // presetMode (via onPresetConsumed), presetForThisOpenRef holds the
+    // original value so subsequent useEffect runs become no-ops.
+    if (presetForThisOpenRef.current !== null) return;
+    presetForThisOpenRef.current = presetMode || "manual";
+
     if (presetMode === "sample") {
       // Skip the empty-row default — we want the user to land in a populated
       // state that demonstrates what a real receipt scan produces.
@@ -1925,8 +1940,9 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
   }, [visible, presetMode]);
 
   // Auto-launch the camera or library picker when the parent hands us
-  // presetMode="scan-camera" / "scan-library". Single timer so React's
-  // double-effect-in-strict-mode doesn't fire it twice.
+  // presetMode="scan-camera" / "scan-library". Same single-fire ref pattern
+  // as the row-init effect above so onPresetConsumed clearing presetMode
+  // doesn't trigger a re-fire.
   const presetScanFiredRef = useRef(false);
   useEffect(() => {
     if (!visible) {
@@ -3138,7 +3154,16 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
             contentInsetAdjustmentBehavior="automatic"
           >
             <View style={s.sheetHandle} />
-            <Text style={[s.bold, { fontSize: 20, marginBottom: 14 }]}>Add Item</Text>
+            {/* v1.15 hotfix — explicit Cancel button. The sheet handle and
+                tap-outside both still work, but neither is discoverable
+                enough as a back affordance (tester feedback after the v1.15
+                build smoke-test). Title + Cancel laid out as a header row. */}
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+              <Text style={[s.bold, { fontSize: 20 }]}>Add Item</Text>
+              <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Text style={{ color: T.accent, fontSize: 15, fontWeight: "600" }}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
 
             {/* v1.0.10 — Two prominent peer tiles for the fast-paths.
                 Receipt scanning was previously buried inside "Add multiple
