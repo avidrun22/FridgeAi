@@ -9,7 +9,7 @@ Read it back from anywhere with **`/backlog`** (or open the file).
 
 > Convention: `[ ]` = open, `[x]` = done. Date prefix is when the item was captured. Strike through items as you ship by moving them to **Done**.
 
-Last reviewed: 2026-05-05 (v1.14 shipped: catalog + AddModal type-ahead, OFF lib refactor, push notif hardening, Settings deep-link, Apple Sign In on web. v1.15+v1.16 plans were absorbed into v1.14, so the catalog/search arc resequenced: new v1.15 = pending items + notify-household + recipe favorites + keyboard fix; v1.16 = Smart Cook Night; v1.17 = SMS Group Fridge. Marketing pivot evolved 2026-05-04→2026-05-05: ADHD-specific framing replaced with broader "what do we have to eat?" hero — preserves founder-voice empathy, broadens appeal beyond a single audience without losing it. Two founder-series posts shipped this week: post 2 (the question reframe, 2026-05-04) and post 3 (grocery bill -25%, 2026-05-05).)
+Last reviewed: 2026-05-06 (v1.15 retention sprint shipped: empty-state Fridge redesign promotes receipt scan above manual add, sample-receipt CTA pre-populates a realistic grocery list so users see the value moment without needing a real receipt, D1 retention nudge schedules a same-evening local notification referencing the soonest-expiring item, camera permission rationale rewritten + denial telemetry added, 5 new PostHog events backfilled (recipe_tapped, expiring_soon_viewed, search_used, digest_email_opened, tour_started) plus a full receipt-scan funnel of started/cancelled/no_items/failed events. PostHog audit 2026-05-06 found D1 retention at ~6% and receipt_scan adoption at ~4%, both well below benchmarks; v1.15 targets both. Web app has NO PostHog instrumentation — separate follow-up.)
 
 ---
 

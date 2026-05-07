@@ -2,7 +2,7 @@
   "expo": {
     "name": "ok2eat",
     "slug": "ok2eat",
-    "version": "1.14",
+    "version": "1.15",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -14,10 +14,11 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.gregorygoldberg.ok2eat",
-      "buildNumber": "18",
+      "buildNumber": "19",
       "associatedDomains": ["applinks:ok2eat.com"],
       "infoPlist": {
-        "NSCameraUsageDescription": "ok2eat needs camera access to scan barcodes",
+        "NSCameraUsageDescription": "ok2eat uses your camera to read grocery receipts and scan product barcodes. Photos stay on your device.",
+        "NSPhotoLibraryUsageDescription": "ok2eat needs access to your photos so you can pick a saved grocery receipt to scan instead of taking a new one.",
         "NSLocationWhenInUseUsageDescription": "ok2eat does not use your location. This description is required by a third-party library.",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
@@ -45,7 +46,7 @@
       [
         "react-native-vision-camera",
         {
-          "cameraPermissionText": "ok2eat needs camera access to scan barcodes"
+          "cameraPermissionText": "ok2eat uses your camera to read grocery receipts and scan product barcodes. Photos stay on your device."
         }
       ],
       [

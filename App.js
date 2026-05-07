@@ -62,6 +62,118 @@ async function cancelLegacyNotifications() {
   try { await Notifications.cancelAllScheduledNotificationsAsync(); } catch {}
 }
 
+// v1.15 — D1 retention nudge. Local notification fired the same evening the
+// user adds their first items, referencing what they just put in the fridge.
+// The "this app remembered something I forgot" moment is the lever for D1
+// retention (currently ~6%, well below the 30-40% benchmark for utility apps).
+//
+// Behavior:
+//   - At most one nudge per calendar day. Repeat adds today are a no-op.
+//   - If iOS notification permission isn't granted yet, we silently skip —
+//     the user has to opt in via the daily digest toggle first. This is
+//     not a re-prompt surface.
+//   - Scheduled for 6:30 PM local time. If it's already past 6:00 PM when
+//     the user adds, we schedule 30 minutes out so they don't catch it
+//     while still in the app.
+//   - Content references the soonest-expiring item if any has <=7 days
+//     left; otherwise a soft "we'll notify you when something's about to
+//     spoil" welcome.
+//
+// Telemetry: fires `d1_nudge_scheduled` (success), `d1_nudge_skipped`
+// (already scheduled today, no perm, etc.) so we can measure schedule
+// rate against actual delivery / open rate later.
+const D1_NUDGE_KEY = "ok2eat:d1NudgeScheduled";
+const D1_NUDGE_ID_KEY = "ok2eat:d1NudgeId";
+
+async function scheduleD1RetentionNudge(allItems, helpers) {
+  // helpers = { trackFn, daysUntilFn } — passed in so we can avoid module-
+  // scope circular deps. App.js's `track` and `daysUntil` are defined later
+  // than this helper.
+  const trackFn = helpers?.trackFn;
+  const daysUntilFn = helpers?.daysUntilFn;
+  if (typeof daysUntilFn !== "function") return;
+
+  try {
+    const today = new Date();
+    const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    const existing = await AsyncStorage.getItem(D1_NUDGE_KEY);
+    if (existing === todayKey) {
+      // Already scheduled today; don't double-fire.
+      if (trackFn) trackFn("d1_nudge_skipped", { reason: "already_scheduled_today" });
+      return;
+    }
+
+    // Permissions: read without prompting.
+    const perm = await Notifications.getPermissionsAsync();
+    if (perm.status !== "granted") {
+      if (trackFn) trackFn("d1_nudge_skipped", { reason: "no_permission" });
+      return;
+    }
+
+    // Cancel any prior D1 nudge schedule (e.g. yesterday's that hasn't fired
+    // yet because the user backgrounded or device was asleep).
+    try {
+      const priorId = await AsyncStorage.getItem(D1_NUDGE_ID_KEY);
+      if (priorId) await Notifications.cancelScheduledNotificationAsync(priorId);
+    } catch { /* noop */ }
+
+    // Pick the soonest-expiring item (>0 days, <=7 days) to reference. Items
+    // already expired or missing dates are skipped — referencing them would
+    // confuse a fresh user who just added items.
+    const candidate = (allItems || [])
+      .filter(it => {
+        const d = daysUntilFn(it.expiryDate);
+        return Number.isFinite(d) && d > 0 && d <= 7;
+      })
+      .sort((a, b) => daysUntilFn(a.expiryDate) - daysUntilFn(b.expiryDate))[0];
+
+    let title, body;
+    if (candidate) {
+      const d = daysUntilFn(candidate.expiryDate);
+      const itemName = (candidate.name || "item").trim();
+      title = `${candidate.emoji || "🥑"} ${itemName} expires soon`;
+      body = d <= 1
+        ? `${itemName} is best used today. Tap for recipe ideas using what's in your fridge →`
+        : `${itemName} expires in ${d} days. Tap for recipe ideas using what's in your fridge →`;
+    } else {
+      title = "🥑 Welcome to ok2eat";
+      body = "Your fridge is set up. We'll nudge you when something's about to spoil.";
+    }
+
+    // Schedule for 6:30 PM local time, or 30 min from now if it's already
+    // past 6:00 PM. (Past 6:30 PM, the trigger date would be in the past
+    // and Notifications would either reject or fire instantly — we want
+    // some delay so the user has at least exited the app first.)
+    const fireAt = new Date();
+    if (fireAt.getHours() >= 18) {
+      fireAt.setTime(fireAt.getTime() + 30 * 60 * 1000);
+    } else {
+      fireAt.setHours(18, 30, 0, 0);
+    }
+
+    const id = await Notifications.scheduleNotificationAsync({
+      content: { title, body, sound: "default", data: { source: "d1_nudge" } },
+      // expo-notifications accepts a Date object or a timestamp here. The
+      // older `{ type: "date", date }` shape isn't required and isn't
+      // supported on every SDK rev, so use the simpler form for portability.
+      trigger: fireAt,
+    });
+    await AsyncStorage.setItem(D1_NUDGE_KEY, todayKey);
+    await AsyncStorage.setItem(D1_NUDGE_ID_KEY, id);
+
+    if (trackFn) {
+      trackFn("d1_nudge_scheduled", {
+        has_candidate: !!candidate,
+        candidate_days_left: candidate ? daysUntilFn(candidate.expiryDate) : null,
+        fire_at_hour: fireAt.getHours(),
+        items_in_fridge: (allItems || []).length,
+      });
+    }
+  } catch (e) {
+    if (trackFn) trackFn("d1_nudge_failed", { message: String(e?.message || e).slice(0, 100) });
+  }
+}
+
 // Get the Expo push token for this device (returns null if simulator or denied)
 async function getExpoPushToken() {
   try {
@@ -932,7 +1044,7 @@ function CategoryFilterButton({ value, options, onChange }) {
   );
 }
 
-function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, loading, householdName, onOpenManageInventory }) {
+function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, loading, householdName, onOpenManageInventory, onScanReceipt, onTrySample }) {
   const [filter, setFilter] = useState("All");
   const [selectedItem, setSelectedItem] = useState(null);
   const [useItem, setUseItem] = useState(null);
@@ -1197,10 +1309,38 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
                   </TouchableOpacity>
                 </View>
               ) : (
-                <View style={{ alignItems: "center", padding: 48 }}>
-                  <Text style={{ fontSize: 48 }}>🧊</Text>
-                  <Text style={[s.bold, { fontSize: 18, marginTop: 12 }]}>Your fridge is empty!</Text>
-                  <Text style={{ color: T.textSoft, fontSize: 14, marginTop: 6 }}>Tap + to add your first item.</Text>
+                // v1.15 — receipt-scan-first empty state. Promotes the
+                // marquee feature (receipt scan = killer demo, currently at
+                // 4% adoption) above manual add. "Try a sample receipt" is
+                // the no-friction path for users without a receipt to hand,
+                // so they can see what the populated fridge looks like.
+                <View style={{ alignItems: "center", paddingVertical: 32, paddingHorizontal: 20 }}>
+                  <Text style={{ fontSize: 56 }}>🧊</Text>
+                  <Text style={[s.bold, { fontSize: 20, marginTop: 12, textAlign: "center" }]}>Let's fill your fridge</Text>
+                  <Text style={{ color: T.textSoft, fontSize: 14, marginTop: 6, textAlign: "center", maxWidth: 320, lineHeight: 20 }}>
+                    Snap a grocery receipt and we'll auto-add every item with smart expiry dates. ~10 seconds, no typing.
+                  </Text>
+                  <TouchableOpacity
+                    style={[s.btnPrimary, { marginTop: 22, width: "100%", maxWidth: 320 }]}
+                    onPress={() => onScanReceipt && onScanReceipt()}
+                    accessibilityLabel="Scan a grocery receipt"
+                  >
+                    <Text style={s.btnPrimaryText}>📷  Scan a grocery receipt</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={{ marginTop: 12, paddingVertical: 10, paddingHorizontal: 16 }}
+                    onPress={() => onTrySample && onTrySample()}
+                    accessibilityLabel="Try a sample receipt"
+                  >
+                    <Text style={{ color: T.accent, fontSize: 14, fontWeight: "600" }}>✨ Try a sample receipt →</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={{ marginTop: 16, paddingVertical: 8 }}
+                    onPress={() => onAdd && onAdd(activeSection)}
+                    accessibilityLabel="Add items manually"
+                  >
+                    <Text style={{ color: T.muted, fontSize: 13 }}>or add items manually →</Text>
+                  </TouchableOpacity>
                 </View>
               )
             )}
@@ -1739,15 +1879,70 @@ function UnitPicker({ value, onChange }) {
   );
 }
 
-function BulkAddModal({ visible, onClose, onAddItems, section }) {
+// v1.15 — sample-receipt rows used by the empty-state "Try a sample receipt"
+// CTA. Realistic grocery trip with mixed expiry timelines so the user sees
+// the value moment (some items will expire soon, sortable, recipe-relevant).
+// Computed at modal-open time so the dates are always relative-to-now.
+function buildSampleRows() {
+  const today = Date.now();
+  const inDays = (d) => {
+    const dt = new Date(today + d * 86400000);
+    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+  };
+  return [
+    { id: Date.now() + 1, name: "Whole milk",     quantity: "1",   unit: "gallon", expiry: inDays(7)  },
+    { id: Date.now() + 2, name: "Baby spinach",   quantity: "1",   unit: "bag",    expiry: inDays(4)  },
+    { id: Date.now() + 3, name: "Bell peppers",   quantity: "3",   unit: "",       expiry: inDays(6)  },
+    { id: Date.now() + 4, name: "Eggs",           quantity: "1",   unit: "dozen",  expiry: inDays(21) },
+    { id: Date.now() + 5, name: "Greek yogurt",   quantity: "32",  unit: "oz",     expiry: inDays(14) },
+    { id: Date.now() + 6, name: "Sourdough bread", quantity: "1",  unit: "loaf",   expiry: inDays(5)  },
+  ];
+}
+
+function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPresetConsumed }) {
   const emptyRow = () => ({ id: Date.now() + Math.random(), name: "", quantity: "1", unit: "", expiry: "" });
   const [rows, setRows] = useState([]);
   const [adding, setAdding] = useState(false);
   const [scanning, setScanning] = useState(false);
+  // v1.15 — sample-receipt banner. Shown when the modal opens with
+  // presetMode="sample" (from the empty-state "Try a sample receipt" CTA).
+  // Tells the user the data isn't real yet and they should edit or commit it.
+  const [isSample, setIsSample] = useState(false);
 
   useEffect(() => {
-    if (visible) setRows([emptyRow(), emptyRow(), emptyRow()]);
-  }, [visible]);
+    if (!visible) return;
+    if (presetMode === "sample") {
+      // Skip the empty-row default — we want the user to land in a populated
+      // state that demonstrates what a real receipt scan produces.
+      setRows(buildSampleRows());
+      setIsSample(true);
+      track("sample_receipt_shown");
+      if (onPresetConsumed) onPresetConsumed();
+    } else {
+      setRows([emptyRow(), emptyRow(), emptyRow()]);
+      setIsSample(false);
+    }
+  }, [visible, presetMode]);
+
+  // Auto-launch the camera or library picker when the parent hands us
+  // presetMode="scan-camera" / "scan-library". Single timer so React's
+  // double-effect-in-strict-mode doesn't fire it twice.
+  const presetScanFiredRef = useRef(false);
+  useEffect(() => {
+    if (!visible) {
+      presetScanFiredRef.current = false;
+      return;
+    }
+    if (presetScanFiredRef.current) return;
+    if (presetMode === "scan-camera" || presetMode === "scan-library") {
+      presetScanFiredRef.current = true;
+      const src = presetMode === "scan-camera" ? "camera" : "library";
+      // Defer one tick so the modal mount is fully settled before we
+      // present another modal (the OS image picker).
+      setTimeout(() => { handleScanReceipt(src); }, 80);
+      if (onPresetConsumed) onPresetConsumed();
+    }
+  }, [visible, presetMode]);
 
   function updateRow(id, field, value) {
     setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
@@ -1792,18 +1987,32 @@ function BulkAddModal({ visible, onClose, onAddItems, section }) {
   }
 
   async function handleScanReceipt(source) {
+    // v1.15 — track every entry into the scan flow so we have a denominator
+    // for permission denial and OCR failure. Source distinguishes which CTA
+    // surface launched it.
+    track("receipt_scan_started", { source });
     try {
       let result;
       if (source === "camera") {
         const perm = await ImagePicker.requestCameraPermissionsAsync();
         if (!perm.granted) {
+          // v1.15 — split denial into "first denial" (canAskAgain=true,
+          // user can retry without going to Settings) vs "permanent
+          // denial" (canAskAgain=false, must be unblocked in Settings).
+          // PostHog will tell us how many users hit each gate.
+          const permanent = perm.canAskAgain === false;
+          track("camera_permission_denied", { permanent, surface: "receipt_camera" });
           Alert.alert(
-            "Permission Required",
-            "Please allow camera access in Settings to scan receipts.",
-            [
-              { text: "Cancel", style: "cancel" },
-              { text: "Open Settings", onPress: () => Linking.openSettings() },
-            ]
+            permanent ? "Camera access blocked" : "Camera access needed",
+            permanent
+              ? "ok2eat needs your camera to read grocery receipts. Open Settings to allow it — takes 5 seconds."
+              : "Tap Allow on the next prompt and we'll read the items off your receipt automatically.",
+            permanent
+              ? [
+                  { text: "Not now", style: "cancel" },
+                  { text: "Open Settings", onPress: () => Linking.openSettings() },
+                ]
+              : [{ text: "OK" }]
           );
           return;
         }
@@ -1815,13 +2024,19 @@ function BulkAddModal({ visible, onClose, onAddItems, section }) {
       } else {
         const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (!perm.granted) {
+          const permanent = perm.canAskAgain === false;
+          track("photo_library_permission_denied", { permanent, surface: "receipt_library" });
           Alert.alert(
-            "Permission Required",
-            "Please allow photo library access in Settings to upload receipts.",
-            [
-              { text: "Cancel", style: "cancel" },
-              { text: "Open Settings", onPress: () => Linking.openSettings() },
-            ]
+            permanent ? "Photo access blocked" : "Photo access needed",
+            permanent
+              ? "ok2eat needs access to your photos so you can pick a saved receipt to scan. Open Settings to allow it."
+              : "Tap Allow on the next prompt and we'll read the items off your saved receipt photo.",
+            permanent
+              ? [
+                  { text: "Not now", style: "cancel" },
+                  { text: "Open Settings", onPress: () => Linking.openSettings() },
+                ]
+              : [{ text: "OK" }]
           );
           return;
         }
@@ -1831,7 +2046,12 @@ function BulkAddModal({ visible, onClose, onAddItems, section }) {
           base64: true,
         });
       }
-      if (result.canceled || !result.assets?.[0]?.base64) return;
+      if (result.canceled || !result.assets?.[0]?.base64) {
+        // v1.15 — explicit cancel telemetry so we can see how often users
+        // start the scan flow and bail out before snapping/picking a photo.
+        track("receipt_scan_cancelled", { source });
+        return;
+      }
 
       setScanning(true);
       const parsed = await parseReceiptImage(result.assets[0].base64);
@@ -1839,9 +2059,11 @@ function BulkAddModal({ visible, onClose, onAddItems, section }) {
         applyReceiptItems(parsed);
         track("receipt_scanned", { source, item_count: parsed.length });
       } else {
+        track("receipt_scan_no_items", { source });
         Alert.alert("No items found", "Couldn't extract food items from this image. Try a clearer photo.");
       }
     } catch (e) {
+      track("receipt_scan_failed", { source });
       Alert.alert("Scan failed", "Couldn't process the receipt. Check your connection and try again.");
     } finally {
       setScanning(false);
@@ -1927,6 +2149,13 @@ function BulkAddModal({ visible, onClose, onAddItems, section }) {
                   <Text style={[s.bold, { fontSize: 13, textAlign: "center" }]}>Upload Receipt</Text>
                   <Text style={{ color: T.textSoft, fontSize: 11, textAlign: "center" }}>From camera roll</Text>
                 </TouchableOpacity>
+              </View>
+            )}
+
+            {isSample && (
+              <View style={{ backgroundColor: "rgba(245,158,11,0.10)", borderRadius: 12, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: "rgba(245,158,11,0.30)" }}>
+                <Text style={{ color: "#B45309", fontSize: 13, fontWeight: "700" }}>🥑 Sample receipt</Text>
+                <Text style={{ color: "#92400E", fontSize: 13, marginTop: 4, lineHeight: 18 }}>This is what a real grocery scan looks like. Edit anything you want, then tap <Text style={{ fontWeight: "700" }}>Add all 6 items</Text> below to fill your fridge — or scan an actual receipt above.</Text>
               </View>
             )}
 
@@ -4468,6 +4697,16 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [showBulkAdd, setShowBulkAdd] = useState(false);
+  // v1.15 — preset mode for BulkAddModal so the empty-state Fridge CTAs can
+  // open the modal directly into a populated state. Values:
+  //   "scan-camera"  → modal mounts and immediately fires the camera
+  //   "scan-library" → modal mounts and immediately opens the library picker
+  //   "sample"       → modal mounts pre-filled with a realistic grocery list
+  //   null           → normal manual-entry mode
+  // Set by FridgeScreen empty-state CTAs (and the Add modal's scan tile).
+  // Cleared via onPresetConsumed once the modal handles it, so reopening
+  // doesn't re-trigger.
+  const [bulkAddPresetMode, setBulkAddPresetMode] = useState(null);
   const [addSection, setAddSection] = useState("fridge");
   const [toast, setToast] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
@@ -4859,9 +5098,13 @@ export default function App() {
         expiryOpenedDays: data.expiryOpenedDays || null,
         expiryUnopened: data.expiryUnopened || expiryUnopened,
       });
-      setItems(prev => [rowToItem(saved), ...prev]);
+      const nextItems = [rowToItem(saved), ...items];
+      setItems(nextItems);
       showToast(`✅ ${data.name} added!`);
       track("item_added_manual", { category: data.category });
+      // v1.15 — D1 retention nudge after add. No-ops if already scheduled
+      // today or if notif permission not granted.
+      scheduleD1RetentionNudge(nextItems, { trackFn: track, daysUntilFn: daysUntil });
     } catch (e) {
       console.warn("handleAddManual save failed:", e?.message || e);
       Alert.alert("Couldn't save item", e?.message || "Check your connection.");
@@ -4884,8 +5127,13 @@ export default function App() {
       }
     }
     if (saved.length > 0) {
-      setItems(prev => [...saved, ...prev]);
+      const nextItems = [...saved, ...items];
+      setItems(nextItems);
       track("item_added_bulk", { count: saved.length, failed });
+      // v1.15 — D1 retention nudge after bulk add. Same idempotency guard
+      // as handleAddManual; the lower of (this call, manual call today)
+      // wins per AsyncStorage flag.
+      scheduleD1RetentionNudge(nextItems, { trackFn: track, daysUntilFn: daysUntil });
     }
     if (failed === 0) {
       showToast(`✅ ${saved.length} item${saved.length !== 1 ? "s" : ""} added!`);
@@ -5014,7 +5262,25 @@ export default function App() {
         </View>
       </View>
       <View style={{ flex: 1 }}>
-        {tab === "fridge" && <FridgeScreen items={items} onDelete={handleDelete} onBulkDelete={handleBulkDelete} onAdd={(section) => { setAddSection(section || "fridge"); setShowAdd(true); }} onUpdate={handleUpdate} onUse={handleUse} loading={loading} householdName={householdName} onOpenManageInventory={() => setShowManageInventory(true)} />}
+        {tab === "fridge" && <FridgeScreen
+          items={items}
+          onDelete={handleDelete}
+          onBulkDelete={handleBulkDelete}
+          onAdd={(section) => { setAddSection(section || "fridge"); setShowAdd(true); }}
+          onUpdate={handleUpdate}
+          onUse={handleUse}
+          loading={loading}
+          householdName={householdName}
+          onOpenManageInventory={() => setShowManageInventory(true)}
+          // v1.15 — empty-state CTAs that open the BulkAddModal in a preset
+          // mode. "scan" jumps straight into the camera so receipt-scan is a
+          // single tap from the empty fridge (vs. AddModal → scan-tile, the
+          // current 2-tap path that's seeing 4% adoption per PostHog).
+          // "sample" loads a realistic populated state so the user sees the
+          // value of receipt scan before ever needing a real receipt.
+          onScanReceipt={() => { setBulkAddPresetMode("scan-camera"); setShowBulkAdd(true); }}
+          onTrySample={() => { track("sample_receipt_tapped"); setBulkAddPresetMode("sample"); setShowBulkAdd(true); }}
+        />}
         {tab === "scan" && <ScanScreen onScanned={handleScanned} />}
         {tab === "plan" && <PlanScreen items={items} householdId={householdId} />}
         {tab === "reminders" && <RemindersScreen items={items} notificationsEnabled={notificationsEnabled} onToggleNotifications={toggleNotifications} emailDigestEnabled={emailDigestEnabled} onToggleEmailDigest={toggleEmailDigest} />}
@@ -5072,7 +5338,14 @@ export default function App() {
           showToast("✓ Joined household");
         }}
       />
-      <BulkAddModal visible={showBulkAdd} onClose={() => setShowBulkAdd(false)} onAddItems={handleBulkAdd} section={addSection} />
+      <BulkAddModal
+        visible={showBulkAdd}
+        onClose={() => { setShowBulkAdd(false); setBulkAddPresetMode(null); }}
+        onAddItems={handleBulkAdd}
+        section={addSection}
+        presetMode={bulkAddPresetMode}
+        onPresetConsumed={() => setBulkAddPresetMode(null)}
+      />
 
       <Modal
         visible={updateInfo !== null}
