@@ -40,6 +40,12 @@ export function initAnalytics() {
       // don't bloat the user count until they actually sign in.
       person_profiles: "identified_only",
     });
+    // Register platform as a super-property so it attaches to EVERY event
+    // posthog-js sends — including the auto-fired $pageview, $pageleave,
+    // and $identify. Without this, only events that go through track()
+    // would carry the tag (the wrapper adds it explicitly), leaving
+    // auto-events with platform=null and breaking platform-cohort splits.
+    posthog.register({ platform: "web" });
     _initialized = true;
   } catch (e) {
     // Failures here are silent on purpose — analytics never blocks the app.
