@@ -15,7 +15,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.gregorygoldberg.ok2eat",
       "buildNumber": "20",
-      "associatedDomains": ["applinks:ok2eat.com"],
+      "associatedDomains": [
+        "applinks:ok2eat.com"
+      ],
       "infoPlist": {
         "NSCameraUsageDescription": "ok2eat uses your camera to read grocery receipts and scan product barcodes. Photos stay on your device.",
         "NSPhotoLibraryUsageDescription": "ok2eat needs access to your photos so you can pick a saved grocery receipt to scan instead of taking a new one.",
@@ -32,8 +34,6 @@
         "foregroundImage": "./assets/adaptive-icon.png"
       },
       "permissions": [
-        "android.permission.CAMERA",
-        "android.permission.INTERNET",
         "android.permission.CAMERA",
         "android.permission.INTERNET"
       ],
@@ -56,6 +56,11 @@
         }
       ],
       "./plugins/withIosDevelopmentTeam"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "d9db70a2-7701-4f19-9f21-066a632882fa"
+      }
+    }
   }
 }
