@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Modal from "./Modal.jsx";
 import { supabase } from "../lib/supabase.js";
+import { track } from "../lib/analytics.js";
 import {
   CATEGORIES, CATEGORY_EMOJI, CONTAINERS, UNIT_OPTIONS, isPackagedCategory,
 } from "../lib/constants.js";
@@ -85,6 +86,7 @@ export default function ItemDetailModal({ open, onClose, item, onUpdated, onRemo
     try {
       const { error } = await supabase.from("fridge_items").delete().eq("id", item.id);
       if (error) throw error;
+      track("item_deleted", { category: item.category, days_until: daysUntil(item.expiryDate) });
       onRemoved?.(item.id);
       onClose?.();
     } catch (e) {
@@ -103,6 +105,7 @@ export default function ItemDetailModal({ open, onClose, item, onUpdated, onRemo
       try {
         const { error } = await supabase.from("fridge_items").delete().eq("id", item.id);
         if (error) throw error;
+        track("item_used", { fully_used: true, category: item.category });
         onRemoved?.(item.id);
         onClose?.();
       } catch (e) {
@@ -111,6 +114,7 @@ export default function ItemDetailModal({ open, onClose, item, onUpdated, onRemo
       }
       return;
     }
+    track("item_used", { fully_used: false, amount: used, category: item.category });
     try {
       await patch({ quantity: remaining });
       setUseOpen(false);

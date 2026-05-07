@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Modal from "./Modal.jsx";
 import { supabase } from "../lib/supabase.js";
+import { track } from "../lib/analytics.js";
 import {
   CATEGORIES, CATEGORY_EMOJI, CONTAINERS,
   EXPIRY_DAYS_BY_CATEGORY, OPENED_DAYS_MAP, isPackagedCategory,
@@ -74,9 +75,11 @@ export default function BulkAddItemsModal({ open, onClose, onAdded, householdId,
         .insert(rows)
         .select();
       if (error) throw error;
+      track("item_added_bulk", { count: (data || []).length, category, container });
       (data || []).forEach(row => onAdded?.(row));
       onClose?.();
     } catch (e) {
+      track("item_add_failed", { source: "bulk", message: String(e?.message || "").slice(0, 80) });
       setErr(e?.message || "Couldn't save items.");
       setSaving(false);
     }

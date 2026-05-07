@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { supabase } from "./lib/supabase.js";
+import { identify, resetAnalytics, track, trackPageView } from "./lib/analytics.js";
 import AuthScreen from "./components/AuthScreen.jsx";
 import Fridge from "./screens/Fridge.jsx";
 import Plan from "./screens/Plan.jsx";
@@ -12,19 +13,39 @@ import HowTo from "./screens/HowTo.jsx";
 export default function App() {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
+  const location = useLocation();
 
   useEffect(() => {
     // Pull current session on mount, then subscribe to changes (sign-in,
     // sign-out, token refresh). Same pattern as the iOS app.
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
+      if (session?.user?.id) identify(session.user.id);
       setLoading(false);
     });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
       setSession(s);
+      // v1.15 — wire identify/reset to auth state changes so PostHog
+      // events post-sign-in attach to the same person profile as iOS.
+      if (s?.user?.id) {
+        identify(s.user.id);
+        if (event === "SIGNED_IN") track("user_signed_in", { method: "session" });
+      } else if (event === "SIGNED_OUT") {
+        track("user_signed_out");
+        resetAnalytics();
+      }
     });
     return () => subscription.unsubscribe();
   }, []);
+
+  // v1.15 — react-router doesn't fire window navigation events, so the
+  // posthog-js auto-pageview only catches the initial load. Fire on every
+  // path change so the dashboard "Pageviews" insight reflects the SPA's
+  // actual screen-to-screen flow.
+  useEffect(() => {
+    if (loading) return;
+    trackPageView(location.pathname + location.search);
+  }, [location.pathname, location.search, loading]);
 
   if (loading) {
     return (

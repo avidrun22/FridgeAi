@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase.js";
 import { RETAILERS } from "../lib/constants.js";
+import { track } from "../lib/analytics.js";
 import Modal from "../components/Modal.jsx";
 import Layout from "../components/Layout.jsx";
 
@@ -437,6 +438,7 @@ export default function Plan({ user }) {
                     href={src.url}
                     target="_blank"
                     rel="noopener noreferrer"
+                    onClick={() => track("plan_recipe_link_tapped", { source: src.label, ingredient_count: recipeIngredients.length })}
                     className="block rounded-xl border border-border bg-card p-4 hover:border-accent/60 transition"
                   >
                     <p className="text-text font-semibold text-sm">{src.label}</p>

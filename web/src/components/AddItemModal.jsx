@@ -3,6 +3,7 @@ import Modal from "./Modal.jsx";
 import DayStepper from "./DayStepper.jsx";
 import ExpiryDateField from "./ExpiryDateField.jsx";
 import { supabase } from "../lib/supabase.js";
+import { track } from "../lib/analytics.js";
 import {
   CATEGORIES, CATEGORY_EMOJI, CONTAINERS,
   EXPIRY_DAYS_BY_CATEGORY, OPENED_DAYS_MAP, isPackagedCategory, UNIT_OPTIONS,
@@ -132,9 +133,11 @@ export default function AddItemModal({ open, onClose, onAdded, householdId, defa
         .single();
       if (error) throw error;
 
+      track("item_added_manual", { category, container });
       onAdded?.(data);
       onClose?.();
     } catch (e) {
+      track("item_add_failed", { category, message: String(e?.message || "").slice(0, 80) });
       setErr(e?.message || "Couldn't save item.");
       setSaving(false);
     }

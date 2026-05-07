@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase.js";
 import { rowToItem, daysUntil, expiryColor, expiryLabel, formatQty } from "../lib/helpers.js";
 import { CONTAINERS, CATEGORIES, CATEGORY_EMOJI } from "../lib/constants.js";
+import { track } from "../lib/analytics.js";
 import AddItemModal from "../components/AddItemModal.jsx";
 import BulkAddItemsModal from "../components/BulkAddItemsModal.jsx";
 import ItemDetailModal from "../components/ItemDetailModal.jsx";
@@ -44,6 +45,37 @@ export default function Fridge({ user }) {
   }
 
   useEffect(() => { refetch(); }, []);
+
+  // v1.15 — expiring_soon_viewed mirrors the iOS event. Fires once per
+  // load when items are present so we can correlate retention with
+  // whether users actually hit the value moment.
+  const expiringSeenRef = useRef(false);
+  useEffect(() => {
+    if (loading || expiringSeenRef.current) return;
+    if (items.length === 0) return;
+    const exp = items.filter(i => { const d = daysUntil(i.expiryDate); return d > 0 && d <= 3; }).length;
+    const expd = items.filter(i => daysUntil(i.expiryDate) <= 0).length;
+    track("expiring_soon_viewed", {
+      total_items: items.length,
+      expiring_count: exp,
+      expired_count: expd,
+      has_actionable: exp > 0 || expd > 0,
+    });
+    expiringSeenRef.current = true;
+  }, [loading, items.length]);
+
+  // v1.15 — debounced search_used (mirrors the iOS instrumentation).
+  // Fires 600ms after the user stops typing if the query has >=2 chars.
+  const lastSearchFiredRef = useRef("");
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2 || q === lastSearchFiredRef.current) return;
+    const t = setTimeout(() => {
+      track("search_used", { query_length: q.length, container: activeContainer });
+      lastSearchFiredRef.current = q;
+    }, 600);
+    return () => clearTimeout(t);
+  }, [searchQuery, activeContainer]);
 
   async function signOut() {
     await supabase.auth.signOut();

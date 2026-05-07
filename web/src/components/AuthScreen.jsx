@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { supabase } from "../lib/supabase.js";
+import { track } from "../lib/analytics.js";
 
 // Auth screen with magic link as the default. iOS users who signed in via
 // "Sign in with Apple" never set a password, so a password form alone would
@@ -26,6 +27,7 @@ export default function AuthScreen() {
   async function handleAppleSignIn() {
     setErr(null); setMsg(null); setBusy(true);
     try {
+      track("auth_attempted", { method: "apple" });
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "apple",
         options: {
@@ -35,6 +37,7 @@ export default function AuthScreen() {
       if (error) throw error;
       // Browser is redirecting to Apple now — no further UI needed.
     } catch (e) {
+      track("auth_failed", { method: "apple", message: String(e?.message || "").slice(0, 80) });
       setErr(e?.message || "Couldn't start Apple sign-in.");
       setBusy(false);
     }
@@ -46,6 +49,7 @@ export default function AuthScreen() {
     setMsg(null);
     setBusy(true);
     try {
+      track("auth_attempted", { method: mode });
       if (mode === "magic") {
         // shouldCreateUser=true means a brand-new email gets an account
         // automatically. That removes the "do I sign up or sign in?" choice
@@ -58,14 +62,17 @@ export default function AuthScreen() {
           },
         });
         if (error) throw error;
+        track("auth_magic_link_sent");
         setMsg("Check your email — we sent a sign-in link. Tap it from any device on the same network as this browser.");
       } else if (mode === "signin") {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
         // Session change will flip the App component into routes.
+        // user_signed_in fires from App's onAuthStateChange listener.
       } else if (mode === "signup") {
         const { error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
+        track("user_signed_up", { method: "email" });
         setMsg("Account created. Check your email to confirm, then sign in.");
         setMode("signin");
       } else if (mode === "reset") {
@@ -73,10 +80,12 @@ export default function AuthScreen() {
           redirectTo: window.location.origin + "/",
         });
         if (error) throw error;
+        track("password_reset_requested");
         setMsg("Password reset link sent — check your email.");
         setMode("signin");
       }
     } catch (e) {
+      track("auth_failed", { method: mode, message: String(e?.message || "").slice(0, 80) });
       setErr(e?.message || "Something went wrong.");
     } finally {
       setBusy(false);
