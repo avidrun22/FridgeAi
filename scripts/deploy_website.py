@@ -29,6 +29,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import hashlib
 import json
 import os
@@ -198,12 +199,16 @@ def main() -> int:
     required = deploy.get("required", [])
 
     # 4. Upload each file Netlify says it needs. Public path already starts
-    #    with "/", so the upload URL composes cleanly.
-    for sha1 in required:
-        if sha1 not in bytes_by_sha:
-            continue  # not one of ours (shouldn't happen)
-        public_path = path_by_sha[sha1]
-        try:
+    #    with "/", so the upload URL composes cleanly. Uploads run in parallel
+    #    because /shelf-life/ alone is 660 files — sequential PUTs blew past
+    #    the 3-min Telegram timeout. 16 workers keeps the total under ~30s
+    #    for ~700 small files without hammering the Netlify rate limit.
+    upload_targets = [(sha1, path_by_sha[sha1]) for sha1 in required if sha1 in bytes_by_sha]
+    if upload_targets:
+        print(f"uploading {len(upload_targets)} files in parallel...", file=sys.stderr)
+
+        def _put(sha_path):
+            sha1, public_path = sha_path
             request(
                 "PUT",
                 f"{API_BASE}/deploys/{deploy_id}/files{public_path}",
@@ -211,8 +216,15 @@ def main() -> int:
                 body=bytes_by_sha[sha1],
                 headers={"Content-Type": "application/octet-stream"},
             )
+            return public_path
+
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=16) as pool:
+                # Use map() to surface the first exception if any upload fails.
+                for _ in pool.map(_put, upload_targets):
+                    pass
         except Exception as e:
-            print(f"file upload failed for {public_path}: {e}", file=sys.stderr)
+            print(f"file upload failed: {e}", file=sys.stderr)
             return 2
 
     # 5. Poll until ready (typically <10 sec for a single static file)
