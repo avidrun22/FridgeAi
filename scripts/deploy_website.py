@@ -110,7 +110,15 @@ def load_config() -> dict:
     return cfg
 
 
-def request(method: str, url: str, token: str, body=None, headers=None, timeout=30):
+def request(method: str, url: str, token: str, body=None, headers=None, timeout=30, max_retries=6):
+    """HTTP request with retry on 429 (rate-limit) and 5xx.
+
+    Netlify's per-deploy file upload endpoint rate-limits when many uploads
+    arrive at once; once parallelized to 16 workers we'd see HTTP 429 mid-deploy.
+    Honor the `Retry-After` header when present, otherwise exponential backoff
+    with jitter. Caps at ~6 retries (~60s total worst case per request).
+    """
+    import random
     req_headers = {"Authorization": f"Bearer {token}"}
     if headers:
         req_headers.update(headers)
@@ -121,16 +129,39 @@ def request(method: str, url: str, token: str, body=None, headers=None, timeout=
     elif body is not None:
         data = body
     req = urllib.request.Request(url, data=data, headers=req_headers, method=method)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read()
-            ct = resp.headers.get("Content-Type", "")
-            if "json" in ct:
-                return json.loads(raw or b"{}")
-            return raw
-    except urllib.error.HTTPError as e:
-        body_preview = (e.read() or b"").decode(errors="replace")[:500]
-        raise RuntimeError(f"HTTP {e.code} on {method} {url}: {body_preview}")
+
+    last_err = None
+    for attempt in range(max_retries):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                raw = resp.read()
+                ct = resp.headers.get("Content-Type", "")
+                if "json" in ct:
+                    return json.loads(raw or b"{}")
+                return raw
+        except urllib.error.HTTPError as e:
+            # 429 = rate limited, 5xx = transient. Anything else: fail fast.
+            if e.code == 429 or 500 <= e.code < 600:
+                retry_after = e.headers.get("Retry-After")
+                if retry_after:
+                    try:
+                        wait = float(retry_after)
+                    except ValueError:
+                        wait = 2.0
+                else:
+                    wait = min(30.0, (2 ** attempt) + random.uniform(0, 1))
+                last_err = f"HTTP {e.code} (attempt {attempt + 1}/{max_retries}) — waiting {wait:.1f}s"
+                time.sleep(wait)
+                continue
+            body_preview = (e.read() or b"").decode(errors="replace")[:500]
+            raise RuntimeError(f"HTTP {e.code} on {method} {url}: {body_preview}")
+        except (urllib.error.URLError, TimeoutError) as e:
+            # network blips — retry too
+            wait = min(15.0, (2 ** attempt) + random.uniform(0, 1))
+            last_err = f"{type(e).__name__}: {e} (attempt {attempt + 1}/{max_retries}) — waiting {wait:.1f}s"
+            time.sleep(wait)
+            continue
+    raise RuntimeError(f"exhausted retries on {method} {url}: {last_err}")
 
 
 def find_site_id(token: str, site_name: str) -> str:
@@ -201,11 +232,13 @@ def main() -> int:
     # 4. Upload each file Netlify says it needs. Public path already starts
     #    with "/", so the upload URL composes cleanly. Uploads run in parallel
     #    because /shelf-life/ alone is 660 files — sequential PUTs blew past
-    #    the 3-min Telegram timeout. 16 workers keeps the total under ~30s
-    #    for ~700 small files without hammering the Netlify rate limit.
+    #    the 3-min Telegram timeout. 6 workers + per-request 429 backoff keeps
+    #    us under Netlify's burst rate-limit while staying well under 1 min
+    #    total even on a worst-case full re-upload.
     upload_targets = [(sha1, path_by_sha[sha1]) for sha1 in required if sha1 in bytes_by_sha]
     if upload_targets:
         print(f"uploading {len(upload_targets)} files in parallel...", file=sys.stderr)
+        completed = [0]
 
         def _put(sha_path):
             sha1, public_path = sha_path
@@ -216,16 +249,21 @@ def main() -> int:
                 body=bytes_by_sha[sha1],
                 headers={"Content-Type": "application/octet-stream"},
             )
+            completed[0] += 1
+            # Light progress every 50 files so the run isn't silent for ~30s.
+            if completed[0] % 50 == 0:
+                print(f"  ...{completed[0]}/{len(upload_targets)} uploaded", file=sys.stderr)
             return public_path
 
         try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=16) as pool:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
                 # Use map() to surface the first exception if any upload fails.
                 for _ in pool.map(_put, upload_targets):
                     pass
         except Exception as e:
             print(f"file upload failed: {e}", file=sys.stderr)
             return 2
+        print(f"  ...{completed[0]}/{len(upload_targets)} uploaded", file=sys.stderr)
 
     # 5. Poll until ready (typically <10 sec for a single static file)
     deadline = time.time() + 120
