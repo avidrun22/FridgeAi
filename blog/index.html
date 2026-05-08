@@ -39,51 +39,113 @@
   </ul>
 </nav>
 
-<main>
+<main class="blog-index-main">
   <header class="blog-header">
     <p class="blog-eyebrow">// the ok2eat blog</p>
     <h1 class="blog-title">Notes from the kitchen</h1>
     <p class="blog-tagline">Practical, personal posts on reducing food waste, lowering grocery bills, and cooking from what's already in your fridge. New posts Tuesdays and Thursdays.</p>
   </header>
 
-  <section class="post-list">
-    <a href="/blog/per-item-shelf-life.html" class="post-card">
-      <p class="post-meta">May 7, 2026 · 4 min read</p>
-      <h2 class="post-card-title">Making it easier to know what's still good</h2>
-      <p class="post-excerpt">A lot of food gets thrown out simply because nobody knows how long it was supposed to last. So we wired the USDA FoodKeeper dataset into ok2eat — and put a free public version on the web for anyone to use.</p>
-      <span class="post-arrow">Read post →</span>
-    </a>
-    <a href="/blog/cut-grocery-bill-25-percent.html" class="post-card">
-      <p class="post-meta">May 5, 2026 · 4 min read</p>
-      <h2 class="post-card-title">How we cut our grocery bill 25% (without coupons or bulk shopping)</h2>
-      <p class="post-excerpt">No meal planning spreadsheets. No bulk runs to Costco. Just one change: stop buying what we already have, and eat what's about to go bad first.</p>
-      <span class="post-arrow">Read post →</span>
-    </a>
-    <a href="/blog/what-do-we-have-to-eat.html" class="post-card">
-      <p class="post-meta">May 4, 2026 · 3 min read</p>
-      <h2 class="post-card-title">Dinner used to be "what do we want?" Now it's "what do we have?"</h2>
-      <p class="post-excerpt">My wife and I defaulted to takeout because by 7pm we couldn't decide what to make. Then we changed the question.</p>
-      <span class="post-arrow">Read post →</span>
-    </a>
-    <a href="/blog/one-fridge-one-list.html" class="post-card">
-      <p class="post-meta">May 1, 2026 · 3 min read</p>
-      <h2 class="post-card-title">One fridge, one list, no group chat</h2>
-      <p class="post-excerpt">Multiple shopping lists, real-time sync between phones, and one-tap ordering. How ok2eat v1.1.0 stops the "did we already buy eggs?" texts.</p>
-      <span class="post-arrow">Read post →</span>
-    </a>
-    <a href="/blog/less-typing-more-cooking.html" class="post-card">
-      <p class="post-meta">April 30, 2026 · 3 min read</p>
-      <h2 class="post-card-title">Less typing, more cooking — what's new in ok2eat</h2>
-      <p class="post-excerpt">Easier to use, easier to share, easier to take action. What just shipped in v1.0.10, plus a peek at voice add, photo-add, and the rest of the "easier" arc.</p>
-      <span class="post-arrow">Read post →</span>
-    </a>
-    <a href="/blog/why-i-built-ok2eat.html" class="post-card">
-      <p class="post-meta">April 29, 2026 · 4 min read</p>
-      <h2 class="post-card-title">Why I built ok2eat</h2>
-      <p class="post-excerpt">A forgotten avocado, $80 a month going in the trash, and the moment I realized my partner and I needed a shared source of truth for what's in the kitchen.</p>
-      <span class="post-arrow">Read post →</span>
-    </a>
+  <!-- Filter bar: chips on the left for category, search on the right -->
+  <section class="post-toolbar" aria-label="Filter posts">
+    <div class="post-chips" role="tablist" aria-label="Categories">
+      <button class="post-chip is-active" data-tag="all" type="button">All</button>
+      <button class="post-chip" data-tag="mission" type="button">Mission</button>
+      <button class="post-chip" data-tag="product" type="button">Product</button>
+      <button class="post-chip" data-tag="personal" type="button">Personal</button>
+      <button class="post-chip" data-tag="tips" type="button">Tips</button>
+    </div>
+    <div class="post-search">
+      <svg class="post-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg>
+      <input type="search" id="post-search-input" placeholder="Search posts…" autocomplete="off" />
+    </div>
   </section>
+
+  <p id="post-search-msg" class="post-search-msg" aria-live="polite"></p>
+
+  <section class="post-grid" id="post-grid">
+
+    <a href="/blog/per-item-shelf-life.html" class="post-card" data-tags="mission" data-keywords="shelf life expiration usda foodkeeper data public dataset waste mission">
+      <div class="post-cover" style="background:linear-gradient(135deg,#A6D388 0%,#3E721D 100%);">
+        <span class="post-cover-emoji" aria-hidden="true">📊</span>
+      </div>
+      <div class="post-card-body">
+        <span class="post-tag-pill">Mission</span>
+        <p class="post-meta">May 7, 2026 · 4 min read</p>
+        <h2 class="post-card-title">How long does <span style="color:var(--green);">{anything}</span> last?</h2>
+        <p class="post-excerpt">A lot of food gets thrown out simply because nobody knows how long it was supposed to last. So we wired the USDA FoodKeeper dataset into ok2eat — and put a free public version on the web.</p>
+        <span class="post-arrow">Read post →</span>
+      </div>
+    </a>
+
+    <a href="/blog/cut-grocery-bill-25-percent.html" class="post-card" data-tags="tips" data-keywords="grocery bill savings money budget waste no coupons no bulk shopping">
+      <div class="post-cover" style="background:linear-gradient(135deg,#F0C26A 0%,#C97E1E 100%);">
+        <span class="post-cover-emoji" aria-hidden="true">💰</span>
+      </div>
+      <div class="post-card-body">
+        <span class="post-tag-pill">Tips</span>
+        <p class="post-meta">May 5, 2026 · 4 min read</p>
+        <h2 class="post-card-title">How we cut our grocery bill 25% (without coupons or bulk shopping)</h2>
+        <p class="post-excerpt">No meal planning spreadsheets. No bulk runs to Costco. Just one change: stop buying what we already have, and eat what's about to go bad first.</p>
+        <span class="post-arrow">Read post →</span>
+      </div>
+    </a>
+
+    <a href="/blog/what-do-we-have-to-eat.html" class="post-card" data-tags="personal" data-keywords="dinner takeout cooking founder wife household decision fatigue">
+      <div class="post-cover" style="background:linear-gradient(135deg,#E8B4A0 0%,#B23A3A 100%);">
+        <span class="post-cover-emoji" aria-hidden="true">🍽</span>
+      </div>
+      <div class="post-card-body">
+        <span class="post-tag-pill">Personal</span>
+        <p class="post-meta">May 4, 2026 · 3 min read</p>
+        <h2 class="post-card-title">Dinner used to be "what do we want?" Now it's "what do we have?"</h2>
+        <p class="post-excerpt">My wife and I defaulted to takeout because by 7pm we couldn't decide what to make. Then we changed the question.</p>
+        <span class="post-arrow">Read post →</span>
+      </div>
+    </a>
+
+    <a href="/blog/one-fridge-one-list.html" class="post-card" data-tags="product" data-keywords="shopping list shared household sync real time fridge couple eggs">
+      <div class="post-cover" style="background:linear-gradient(135deg,#C4D8E8 0%,#5A7DA0 100%);">
+        <span class="post-cover-emoji" aria-hidden="true">📝</span>
+      </div>
+      <div class="post-card-body">
+        <span class="post-tag-pill">Product</span>
+        <p class="post-meta">May 1, 2026 · 3 min read</p>
+        <h2 class="post-card-title">One fridge, one list, no group chat</h2>
+        <p class="post-excerpt">Multiple shopping lists, real-time sync between phones, and one-tap ordering. How ok2eat v1.1.0 stops the "did we already buy eggs?" texts.</p>
+        <span class="post-arrow">Read post →</span>
+      </div>
+    </a>
+
+    <a href="/blog/less-typing-more-cooking.html" class="post-card" data-tags="product" data-keywords="receipt scan voice photo onboarding ease v1 release notes update">
+      <div class="post-cover" style="background:linear-gradient(135deg,#D4C5E8 0%,#6F4FA0 100%);">
+        <span class="post-cover-emoji" aria-hidden="true">⚡</span>
+      </div>
+      <div class="post-card-body">
+        <span class="post-tag-pill">Product</span>
+        <p class="post-meta">April 30, 2026 · 3 min read</p>
+        <h2 class="post-card-title">Less typing, more cooking — what's new in ok2eat</h2>
+        <p class="post-excerpt">Easier to use, easier to share, easier to take action. What just shipped in v1.0.10, plus a peek at voice add, photo-add, and the rest of the "easier" arc.</p>
+        <span class="post-arrow">Read post →</span>
+      </div>
+    </a>
+
+    <a href="/blog/why-i-built-ok2eat.html" class="post-card" data-tags="personal" data-keywords="founder story origin avocado waste partner couple why built solo">
+      <div class="post-cover" style="background:linear-gradient(135deg,#A6D388 0%,#662113 100%);">
+        <span class="post-cover-emoji" aria-hidden="true">🥑</span>
+      </div>
+      <div class="post-card-body">
+        <span class="post-tag-pill">Personal</span>
+        <p class="post-meta">April 29, 2026 · 4 min read</p>
+        <h2 class="post-card-title">Why I built ok2eat</h2>
+        <p class="post-excerpt">A forgotten avocado, $80 a month going in the trash, and the moment I realized my partner and I needed a shared source of truth for what's in the kitchen.</p>
+        <span class="post-arrow">Read post →</span>
+      </div>
+    </a>
+
+  </section>
+
+  <p id="post-empty" class="post-empty" hidden>No posts match — try a different search or category.</p>
 
   <section class="signup" id="subscribe">
     <h3>Get new posts in your inbox</h3>
@@ -110,5 +172,54 @@
 </footer>
 
 <script src="/blog/newsletter.js" defer></script>
+<script>
+// Blog index filter + search. Pure DOM filtering — no async, no fetches.
+// Each .post-card has data-tags (space-separated) and data-keywords (free text).
+// The chip and the search box AND together: a card must match both to be shown.
+(function(){
+  const chips = document.querySelectorAll('.post-chip');
+  const cards = document.querySelectorAll('#post-grid .post-card');
+  const input = document.getElementById('post-search-input');
+  const empty = document.getElementById('post-empty');
+  const msg   = document.getElementById('post-search-msg');
+  let activeTag = 'all';
+
+  function apply() {
+    const q = (input.value || '').trim().toLowerCase();
+    let shown = 0;
+    cards.forEach(c => {
+      const tags = (c.dataset.tags || '').toLowerCase();
+      const kw   = (c.dataset.keywords || '').toLowerCase();
+      const txt  = c.textContent.toLowerCase();
+      const tagOK = activeTag === 'all' || tags.includes(activeTag);
+      const qOK   = !q || (txt + ' ' + kw).includes(q);
+      const hit   = tagOK && qOK;
+      c.style.display = hit ? '' : 'none';
+      if (hit) shown++;
+    });
+    empty.hidden = shown !== 0;
+    if (q || activeTag !== 'all') {
+      msg.textContent = shown === 1 ? '1 post' : shown + ' posts';
+    } else {
+      msg.textContent = '';
+    }
+  }
+
+  chips.forEach(chip => {
+    chip.addEventListener('click', () => {
+      chips.forEach(c => c.classList.remove('is-active'));
+      chip.classList.add('is-active');
+      activeTag = chip.dataset.tag;
+      apply();
+    });
+  });
+  let timer = null;
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(apply, 80);
+  });
+  apply();
+})();
+</script>
 </body>
 </html>
