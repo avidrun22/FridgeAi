@@ -116,6 +116,7 @@ def page_head(title, description, canonical, json_ld_blocks):
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,700;12..96,800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/shelf-life/styles.css">
+<script src="/assets/posthog.js" defer></script>
 {json_ld}
 </head>
 <body>

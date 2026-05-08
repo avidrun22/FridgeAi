@@ -74,7 +74,7 @@ ASSETS: list[tuple[str, Path, bool]] = [
 #
 # `excludes` are path components that skip auto-include (drafts in blog/ stay
 # local-only; __pycache__ keeps Python noise out of production).
-_AUTO_INCLUDE_DIRS = ["blog", "join", "privacy", "shelf-life"]
+_AUTO_INCLUDE_DIRS = ["blog", "join", "privacy", "shelf-life", "assets"]
 _EXCLUDED_PARTS = {"drafts", "__pycache__"}
 
 for _top in _AUTO_INCLUDE_DIRS:
