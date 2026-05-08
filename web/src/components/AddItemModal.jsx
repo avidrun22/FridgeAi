@@ -4,6 +4,7 @@ import DayStepper from "./DayStepper.jsx";
 import ExpiryDateField from "./ExpiryDateField.jsx";
 import { supabase } from "../lib/supabase.js";
 import { track } from "../lib/analytics.js";
+import { lookupShelfLife } from "../lib/shelfLife.js";
 import {
   CATEGORIES, CATEGORY_EMOJI, CONTAINERS,
   EXPIRY_DAYS_BY_CATEGORY, OPENED_DAYS_MAP, isPackagedCategory, UNIT_OPTIONS,
@@ -72,17 +73,26 @@ export default function AddItemModal({ open, onClose, onAdded, householdId, defa
     return () => { cancelled = true; clearTimeout(t); };
   }, [name, open]);
 
-  function pickCategory(c) {
+  async function pickCategory(c) {
     setCategory(c);
     setClosedDays(EXPIRY_DAYS_BY_CATEGORY[c] || 7);
     setOpenedDays(OPENED_DAYS_MAP[c] || 7);
+    // v1.16 — refresh FoodKeeper lookup with the new category context.
+    if ((name || "").trim().length >= 2) {
+      const sl = await lookupShelfLife(name.trim(), c, container);
+      if (sl.source !== "category_default") {
+        setClosedDays(sl.closedDays);
+        setOpenedDays(sl.openedDays);
+      }
+    }
   }
 
   // v1.16 — picking a search result populates the form with the result's
   // name + category + emoji + expiry default. Clears the dropdown and
   // suppresses the next search-fire so we don't re-query for the just-
-  // picked name.
-  function handlePickResult(result) {
+  // picked name. v1.16 Phase 2 also calls FoodKeeper for an authoritative
+  // per-item shelf life.
+  async function handlePickResult(result) {
     const cat = (result.category && CATEGORIES.includes(result.category)) ? result.category : "Other";
     setSuppressSearch(true);
     setName(result.name || "");
@@ -90,7 +100,37 @@ export default function AddItemModal({ open, onClose, onAdded, householdId, defa
     setClosedDays(EXPIRY_DAYS_BY_CATEGORY[cat] || 7);
     setOpenedDays(OPENED_DAYS_MAP[cat] || 7);
     setSearchResults([]);
+    const sl = await lookupShelfLife(result.name || "", cat, container);
+    if (sl.source !== "category_default") {
+      setClosedDays(sl.closedDays);
+      setOpenedDays(sl.openedDays);
+      track("shelf_life_lookup_hit", {
+        query: (result.name || "").slice(0, 40),
+        match: (sl.matchName || "").slice(0, 40),
+        days: sl.closedDays,
+      });
+    }
   }
+
+  // v1.16 — debounced FoodKeeper lookup on name changes. Mirrors the iOS
+  // implementation. Doesn't wait for the user to pick a search result;
+  // if their typed name has a confident match, we update the day defaults.
+  useEffect(() => {
+    if (!open) return;
+    if (suppressSearch) return;
+    const trimmed = (name || "").trim();
+    if (trimmed.length < 3) return;
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      const sl = await lookupShelfLife(trimmed, category, container);
+      if (cancelled) return;
+      if (sl.source !== "category_default") {
+        setClosedDays(sl.closedDays);
+        setOpenedDays(sl.openedDays);
+      }
+    }, 600);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [name, category, container, open, suppressSearch]);
 
   async function handleSave(e) {
     e?.preventDefault();

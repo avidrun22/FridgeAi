@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ok2eat now uses USDA FoodKeeper data for per-item expiration — ok2eat</title>
+<meta name="description" content="No more flat 5-day defaults for every vegetable. ok2eat now sources expiration estimates from the USDA FoodKeeper database — different numbers for spinach, squash, and 658 other items.">
+<meta name="theme-color" content="#F0EADC">
+<meta property="og:title" content="ok2eat now uses USDA FoodKeeper data for per-item expiration">
+<meta property="og:description" content="No more flat 5-day defaults for every vegetable. ok2eat now sources expiration estimates from the USDA FoodKeeper database — different numbers for spinach, squash, and 658 other items.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://ok2eat.com/blog/per-item-shelf-life.html">
+<meta property="article:published_time" content="2026-05-07">
+<meta property="article:author" content="Greg">
+<link rel="canonical" href="https://ok2eat.com/blog/per-item-shelf-life.html">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'%3E%3Crect width='36' height='36' rx='8' fill='%23F0EADC'/%3E%3Cpath fill='%233E721D' d='M35 5.904c2.394 6.042-1.438 20.543-10.5 26.5-9.06 5.957-20.395 3.573-23.097-6.443-1.669-6.186 2.79-10.721 11.851-16.677C22.315 3.327 32.64-.053 35 5.904z'/%3E%3Cpath fill='%23A6D388' d='M19.815 26.578c-5.757 4.013-13.482 3.097-16.29-.934C.718 21.613 4 14.474 9.757 10.463c5.755-4.011 20.258-9.264 23.068-5.234 2.807 4.03-4.825 16.175-13.01 21.349'/%3E%3Cpath fill='%23662113' d='M11.162 12.488c3.48-2.332 7.382-1.495 9.798.995 1.433 1.477-.88 5.382-4.359 7.714-3.478 2.33-7.769 1.763-8.239.731-1.44-3.157-.677-7.109 2.8-9.44z'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,700;12..96,800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/blog/styles.css">
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="avocado" viewBox="0 0 36 36">
+    <rect width="36" height="36" rx="8" fill="#F0EADC"/>
+    <path fill="#3E721D" d="M35 5.904c2.394 6.042-1.438 20.543-10.5 26.5-9.06 5.957-20.395 3.573-23.097-6.443-1.669-6.186 2.79-10.721 11.851-16.677C22.315 3.327 32.64-.053 35 5.904z"/>
+    <path fill="#A6D388" d="M19.815 26.578c-5.757 4.013-13.482 3.097-16.29-.934C.718 21.613 4 14.474 9.757 10.463c5.755-4.011 20.258-9.264 23.068-5.234 2.807 4.03-4.825 16.175-13.01 21.349"/>
+    <path fill="#662113" d="M11.162 12.488c3.48-2.332 7.382-1.495 9.798.995 1.433 1.477-.88 5.382-4.359 7.714-3.478 2.33-7.769 1.763-8.239.731-1.44-3.157-.677-7.109 2.8-9.44z"/>
+  </symbol>
+</svg>
+
+<nav>
+  <a href="/" class="nav-logo"><svg><use href="#avocado"/></svg> ok2eat</a>
+  <ul class="nav-links">
+    <li><a href="/#features">Features</a></li>
+    <li><a href="/#how">How it works</a></li>
+    <li><a href="/shelf-life/">Shelf life</a></li>
+    <li><a href="/blog/" class="is-active">Blog</a></li>
+    <li><a href="/#support">Support</a></li>
+    <li><a href="https://app.ok2eat.com">Log in</a></li>
+    <li><a href="https://apps.apple.com/us/app/ok2eat/id6761730687" class="nav-cta">Download</a></li>
+  </ul>
+</nav>
+
+<main>
+  <article>
+    <p class="article-meta">May 7, 2026 · 4 min read</p>
+    <h1 class="article-title">ok2eat now uses USDA FoodKeeper data for per-item expiration</h1>
+    <p class="article-author">By Greg, founder of ok2eat</p>
+
+    <div class="article-body">
+
+      <p>For most of ok2eat's life, we estimated how long food lasts using a flat per-category number. Anything tagged "Produce" got 5 days. Anything tagged "Dairy" got 14. Whether you added spinach (which actually lasts 3-7 days in the fridge) or a butternut squash (which can last 30-90 days), you got the same 5-day countdown. That meant some items were getting flagged way too early — and a few were getting flagged way too late.</p>
+
+      <p>That changes today. ok2eat now sources expiration estimates from the <a href="https://www.fsis.usda.gov/food-safety/safe-food-handling-and-preparation/food-safety-basics/foodkeeper-app">USDA Food Safety and Inspection Service FoodKeeper database</a> — a publicly maintained reference dataset covering 660 individual food and beverage items, with separate storage timelines for the pantry, the fridge, and the freezer, plus open-vs-unopened ranges where they differ.</p>
+
+      <h2>What this changes in practice</h2>
+
+      <p>A handful of examples to make it concrete:</p>
+
+      <ul>
+        <li><strong>Whole milk</strong> — was 14 days, now 7 days unopened in the fridge (USDA value). The old default was overshooting.</li>
+        <li><strong>Hard cheese</strong> (cheddar, parmesan) — was 14 days, now <strong>180 days unopened</strong> in the fridge. We were causing real waste anxiety on items that genuinely keep for months.</li>
+        <li><strong>Spinach / bagged greens</strong> — was 5 days, now 3-5 days. Very close, but the range is honest about how variable it is.</li>
+        <li><strong>Whole carrots</strong> — was 5 days, now 21-28 days. Big swing — carrots really do last in the crisper drawer.</li>
+        <li><strong>Butternut / winter squash</strong> — was 5 days, now 30-90 days at room temperature. The old default was off by an order of magnitude.</li>
+      </ul>
+
+      <p>The data also gives us things we didn't have before: separate "after opening" timelines (a jar of peanut butter unopened in the pantry vs the same jar opened), freezer storage estimates, and per-item storage tips that come straight from USDA.</p>
+
+      <h2>What hasn't changed</h2>
+
+      <p>You can still override every number. Per-item shelf life is the new default — the value that pre-fills when you add an item — but the existing edit-the-number controls work exactly the same way. If your milk goes a week longer than USDA's range, just bump the date.</p>
+
+      <p>If we don't have an exact match for what you're adding ("Trader Joe's pre-cut salad" doesn't have a USDA entry), we fall back to the same category-based default we used before — so nothing breaks. Worst case is the new system behaves identically to the old one.</p>
+
+      <h2>A note on the data</h2>
+
+      <p>This is a meaningful place to be careful. ok2eat is republishing USDA's publicly available data; we are not producing food-safety guidance ourselves. Two things worth saying clearly:</p>
+
+      <p><strong>The numbers are estimates, not guarantees.</strong> USDA's ranges assume typical storage conditions and properly handled food. Your actual fridge temperature, the condition of the item when you bought it, how long it sat in the car after the grocery run — all of these affect real shelf life and none of them are inputs to a static lookup table. The ranges are a starting point, not a verdict.</p>
+
+      <p><strong>Always trust your senses over a timer.</strong> If something looks, smells, or feels off, throw it out — regardless of what the app says. If something looks fine after the displayed expiry, you're allowed to use your judgment. ok2eat is a memory aid, not a food safety inspector. We don't taste your food and neither does any database.</p>
+
+      <p>The USDA's own guidance, which we agree with: <em>"When in doubt, throw it out."</em></p>
+
+      <h2>Bonus: a public shelf-life directory</h2>
+
+      <p>Since we have all this data anyway, we put it on the website too. <a href="/shelf-life/">ok2eat.com/shelf-life</a> has a searchable directory of all 660 items — usable from any browser, no app required. If you've ever Googled "how long does ricotta last in the fridge" and bounced through three SEO farms before finding an answer, this is the page you wanted: just the USDA number, source-cited, no popups.</p>
+
+      <p>Type any item name and you'll get the storage range for fridge, freezer, and pantry, plus the open/closed split. We're not going to keep you here — there's an obvious "back to ok2eat" CTA, but the directory pages stand alone.</p>
+
+      <h2>What's next</h2>
+
+      <p>FoodKeeper covers 660 items. There's a long tail of products it doesn't cover — store-brand items, ethnic foods USDA doesn't track, prepared meals from specific retailers. The next iteration here is vendor-specific data: when we scan a Trader Joe's receipt, recognize the Trader Joe's SKU, and pull the more accurate shelf life for that specific product. That's a bigger project, but the architecture is in place — same lookup pattern, just with a richer data source.</p>
+
+      <p>Today's win: every existing user, with no app update on their part, just got measurably better expiry estimates the next time they open the app. The 5-day spinach and the 5-day squash now disagree, the way they should.</p>
+
+      <p>If you want to browse the data, <a href="/shelf-life/">the directory is here</a>. If you want the app to do this for you automatically, <a href="https://apps.apple.com/us/app/ok2eat/id6761730687">ok2eat is free on iOS</a> and there's a <a href="https://app.ok2eat.com">web version</a> that works on any browser.</p>
+
+      <p style="margin-top:32px;padding-top:20px;border-top:1px solid #E2DCCB;font-size:13px;color:#6B8264;font-style:italic;">Storage times shown in ok2eat and on the directory pages are sourced from the USDA Food Safety and Inspection Service FoodKeeper database, a publicly available US government dataset. ok2eat does not produce food-safety guidance; we are republishing this information. Estimates assume typical storage conditions and properly handled food. When in doubt, throw it out.</p>
+
+    </div>
+
+    <div class="article-footer">
+      <p class="cta">
+        <a href="https://apps.apple.com/us/app/ok2eat/id6761730687" class="btn-primary">Download ok2eat — free for iOS</a>
+      </p>
+    </div>
+
+  </article>
+</main>
+
+<footer>
+  <p>© 2026 ok2eat. <a href="/privacy/">Privacy</a> · <a href="mailto:hello@ok2eat.com">hello@ok2eat.com</a></p>
+</footer>
+
+</body>
+</html>

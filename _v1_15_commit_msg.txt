@@ -1,0 +1,68 @@
+v1.15 retention sprint — empty-state receipt scan promo, sample receipt, D1 nudge, permission audit
+
+Sprint kickoff after the 2026-05-06 PostHog audit identified D1 retention
+(~6%, well below the 30-40% utility-app benchmark) as the binding
+constraint on growth. Three changes that target the funnel together:
+
+App.js — empty-state Fridge screen redesign:
+  - Replaces "Your fridge is empty! Tap + to add your first item" with a
+    receipt-scan-first flow. The marquee feature (currently 4% adoption per
+    PostHog vs. ~100% of marketing surface area) is now the primary CTA on
+    the empty fridge.
+  - Primary: 📷 Scan a grocery receipt → opens BulkAddModal in
+    presetMode="scan-camera", which immediately fires the camera (cuts
+    one tap from the prior AddModal → scan-tile path).
+  - Secondary: ✨ Try a sample receipt → opens BulkAddModal in
+    presetMode="sample" with 6 realistic items pre-populated (mixed
+    expiry timelines so the user sees the value moment without needing a
+    real receipt). Banner explains the data is sample.
+  - Tertiary: text link "or add items manually →" preserves the prior path.
+
+App.js — BulkAddModal preset-mode plumbing:
+  - New props: presetMode, onPresetConsumed.
+  - "scan-camera" / "scan-library" auto-fire the corresponding picker
+    after mount with an 80ms guard against React strict-mode re-fires.
+  - "sample" pre-fills rows from buildSampleRows() and shows a sample-data
+    banner so the user knows what they're looking at.
+  - track("sample_receipt_shown") and track("sample_receipt_tapped") so
+    we can measure whether the sample flow drives real receipt adoption
+    or just collects demo taps.
+
+App.js + app.json — camera permission flow audit:
+  - app.json NSCameraUsageDescription was "ok2eat needs camera access to
+    scan barcodes" — barcode-only language for a feature that's primarily
+    used for receipts. Updated to "ok2eat uses your camera to read grocery
+    receipts and scan product barcodes. Photos stay on your device."
+  - Added NSPhotoLibraryUsageDescription (was missing) for the upload-
+    receipt path.
+  - vision-camera plugin permission text mirrored.
+  - handleScanReceipt: split denial UX into "first denial" (canAskAgain
+    true → soft re-prompt copy) vs "permanent denial" (canAskAgain false
+    → Settings deep-link). Track camera_permission_denied / photo_library
+    _permission_denied with the permanent flag so we can see the true
+    funnel.
+  - Added receipt_scan_started / receipt_scan_cancelled / receipt_scan
+    _no_items / receipt_scan_failed events so the OCR funnel is
+    observable end to end (today we only see receipt_scanned successes).
+
+App.js — D1 retention push notification:
+  - scheduleD1RetentionNudge(items): local notification fired the same
+    evening a user adds their first items, referencing what they just
+    put in the fridge. The "this app remembered something I forgot"
+    moment is the lever for the 6% → target-30% D1 jump.
+  - Idempotent per calendar day (AsyncStorage flag), silent no-op if
+    notif permission isn't granted (we don't re-prompt on the add path),
+    cancels prior schedules on overwrite.
+  - Picks the soonest-expiring item with >0 and ≤7 days; falls back to a
+    soft welcome message if no candidate exists.
+  - Schedules for 6:30 PM local; if it's already past 6 PM at add time,
+    fires 30 min out so the user has exited the app first.
+  - Wired into both handleAddManual and handleBulkAdd (receipt and
+    manual paths) — first add of any kind today triggers it.
+  - Telemetry: d1_nudge_scheduled / d1_nudge_skipped / d1_nudge_failed.
+
+Bumps app.json version → 1.15, build → 19.
+
+Refs: PostHog audit 2026-05-06; sprint kickoff message.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>

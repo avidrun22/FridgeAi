@@ -1,0 +1,86 @@
+v1.16 — per-item expiry from USDA FoodKeeper + public shelf-life directory
+
+Replaces the flat per-category EXPIRY_MAP defaults with per-item shelf
+life sourced from the USDA FSIS FoodKeeper database (660 items). Same
+data powers a new public SEO resource at /shelf-life/ with a page per
+item — designed to capture long-tail "how long does X last" queries.
+
+Three deliverables:
+
+1. iOS + web apps now look up per-item shelf life via Supabase RPC.
+2. Public /shelf-life/ directory: 660 SEO pages + searchable index.
+3. Blog post announcing the change with prominent USDA-data + non-
+   safety-advice framing.
+
+Files & wiring:
+
+DATA
+  - data/foodkeeper.json — 660 normalized items (USDA FoodKeeper v128).
+  - data/foodkeeper.csv — same data, flat. Bulk-load source for Supabase.
+  - supabase/migrations/20260507_v116_foodkeeper_shelf_life.sql:
+      CREATE TABLE foodkeeper_shelf_life (matching the JSON shape) +
+      pg_trgm + lower() + ok2eat_category + tsvector indexes +
+      lookup_shelf_life(query) RPC function. Read-only RLS.
+
+iOS (App.js)
+  - New lookupShelfLife(name, category, container) helper. Three-tier
+    match: exact → substring → trigram similarity. Returns the closed
+    & opened day defaults for the requested container, falling back
+    gracefully to the existing EXPIRY_MAP[category] on a low-confidence
+    match or RPC failure.
+  - Wired into AddModal handlePickResult, handleCategoryChange, and a
+    new debounced effect on `name` so typing "spinach" updates the day
+    default to FoodKeeper's value as soon as the user pauses.
+  - Tracks shelf_life_lookup_hit so we can measure how often the
+    FoodKeeper number is preferred to the category default.
+
+Web (web/src/...)
+  - Mirror of the iOS helper at web/src/lib/shelfLife.js.
+  - AddItemModal.jsx wired identically — same RPC, same fallback logic,
+    same three trigger paths (pickCategory, handlePickResult, name
+    debounce).
+
+Public site (/shelf-life/)
+  - scripts/build_shelf_life_pages.py renders 660 per-item HTML pages
+    + an index page with client-side fuzzy search. Each item page has
+    JSON-LD FAQPage + BreadcrumbList markup, source attribution to
+    USDA, and a non-safety-advice disclaimer in the footer.
+  - Index search now reads ?q= and #hash so external/homepage links
+    can land on a pre-filtered view.
+  - blog/per-item-shelf-life.html announces the launch and contains
+    the canonical liability framing ("we are republishing public USDA
+    data; we are not producing safety guidance; trust your senses").
+  - sitemap.xml grows from 8 → 669 URLs (660 item pages + index).
+  - scripts/deploy_website.py auto-includes shelf-life/ on next deploy.
+
+Marketing site nav + homepage promotion
+  - "Shelf life" added to the top nav across ok2eat.html, blog/index.html,
+    every blog post, and privacy/index.html. Footer link added on
+    homepage.
+  - New homepage section between Features and How-it-works: "How long
+    does {anything} last?" — search box that posts to /shelf-life/?q=...,
+    plus 5 quick-link chips (bagged greens, milk, eggs, hard cheese,
+    avocados) and a prominent "Browse all 660 →" CTA. Anchored at
+    #shelf-life-highlight for direct linking.
+  - Smart Expiry Tracking feature card now mentions USDA FoodKeeper
+    explicitly.
+
+Liability framing:
+- Footer disclaimer present on every /shelf-life/ page and prominently
+  in the blog post.
+- "Storage times are estimates for typical conditions. When in doubt,
+  throw it out — trust your senses over any stated timeframe."
+- Source attribution to USDA on every page with a link to the original
+  FoodKeeper app.
+
+Greg's hands needed:
+1. Run the migration (psql or Supabase Dashboard SQL editor):
+     supabase/migrations/20260507_v116_foodkeeper_shelf_life.sql
+2. Bulk-load data/foodkeeper.csv into the new table via Supabase
+   Table Editor's CSV import. Verify count is 660:
+     SELECT count(*) FROM foodkeeper_shelf_life;
+3. Run /deploy to publish 660 pages + new blog post + sitemap update.
+4. Submit ok2eat.com/shelf-life/ to Google Search Console for
+   priority indexing.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>

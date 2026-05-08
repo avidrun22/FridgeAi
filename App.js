@@ -372,6 +372,65 @@ const isPackagedCategory = (cat) => PACKAGED_CATEGORIES.has(cat);
 // based on USDA FoodKeeper guidance; the user can override per item.
 const OPENED_DAYS_MAP = { "Protein": 3, "Beverages": 7, "Dry Goods": 30, "Other": 7 };
 
+// v1.16 — per-item shelf life lookup against the FoodKeeper RPC. Returns
+// { closedDays, openedDays, source } where source is "foodkeeper" on a hit
+// and "category_default" on miss. Always resolves; never throws. Uses the
+// max of the source's [min, max] range as the default — that's the
+// optimistic-but-safe number; users override downward when they want to
+// be conservative.
+//
+// Container is "fridge" / "pantry" / "freezer" — selects which set of fields
+// to read. Defaults to fridge since that's where ~80% of items end up.
+async function lookupShelfLife(name, category, container = "fridge") {
+  // Tiny built-in fallback so we always have an answer.
+  const fallback = {
+    closedDays: EXPIRY_MAP[category] || 7,
+    openedDays: OPENED_DAYS_MAP[category] || 7,
+    source: "category_default",
+    matchName: null,
+  };
+  const trimmed = (name || "").trim();
+  if (trimmed.length < 2) return fallback;
+  try {
+    const { data, error } = await supabase.rpc("lookup_shelf_life", { query: trimmed });
+    if (error || !Array.isArray(data) || data.length === 0) return fallback;
+    const top = data[0];
+    if ((top.score ?? 0) < 30) return fallback; // low-confidence — defer to category
+    const containerKey =
+      container === "freezer" ? "freezer" :
+      container === "pantry"  ? "pantry"  :
+                                "fridge";
+    const closedMax = top[`${containerKey}_max_days`] ?? top[`${containerKey}_min_days`];
+    const openedMax = top[`${containerKey}_open_max_days`] ?? top[`${containerKey}_open_min_days`];
+    if (closedMax == null) {
+      // No data for the requested container — try the other two before giving up.
+      const fallbacksByContainer =
+        container === "freezer" ? ["fridge_max_days", "pantry_max_days"] :
+        container === "pantry"  ? ["fridge_max_days", "freezer_max_days"] :
+                                  ["pantry_max_days", "freezer_max_days"];
+      for (const k of fallbacksByContainer) {
+        if (top[k] != null) {
+          return {
+            closedDays: Math.round(top[k]),
+            openedDays: openedMax ? Math.round(openedMax) : (OPENED_DAYS_MAP[category] || 7),
+            source: "foodkeeper_other_container",
+            matchName: top.name,
+          };
+        }
+      }
+      return fallback;
+    }
+    return {
+      closedDays: Math.round(closedMax),
+      openedDays: openedMax ? Math.round(openedMax) : (OPENED_DAYS_MAP[category] || 7),
+      source: "foodkeeper",
+      matchName: top.name,
+    };
+  } catch (e) {
+    return fallback;
+  }
+}
+
 function categorize(tags) { if (!tags) return "Other"; const joined = tags.join(" ").toLowerCase(); for (const [key, val] of Object.entries(CATEGORY_MAP)) { if (joined.includes(key)) return val; } return "Other"; }
 
 const GUESS_MAP = {
@@ -3061,28 +3120,74 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
   // v1.16 Phase 1 — picking a search result populates the form. Sets name,
   // category, emoji from the catalog row. Suppresses the next search-fire
   // so we don't immediately re-query for the just-picked name.
-  function handlePickResult(result) {
+  // v1.16 Phase 2 — also calls lookupShelfLife() so the days auto-fill from
+  // FoodKeeper data instead of the flat category default.
+  async function handlePickResult(result) {
     const cat = (result.category && categories.includes(result.category)) ? result.category : "Other";
     setSuppressSearch(true);
     setName(result.name || "");
     setCategory(cat);
-    setClosedDays(EXPIRY_MAP[cat] || 7);
-    setOpenedDays(OPENED_DAYS_MAP[cat] || 7);
     setSearchResults([]);
     track("addmodal_search_result_picked", {
       source: result.source,
       has_image: !!result.image_url,
       has_brand: !!result.brand,
     });
+    // Set category default immediately, then await the FoodKeeper lookup.
+    // This way the form is responsive (no flicker waiting for RPC).
+    setClosedDays(EXPIRY_MAP[cat] || 7);
+    setOpenedDays(OPENED_DAYS_MAP[cat] || 7);
+    const sl = await lookupShelfLife(result.name || "", cat, "fridge");
+    if (sl.source !== "category_default") {
+      setClosedDays(sl.closedDays);
+      setOpenedDays(sl.openedDays);
+      track("shelf_life_lookup_hit", {
+        query: (result.name || "").slice(0, 40),
+        match: (sl.matchName || "").slice(0, 40),
+        days: sl.closedDays,
+      });
+    }
   }
 
   // When the user picks a different category, snap the day defaults to that
-  // category's typical shelf life so they don't have to remember it.
-  function handleCategoryChange(c) {
+  // category's typical shelf life so they don't have to remember it. Then,
+  // if there's a name, kick off a FoodKeeper lookup with the new container
+  // / category combo to refine the default.
+  async function handleCategoryChange(c) {
     setCategory(c);
     setClosedDays(EXPIRY_MAP[c] || 7);
     setOpenedDays(OPENED_DAYS_MAP[c] || 7);
+    if ((name || "").trim().length >= 2) {
+      const sl = await lookupShelfLife(name.trim(), c, "fridge");
+      if (sl.source !== "category_default") {
+        setClosedDays(sl.closedDays);
+        setOpenedDays(sl.openedDays);
+      }
+    }
   }
+
+  // v1.16 Phase 2 — debounced FoodKeeper lookup on name changes. Runs in
+  // parallel with the existing type-ahead but doesn't wait for the user to
+  // pick a result. As soon as the typed name has a confident FoodKeeper
+  // match, we update the day defaults so the user sees an accurate number
+  // by the time they get to the days field. 600ms debounce is gentler than
+  // the 300ms search debounce — avoids RPC churn on every keystroke.
+  useEffect(() => {
+    if (!visible) return;
+    if (suppressSearch) return; // we just set the name from a picked result; lookup ran there
+    const trimmed = (name || "").trim();
+    if (trimmed.length < 3) return;
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      const sl = await lookupShelfLife(trimmed, category, "fridge");
+      if (cancelled) return;
+      if (sl.source !== "category_default") {
+        setClosedDays(sl.closedDays);
+        setOpenedDays(sl.openedDays);
+      }
+    }, 600);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [name, category, visible]);
 
   function handleAdd() {
     if (!name.trim()) return;

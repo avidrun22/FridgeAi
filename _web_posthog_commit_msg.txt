@@ -1,0 +1,54 @@
+Web app PostHog instrumentation — closes the iOS-only data gap
+
+Audit on 2026-05-06 found web/src/ had zero PostHog usage. Every metric
+we'd been looking at was iOS-only, so app.ok2eat.com visitors (the
+landing surface for the X thread + email blast traffic) were entirely
+invisible. That explained the 5/5 DAU drop suspicion: the launch-day
+traffic mostly went to the web app, where we couldn't see it.
+
+This commit lands posthog-js on the web with the same project key as
+iOS so events from both platforms unify in PostHog project 382774.
+
+New file:
+  web/src/lib/analytics.js — wrapper module mirroring the iOS pattern.
+    Exposes initAnalytics, track, identify, resetAnalytics, trackPageView.
+    Auto-tags every event with platform="web" so iOS vs web cohorts
+    are easy to split. capture_pageview + capture_pageleave on,
+    autocapture off (explicit events only — keeps the dashboard clean).
+    person_profiles="identified_only" matches iOS so anonymous web
+    visitors don't bloat the user count.
+
+Wiring:
+  - main.jsx: initAnalytics() before React renders so the first
+    $pageview lands with the correct URL.
+  - App.jsx: identify(user.id) on session bootstrap and on
+    SIGNED_IN events; reset on SIGNED_OUT. trackPageView on every
+    react-router path change (auto-pageview only catches the first
+    SPA navigation).
+  - AuthScreen.jsx: auth_attempted / auth_failed / user_signed_up /
+    auth_magic_link_sent / password_reset_requested events.
+    user_signed_in fires from App.jsx onAuthStateChange.
+  - AddItemModal.jsx: item_added_manual + item_add_failed.
+  - BulkAddItemsModal.jsx: item_added_bulk + item_add_failed.
+  - ItemDetailModal.jsx: item_deleted + item_used (with
+    fully_used flag, mirrors iOS).
+  - Fridge.jsx: expiring_soon_viewed (fires once per load when
+    items present), search_used (debounced 600ms).
+  - Plan.jsx: plan_recipe_link_tapped (web's recipe surface is
+    AllRecipes/NYT/Epicurious links, not in-app AI cards — this
+    event mirrors iOS but with source=AllRecipes/NYT Cooking/etc).
+
+After this lands and Netlify rebuilds, the PostHog dashboard will
+show iOS+web unified. Recommended split-by-platform queries to
+sanity-check coverage on day 1:
+  SELECT platform, count(*) FROM events
+  WHERE timestamp >= now() - INTERVAL 1 DAY GROUP BY platform
+
+You'll also need to run `npm install` in web/ before the next
+Netlify build to pick up the new posthog-js dependency. Netlify's
+build command is `npm install && npm run build` so this happens
+automatically on push.
+
+Refs: PostHog audit 2026-05-06; v1.15 sprint phase 4.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>

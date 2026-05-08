@@ -989,6 +989,7 @@
     <li class="mobile-hide"><a href="#features">Features</a></li>
     <li class="mobile-hide"><a href="#how">How it works</a></li>
     <li class="mobile-hide"><a href="#impact">Impact</a></li>
+    <li><a href="/shelf-life/">Shelf life</a></li>
     <li><a href="/blog/">Blog</a></li>
     <li class="mobile-hide"><a href="#support">Support</a></li>
     <li><a href="https://app.ok2eat.com">Log in</a></li>
@@ -1122,7 +1123,7 @@
     <div class="feature-card">
       <span class="feature-icon">⏰</span>
       <div class="feature-title">Smart Expiry Tracking</div>
-      <div class="feature-desc">Color-coded badges tell you at a glance what to eat first. Category-based defaults you can override per item.</div>
+      <div class="feature-desc">Per-item shelf life from the <strong>USDA FoodKeeper</strong> dataset — 660+ foods with their own typical fridge, freezer, and pantry windows. Color-coded badges tell you at a glance what to eat first. Override per item anytime.</div>
     </div>
     <div class="feature-card">
       <span class="feature-icon">🧠</span>
@@ -1154,6 +1155,32 @@
       <div class="feature-title">Partial Use Tracking</div>
       <div class="feature-desc">Used half a gallon of milk? Added 2 tbsp of ketchup? Log partial usage in any unit and your inventory stays accurate.</div>
     </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- Shelf life directory highlight -->
+<section id="shelf-life-highlight" style="max-width:1100px;margin:0 auto;padding:0 24px;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:24px;padding:48px 36px;text-align:center;position:relative;overflow:hidden;">
+    <div style="position:absolute;top:-60px;right:-40px;width:220px;height:220px;background:radial-gradient(circle,rgba(62,114,29,0.18),transparent 70%);pointer-events:none;"></div>
+    <div class="section-tag" style="display:inline-block;">// Free public resource</div>
+    <h2 style="margin-top:14px;">How long does <span style="color:var(--green);">{anything}</span> last?</h2>
+    <p class="section-sub" style="margin-bottom:28px;">Browse shelf-life estimates for <strong>660+ foods</strong>, sourced from the <strong>USDA FoodKeeper</strong> dataset. Searchable, free, no sign-up. The same data that powers ok2eat's per-item expiry — open to anyone.</p>
+    <form action="/shelf-life/" method="get" style="display:flex;gap:8px;max-width:480px;margin:0 auto 18px;flex-wrap:wrap;justify-content:center;">
+      <input name="q" type="text" placeholder="Search 'spinach', 'whole milk', 'hard cheese'…" autocomplete="off"
+             style="flex:1;min-width:240px;background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:12px 18px;font-size:15px;color:var(--text);font-family:inherit;outline:none;">
+      <button type="submit" style="background:var(--green);color:#fff;border:none;border-radius:100px;padding:12px 22px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;">Search →</button>
+    </form>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;font-family:'DM Mono',monospace;font-size:12px;">
+      <a href="/shelf-life/bagged-greens.html" style="background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:6px 14px;color:var(--text-soft);text-decoration:none;">bagged greens</a>
+      <a href="/shelf-life/milk.html" style="background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:6px 14px;color:var(--text-soft);text-decoration:none;">milk</a>
+      <a href="/shelf-life/eggs.html" style="background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:6px 14px;color:var(--text-soft);text-decoration:none;">eggs</a>
+      <a href="/shelf-life/cheese.html" style="background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:6px 14px;color:var(--text-soft);text-decoration:none;">hard cheese</a>
+      <a href="/shelf-life/avocados.html" style="background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:6px 14px;color:var(--text-soft);text-decoration:none;">avocados</a>
+      <a href="/shelf-life/" style="background:var(--green);border:1px solid var(--green);border-radius:100px;padding:6px 14px;color:#fff;text-decoration:none;font-weight:600;">Browse all 660 →</a>
+    </div>
+    <p style="margin-top:22px;font-size:12px;color:var(--muted);font-style:italic;">Data via USDA FSIS FoodKeeper. Estimates only — when in doubt, throw it out.</p>
   </div>
 </section>
 
@@ -1277,6 +1304,8 @@
   <ul class="footer-links">
     <li><a href="#features">Features</a></li>
     <li><a href="#how">How it works</a></li>
+    <li><a href="/shelf-life/">Shelf life</a></li>
+    <li><a href="/blog/">Blog</a></li>
     <li><a href="#support">Support</a></li>
     <li><a href="/privacy/">Privacy Policy</a></li>
     <li><a href="mailto:support@ok2eat.com">Contact</a></li>

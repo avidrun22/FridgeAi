@@ -1,0 +1,166 @@
+Twitter/X thread draft — "what do we have to eat?" framing
+
+================================================================
+THREAD — 9 tweets
+================================================================
+
+1/9 (HOOK)
+Every household asks the same question every night around 7pm:
+
+"What do we have to eat?"
+
+For years my wife and I couldn't answer it. So we ordered takeout 4 nights a week instead.
+
+Here's what changed. 🧵
+
+————————————————————————————————
+
+2/9
+The pattern was always the same.
+
+Open the fridge. Stare. Half-formed thoughts —
+"is there chicken in there?"
+"are those carrots still good?"
+"what was I going to do with the lemons?"
+
+After a minute, one of us caves: "want to just order something?"
+
+————————————————————————————————
+
+3/9
+Meanwhile the fridge was full.
+
+We'd bought groceries with real intentions three days earlier. The chicken was fine. The carrots were fine.
+
+We just couldn't see what we had clearly enough to assemble a meal in the time we had patience for.
+
+————————————————————————————————
+
+4/9
+Realized "what do we want for dinner?" is the wrong question.
+
+It asks you to start from desire and work backward to what's possible.
+
+Better question: "what do we HAVE to eat?"
+
+Start with what's in the fridge. Prioritize what's about to spoil. Work forward.
+
+————————————————————————————————
+
+5/9
+So I built ok2eat.
+
+Snap a photo of the grocery receipt. The app reads every item, sets expiry estimates, populates inventory. ~10 seconds, no typing.
+
+Open it at 6pm. Fridge is sorted by what's expiring soonest.
+
+Right next to the list: 3 recipes built from those exact ingredients.
+
+————————————————————————————————
+
+6/9
+The receipt scan is the unlock.
+
+Every previous "track your fridge" app I tried failed because the data entry was annoying. A whiteboard, a notes app, Trello — they all collapsed within two weeks.
+
+Photo of the receipt = entire grocery trip in your inventory. No manual entry, ever.
+
+————————————————————————————————
+
+7/9
+Real-time shared fridge between phones.
+
+My wife and I see the same inventory. If she used the rest of the lemons at lunch, my dinner plans automatically change.
+
+No more "did we already buy eggs?" texts.
+
+————————————————————————————————
+
+8/9
+Six months in, the numbers:
+
+• Takeout: 4 nights/week → 1
+• Grocery bill: down ~25%
+• Trash bag on Sunday: mostly bones and packaging now, not produce
+
+We don't decide what's for dinner anymore. The fridge does.
+
+————————————————————————————————
+
+9/9
+ok2eat is free. iOS + web.
+
+If you and your partner have the same 7pm staring contest at the fridge, give it a try:
+
+📱 https://apps.apple.com/us/app/ok2eat/id6761730687
+🌐 https://app.ok2eat.com
+
+Built solo. Feedback welcome — replying to every reply.
+
+================================================================
+ALT VERSION — 5 tweets (shorter, punchier)
+================================================================
+
+1/5
+Every household asks the same question at 7pm:
+
+"What do we have to eat?"
+
+For years my wife and I couldn't answer it. So we ordered takeout 4 nights a week instead.
+
+————————————————————————————————
+
+2/5
+The fridge was full. We'd been buying groceries with real intentions days earlier.
+
+We just couldn't see what we had clearly enough to assemble a meal in the time we had patience for.
+
+So we'd cave: "want to just order something?"
+
+————————————————————————————————
+
+3/5
+Realized "what do we want for dinner?" is the wrong question.
+
+The right question is "what do we have?"
+
+Start with the fridge. Prioritize what's about to spoil. Work forward into a meal you can actually make tonight.
+
+————————————————————————————————
+
+4/5
+So I built ok2eat. Three things changed at once:
+
+• Snap the grocery receipt. Inventory updates in 10 sec, no typing.
+• Fridge sorted by expiry — eat the about-to-die stuff first.
+• 3 recipe ideas built from what's actually in there.
+
+————————————————————————————————
+
+5/5
+Six months in:
+
+• Takeout 4x/wk → 1x
+• Grocery bill -25%
+• Sunday trash: mostly packaging, not produce
+
+Free on iOS + web:
+📱 https://apps.apple.com/us/app/ok2eat/id6761730687
+🌐 https://app.ok2eat.com
+
+================================================================
+SINGLE-TWEET VERSION (for replies, comments, etc.)
+================================================================
+
+I built ok2eat after years of opening the fridge, staring at it, closing it, and ordering takeout. It answers "what do we have to eat?" — snap a grocery receipt, see the fridge sorted by expiry, get 3 recipe ideas from current inventory. Free, iOS + web. https://app.ok2eat.com
+
+================================================================
+NOTES
+================================================================
+
+- Thread version 1 is the long form — best for the launch tweet on @ok2eatapp.
+- Alt 5-tweet version is for cross-posting or if engagement on the long thread looks lukewarm.
+- Single-tweet is for replying to other people's "what should I cook?" / "fridge organization" / "food waste" tweets.
+- All three include both iOS + web links — don't lose Android/PC people.
+- Hashtags intentionally omitted from the thread (X engagement guidance: hashtags hurt reach in 2025+). Add #foodwaste #mealplanning only if posting on LinkedIn.
+- Best post time: 7-9pm ET on a weekday — peak "what's for dinner" traffic.

@@ -1,0 +1,42 @@
+Marketing pivot: "What do we have to eat?" hero + companion blog post
+
+Reframed the homepage and blog around the universal question every
+household asks every day — and ok2eat literally answers it. Less
+narrow than ADHD-specific framing, while keeping the founder-voice
+empathy that makes the pitch land. Same product, broader pitch.
+
+ok2eat.html:
+  - <title>: "ok2eat — What do we have to eat? Finally, an answer."
+  - og:title + og:description rewritten with the new hook
+  - meta description: "The age-old household question, finally
+    answered..."
+  - JSON-LD MobileApplication.description updated (so AI engines —
+    Perplexity, Claude, ChatGPT — cite the new positioning when
+    answering "best fridge tracker app" / "what app helps me decide
+    what to cook" queries)
+  - Hero h1: "What do we have to eat?"
+  - Hero subhead: "The age-old household question, finally answered.
+    Snap a grocery receipt and your fridge populates in 10 seconds..."
+  - Founder note under CTA: "I built ok2eat after years of opening
+    the fridge, staring at it, closing it, and ordering takeout..."
+
+Note: bottom-of-page "Less waste, more savings" h2 left as-is for
+SEO keyword footprint. JSON-LD alternateName also kept original
+tagline. This dilutes nothing and gives us both signal surfaces.
+
+blog/what-do-we-have-to-eat.html (new) — 3-min companion post:
+  - "Dinner used to be 'what do we want?' Now it's 'what do we have?'"
+  - First-person, conversational. The 7pm-staring-at-the-fridge
+    scenario every couple recognizes.
+  - Reframes the dinner question: stop asking "what do we want?",
+    start asking "what do we have?"
+  - Shows the system: receipt scan in, expiry-sorted inventory,
+    recipe ideas pulled from current ingredients, real-time sync
+    between phones.
+  - Result data: takeout 4x/week → 1x, grocery bill -25%, less
+    food waste.
+  - Soft CTA — App Store + web app links at the end.
+  - Slug matches the homepage hero question for SEO.
+
+blog/index.html — new post linked at top of post-list, old ADHD
+post entry replaced.

@@ -1,0 +1,32 @@
+v1.15 hotfix — sample-receipt rows + AddModal Cancel button (build 20)
+
+Two bugs surfaced during simulator smoke-test of v1.15:
+
+1. Sample receipt was opening the BulkAddModal with three empty rows
+   instead of the six pre-populated sample items. Root cause: the
+   useEffect that initializes rows depends on (visible, presetMode).
+   When the parent calls onPresetConsumed → setBulkAddPresetMode(null),
+   the prop transitions sample → null and the useEffect re-runs,
+   falling into the "manual" branch and clobbering the sample data.
+
+   Fix: pin presetMode at modal-open time via presetForThisOpenRef.
+   The init block runs once per open; subsequent prop changes are
+   no-ops. Same pattern applied to the scan-camera/scan-library
+   auto-launch effect just above (already had its own ref guard).
+
+2. AddModal had no explicit Cancel button. Tap-outside and the sheet
+   handle's drag-down still close the modal, but neither is
+   discoverable enough as an affordance. Original v1.13 task #43
+   was meant to add this; appears to have been undone in a later
+   merge.
+
+   Fix: rendered Cancel as a header row with the title — Cancel on
+   the right, "Add Item" on the left. hitSlop 10px on every side
+   for fat-finger tolerance.
+
+Bumps app.json buildNumber → 20 (no version change; this is a 1.15
+hotfix going into the same TestFlight slot).
+
+Refs: simulator smoke-test 2026-05-07.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
