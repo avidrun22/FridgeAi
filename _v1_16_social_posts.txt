@@ -1,0 +1,262 @@
+Social posts — v1.16 launch (per-item USDA FoodKeeper shelf life)
+================================================================
+
+Frame: Mission-aware, not mission-manifesto. The opener acknowledges
+that ok2eat exists to reduce food waste, then names a small concrete
+thing we can do for that mission: make finding real expiration dates
+easier. The product update is the proof. Calm tone, no big claims.
+
+Anchor blog post: /blog/per-item-shelf-life.html
+("Making it easier to know what's still good")
+
+
+================================================================
+X / TWITTER — long thread (7 tweets)
+================================================================
+
+1/7 (HOOK)
+ok2eat exists to help people throw out less food.
+
+When we look at why people throw out food, a lot of it comes down to a really simple thing: they don't actually know how long it was supposed to last. The "best by" date is unclear. The package has been open for who-knows-how-long. When in doubt, into the trash.
+
+————————————————————————————————
+
+2/7
+So one of the simplest things we can do for the mission is make it easier to find real expiration dates for the stuff people actually buy at the grocery store.
+
+That's what just shipped.
+
+————————————————————————————————
+
+3/7
+ok2eat used to use a flat default per category — every produce item got 5 days, every dairy item got 14. Worked roughly. Often wrong.
+
+Now every item has its own real shelf life from the USDA FoodKeeper database — 660 foods, with separate ranges for fridge, freezer, pantry, opened, and unopened.
+
+————————————————————————————————
+
+4/7
+A few that surprised me:
+
+🧀 Hard cheese: ~6 months unopened in the fridge (we used to flag it at 14 days)
+🥕 Whole carrots: 3-4 weeks in the crisper
+🎃 Winter squash: 1-3 months on the counter
+🥚 Eggs in shell: 3-5 weeks past purchase
+🥛 Whole milk: ~7 days, regardless of carton date
+
+————————————————————————————————
+
+5/7
+We also put the same data on the open web at ok2eat.com/shelf-life/
+
+660 foods, searchable, free, source-cited. No signup, no app required. If you've ever Googled "how long does X last" and bounced through SEO farms before finding a real answer — bookmark this.
+
+🌐 https://ok2eat.com/shelf-life/
+
+————————————————————————————————
+
+6/7
+We made the directory free and public because the fastest way to throw out less food is for more people to know what's actually good. Gating the answer behind a signup wouldn't help our mission and it wouldn't help anyone else either.
+
+Use the directory whether you ever try ok2eat or not.
+
+————————————————————————————————
+
+7/7
+Standard disclaimer worth saying clearly: estimates assume typical storage. Trust your senses over any number. When in doubt, throw it out.
+
+But fewer "in doubt" moments → less food in the trash. That's the whole pitch.
+
+📱 https://apps.apple.com/us/app/ok2eat/id6761730687
+🌐 https://ok2eat.com/shelf-life/
+
+================================================================
+X / TWITTER — short version (4 tweets)
+================================================================
+
+1/4
+ok2eat exists to help people throw out less food. One of the simplest ways to do that turned out to be: make it easier to find real expiration dates for the stuff people buy.
+
+So we shipped it.
+
+————————————————————————————————
+
+2/4
+Every item in ok2eat now has its own shelf life from the USDA FoodKeeper database — 660 foods, with separate ranges for fridge, freezer, pantry, opened, and unopened. The flat 5-day-per-category default is gone.
+
+Hard cheese isn't 14 days anymore. It's 6 months.
+
+————————————————————————————————
+
+3/4
+Same data is also a free public tool at ok2eat.com/shelf-life/. 660 foods, searchable, source-cited. No signup, no app required.
+
+🌐 https://ok2eat.com/shelf-life/
+
+————————————————————————————————
+
+4/4
+The fastest way to throw out less food is to know what's actually good. Whether you use ok2eat or not, the directory is yours.
+
+================================================================
+X / TWITTER — single tweet (replies + casual share)
+================================================================
+
+ok2eat now uses the USDA FoodKeeper dataset — 660 foods with real per-item shelf life — for both in-app expiry and a free public directory at ok2eat.com/shelf-life/. Searchable, source-cited, no signup. https://ok2eat.com/shelf-life/
+
+================================================================
+LINKEDIN
+================================================================
+
+The mission of ok2eat is reducing household food waste, and we've been thinking about what that actually means in practice — what are the small, concrete things that move the needle, versus the big abstract ones that don't.
+
+One thing kept coming back: a lot of food gets thrown out simply because people don't know how long it was supposed to last. The "best by" date is unclear, the package has been open for a while, when in doubt, into the trash. So one of the simplest things we can do for the mission is make it easier to find real expiration dates for the things people actually buy at the grocery store.
+
+This week we shipped two pieces of that:
+
+1. Every item in ok2eat now has its own real shelf life, sourced from the USDA FoodKeeper database — a public dataset of 660 foods maintained by the USDA Food Safety and Inspection Service. Hard cheese isn't tagged "expires in 14 days" alongside whole milk anymore. It's tagged with its actual range (~6 months unopened).
+
+2. We put the same dataset on the open web at ok2eat.com/shelf-life/ — free, searchable, source-cited, no signup. Useful whether you ever install ok2eat or not.
+
+We made the directory public because the fastest way to throw out less food is for more people to know what's actually good. The data is already public — we're just putting it where the question gets asked.
+
+📖 https://ok2eat.com/shelf-life/
+
+#FoodWaste #PublicData #BuildInPublic #SoloFounder
+
+================================================================
+INSTAGRAM (caption)
+================================================================
+
+(Pair with screenshot of /shelf-life/ search OR a per-item page)
+
+how long does it actually last? 🥕
+
+ok2eat exists to help you throw out less food. one of the simplest things we can do for that mission: make real expiration dates easier to find.
+
+so we wired the USDA FoodKeeper dataset into ok2eat and put a free public version on the web 👉 ok2eat.com/shelf-life/ (link in bio)
+
+🥛 whole milk: 7 days fridge
+🧀 hard cheese: ~6 months unopened
+🥕 whole carrots: 3-4 weeks
+🎃 winter squash: 1-3 months pantry
+🥚 eggs in shell: 3-5 weeks
+🥬 bagged greens: 3-5 days
+
+660 foods. searchable. source-cited. no signup, no app required. just answers.
+
+#foodwaste #zerowaste #mealprep #grocerybudget #cookingathome #kitchenhacks
+
+================================================================
+FACEBOOK
+================================================================
+
+Quick update on ok2eat.
+
+The whole point of the app is to help people throw out less food. When we look at why people throw out food, a lot of it comes down to a really simple thing: they don't actually know how long it was supposed to last. The "best by" date is unclear. The package has been open for a while. When in doubt, into the trash.
+
+So one of the simplest things we can do for the mission is make it easier to find real expiration dates for the things people actually buy.
+
+This week we shipped two pieces of that:
+
+1. Every item in ok2eat now has its own real shelf life, pulled from the USDA FoodKeeper database — a public dataset of 660 foods. Hard cheese: ~6 months unopened. Whole carrots: 3-4 weeks. Winter squash: 1-3 months on the counter. (We used to flag all of those at the same generic 5- or 14-day mark.)
+
+2. We put the same data on the open web at ok2eat.com/shelf-life/ — free, searchable, no signup. Useful whether you ever install ok2eat or not.
+
+We made the directory public because the fastest way to throw out less food is for more people to know what's actually good.
+
+🌐 https://ok2eat.com/shelf-life/
+📱 https://apps.apple.com/us/app/ok2eat/id6761730687
+💻 https://app.ok2eat.com
+
+Standard disclaimer: estimates assume typical storage, trust your senses, when in doubt throw it out.
+
+================================================================
+REDDIT — r/ZeroWaste, r/EatCheapAndHealthy, r/foodwaste, r/Frugal
+================================================================
+
+(Pitch the FREE TOOL, not the app — Reddit downvotes app pitches by reflex)
+
+Title: Made a free, searchable shelf-life directory using the USDA FoodKeeper dataset (660 foods, no signup)
+
+Body:
+Wanted to share this because I keep thinking it's wild that more people don't know about it.
+
+The USDA's Food Safety and Inspection Service maintains a public database called FoodKeeper — it has the actual shelf life of 660 individual foods, with separate ranges for fridge, freezer, and pantry, and opened vs unopened. It's free, source-cited, and authoritative. Almost nobody has heard of it, partly because it lives in a clunky government app.
+
+I scraped it, normalized it, and put it on the open web in a searchable form: https://ok2eat.com/shelf-life/
+
+A few that surprised me:
+- Hard cheese: ~6 months unopened in the fridge
+- Whole carrots: 3-4 weeks in the crisper
+- Winter squash: 1-3 months on the counter
+- Eggs in shell: 3-5 weeks past purchase
+- Whole milk: ~7 days, regardless of what the carton date says
+- Dried beans: 1-2 years pantry
+
+USDA's standard caveats apply (and I'd repeat them): storage times are estimates, conditions vary, when in doubt throw it out, trust your senses.
+
+I'd love feedback on what's missing — FoodKeeper covers 660 items but there's a long tail of regional / store-brand stuff it doesn't include. If something you actually wanted to look up isn't there, lmk.
+
+(Disclosure: I'm building a fridge-tracking app that uses the same dataset, but the directory itself is fully free and public — same data, same source, no signup, no email gate.)
+
+================================================================
+THREADS / BLUESKY
+================================================================
+
+ok2eat exists to help people throw out less food. One of the simplest things we can do for that mission: make real expiration dates easier to find.
+
+The USDA actually maintains the answer — a public database of 660 foods with real shelf life by storage method. It's been there for years; almost nobody knows.
+
+We put it on the open web 👉 ok2eat.com/shelf-life/
+
+Free, searchable, no signup. Useful whether you ever try ok2eat or not.
+
+================================================================
+NOTES + POSTING ORDER
+================================================================
+
+Recommended sequence (4-5 days, not all at once):
+
+Day 1 — X long thread (peak 7-9pm ET) → blog link in last tweet
+Day 1 — LinkedIn (different audience, same day OK)
+Day 2 — Instagram + screenshot of /shelf-life/
+Day 2 — Facebook
+Day 3 — Reddit in r/ZeroWaste (frame as "found this dataset, made it searchable")
+Day 4 — Threads / Bluesky cross-post
+Day 5 — X short version + single-tweet for replying to "how long does X last?" tweets
+
+Why spread out:
+- Same-day cross-posting kills reach on every platform
+- By Day 3, /shelf-life/ pages may be indexed in Google → people find them organically
+- Reddit posts that link to your own product within 24h of launch read as spam; spacing reads as a useful resource
+
+Voice unifier across all platforms:
+- Open with mission, briefly. Then get to the update.
+- Frame the directory as the headline, the in-app feature as supporting
+- Quote real surprising USDA numbers — engagement engine
+- Always include the disclaimer when relevant
+- Never gate the answer
+
+Hashtags:
+- X: skip (hurts reach)
+- LinkedIn: 4 tags
+- Instagram: full set
+- Threads / Bluesky: skip
+- Reddit: never
+- Facebook: 0-2 max
+
+Screenshot ideas:
+- /shelf-life/ search box with results visible
+- A specific item page where the number surprises (hard cheese, winter squash)
+- iOS app showing per-item expiry on real items
+- Side-by-side: old default vs new FoodKeeper number
+
+Reply playbook:
+- "Is X safe?" → repeat the disclaimer (USDA estimates, trust your senses)
+- "What about [food not in FoodKeeper]?" → "Not in the dataset; what is it? Happy to take feedback."
+- "Why isn't this in [other app]?" → "The data was always public; nobody had put it on the open web yet."
+
+Anchor links:
+- https://ok2eat.com/shelf-life/  (the directory)
+- https://ok2eat.com/blog/per-item-shelf-life.html  (the long-form post)
