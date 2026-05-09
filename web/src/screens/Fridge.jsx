@@ -130,7 +130,19 @@ export default function Fridge({ user }) {
               {loading ? "Loading…" : `${items.length} items tracked across containers`}
             </p>
           </div>
-          <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+          <div className="flex gap-2 flex-wrap justify-end flex-shrink-0">
+            <button
+              onClick={() => setShowAdd(true)}
+              className="px-4 py-2 rounded-full border border-border bg-card text-text text-sm font-semibold hover:border-accent hover:text-accent whitespace-nowrap"
+            >
+              + Add item
+            </button>
+            <button
+              onClick={() => setShowBulkAdd(true)}
+              className="px-4 py-2 rounded-full border border-border bg-card text-text text-sm font-semibold hover:border-accent hover:text-accent whitespace-nowrap"
+            >
+              + Add multiple
+            </button>
             <button
               onClick={() => setShowScanReceipt(true)}
               className="px-4 py-2 rounded-full bg-accent text-white text-sm font-semibold hover:bg-accent/90 flex items-center gap-1.5 whitespace-nowrap"
@@ -142,16 +154,6 @@ export default function Fridge({ user }) {
               </svg>
               Scan receipt
             </button>
-            <div className="flex gap-3 text-xs">
-              <button
-                onClick={() => setShowAdd(true)}
-                className="text-accent hover:underline whitespace-nowrap"
-              >+ Add item</button>
-              <button
-                onClick={() => setShowBulkAdd(true)}
-                className="text-accent hover:underline whitespace-nowrap"
-              >+ Add multiple</button>
-            </div>
           </div>
         </div>
 
