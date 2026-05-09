@@ -5,6 +5,7 @@ import { CONTAINERS, CATEGORIES, CATEGORY_EMOJI } from "../lib/constants.js";
 import { track } from "../lib/analytics.js";
 import AddItemModal from "../components/AddItemModal.jsx";
 import BulkAddItemsModal from "../components/BulkAddItemsModal.jsx";
+import ScanReceiptModal from "../components/ScanReceiptModal.jsx";
 import ItemDetailModal from "../components/ItemDetailModal.jsx";
 import Layout from "../components/Layout.jsx";
 
@@ -19,6 +20,7 @@ export default function Fridge({ user }) {
   const [householdId, setHouseholdId] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [showBulkAdd, setShowBulkAdd] = useState(false);
+  const [showScanReceipt, setShowScanReceipt] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
   // v1.16 — search + category filter for the active container
   const [searchQuery, setSearchQuery] = useState("");
@@ -130,17 +132,26 @@ export default function Fridge({ user }) {
           </div>
           <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
             <button
-              onClick={() => setShowAdd(true)}
+              onClick={() => setShowScanReceipt(true)}
               className="px-4 py-2 rounded-full bg-accent text-white text-sm font-semibold hover:bg-accent/90 flex items-center gap-1.5 whitespace-nowrap"
             >
-              <span className="text-lg leading-none">+</span> Add item
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              Scan receipt
             </button>
-            <button
-              onClick={() => setShowBulkAdd(true)}
-              className="text-xs text-accent hover:underline whitespace-nowrap"
-            >
-              + Add multiple
-            </button>
+            <div className="flex gap-3 text-xs">
+              <button
+                onClick={() => setShowAdd(true)}
+                className="text-accent hover:underline whitespace-nowrap"
+              >+ Add item</button>
+              <button
+                onClick={() => setShowBulkAdd(true)}
+                className="text-accent hover:underline whitespace-nowrap"
+              >+ Add multiple</button>
+            </div>
           </div>
         </div>
 
@@ -246,7 +257,7 @@ export default function Fridge({ user }) {
             <p className="text-textSoft text-sm mt-1 mb-4">
               {searchQuery || filter !== "All"
                 ? "Try clearing the filter."
-                : 'Tap "Add item" above to add something.'}
+                : "Snap a grocery receipt to fill it in 5 seconds."}
             </p>
             {searchQuery || filter !== "All" ? (
               <button
@@ -256,12 +267,20 @@ export default function Fridge({ user }) {
                 Clear filters
               </button>
             ) : (
-              <button
-                onClick={() => setShowAdd(true)}
-                className="px-5 py-2 rounded-full bg-accent text-white text-sm font-semibold hover:bg-accent/90"
-              >
-                + Add item
-              </button>
+              <div className="flex gap-2 justify-center flex-wrap">
+                <button
+                  onClick={() => setShowScanReceipt(true)}
+                  className="px-5 py-2 rounded-full bg-accent text-white text-sm font-semibold hover:bg-accent/90"
+                >
+                  Scan a receipt
+                </button>
+                <button
+                  onClick={() => setShowAdd(true)}
+                  className="px-5 py-2 rounded-full border border-border text-sm font-semibold text-textSoft hover:bg-card"
+                >
+                  + Add item
+                </button>
+              </div>
             )}
           </div>
         )}
@@ -305,6 +324,14 @@ export default function Fridge({ user }) {
         <BulkAddItemsModal
           open={showBulkAdd}
           onClose={() => setShowBulkAdd(false)}
+          onAdded={handleAdded}
+          householdId={householdId}
+          defaultContainer={activeContainer}
+        />
+
+        <ScanReceiptModal
+          open={showScanReceipt}
+          onClose={() => setShowScanReceipt(false)}
           onAdded={handleAdded}
           householdId={householdId}
           defaultContainer={activeContainer}
