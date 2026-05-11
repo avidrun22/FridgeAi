@@ -1,0 +1,519 @@
+/* ok2eat — App Store screenshot shared styles.
+   Each frame is 1290×2796px (iPhone 15 Pro Max / 6.7" device tier — the
+   required minimum for App Store submission). Top ~30% is a cream marketing
+   band, bottom ~70% is a mocked-up iOS app screen.
+*/
+
+@import url("https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=DM+Mono:wght@400;500;600&display=swap");
+
+:root {
+  /* Brand */
+  --bg:           #F0EADC;
+  --surface:      #F7F3E8;
+  --card:         #FFFFFF;
+  --border:       #E8E0CB;
+  --green:        #3E721D;
+  --green-soft:   #A6D388;
+  --text:         #1C261C;
+  --text-soft:    #3A4A38;
+  --muted:        #6B8264;
+
+  /* iOS UI cribbed from App.js T */
+  --ios-bg:       #F7FAF7;
+  --ios-card:     #FFFFFF;
+  --ios-accent:   #16A34A;
+  --ios-warn:     #EA580C;
+  --ios-danger:   #DC2626;
+  --ios-muted:    #9CA3AF;
+  --ios-text:     #111827;
+  --ios-soft:     #6B7280;
+  --ios-border:   #E5E7EB;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 1290px;
+  height: 2796px;
+  font-family: "Bricolage Grotesque", -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+/* ── Top marketing band ─────────────────────────────────────────────────── */
+.marketing-band {
+  height: 840px;
+  padding: 130px 80px 60px;
+  position: relative;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Soft green halo upper-right */
+.marketing-band::after {
+  content: "";
+  position: absolute;
+  top: -360px;
+  right: -260px;
+  width: 900px;
+  height: 900px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(166, 211, 136, 0.35) 0%, transparent 65%);
+  pointer-events: none;
+}
+
+.eyebrow {
+  font-family: "DM Mono", "SF Mono", monospace;
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--green);
+  margin-bottom: 28px;
+  position: relative;
+  z-index: 1;
+}
+
+.headline {
+  font-size: 96px;
+  font-weight: 700;
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  position: relative;
+  z-index: 1;
+  max-width: 1100px;
+}
+
+.headline em {
+  font-style: normal;
+  color: var(--green);
+}
+
+.subhead {
+  margin-top: 24px;
+  font-size: 36px;
+  line-height: 1.35;
+  font-weight: 400;
+  color: var(--text-soft);
+  position: relative;
+  z-index: 1;
+  max-width: 1000px;
+}
+
+/* Marketing band brand row — hidden because the iOS app-bar inside each
+   frame already carries the ok2eat brand, and showing the wordmark twice
+   reads as redundant. Keep the markup in case we want to re-enable for
+   a borderless variant without an app header. */
+.brand-row {
+  display: none;
+}
+.brand-mark {
+  width: 36px;
+  height: 36px;
+  background: var(--green);
+  border-radius: 9px;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 18px;
+}
+.brand-name {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--green);
+}
+
+/* ── App mockup region ─────────────────────────────────────────────────── */
+.app-region {
+  position: absolute;
+  top: 760px;
+  left: 0;
+  width: 1290px;
+  height: 2036px;
+  background: var(--ios-bg);
+  /* No bezel — Apple no longer wants device frames; cleaner is better. */
+}
+
+/* iOS status bar */
+.status-bar {
+  height: 88px;
+  padding: 0 60px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding-bottom: 14px;
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--ios-text);
+  background: #FFFFFF;
+}
+.status-bar .time { font-feature-settings: "tnum"; }
+.status-bar .icons {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.status-bar .icons svg { display: block; }
+
+/* App bar */
+.app-bar {
+  height: 90px;
+  padding: 0 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #FFFFFF;
+  border-bottom: 1px solid var(--ios-border);
+}
+.app-bar .logo-row { display: flex; align-items: center; gap: 12px; }
+.app-bar .logo-tile {
+  width: 44px; height: 44px; background: var(--ios-accent);
+  border-radius: 11px;
+  color: #fff; display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 20px;
+}
+.app-bar .app-title {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--ios-accent);
+  letter-spacing: -0.02em;
+}
+.app-bar .email {
+  font-size: 18px;
+  color: var(--ios-muted);
+  font-weight: 600;
+}
+
+/* Body content (the actual screen) */
+.app-body {
+  padding: 36px 36px 0;
+  height: calc(2036px - 88px - 90px - 130px); /* status + appbar + tabbar */
+  background: var(--ios-bg);
+  overflow: hidden;
+}
+
+.page-title {
+  font-size: 56px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--ios-text);
+}
+.page-subtitle {
+  margin-top: 6px;
+  font-size: 24px;
+  color: var(--ios-soft);
+  line-height: 1.35;
+}
+
+.section-label {
+  font-family: "DM Mono", monospace;
+  font-size: 18px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--ios-soft);
+  margin: 32px 0 14px;
+}
+
+.card {
+  background: var(--ios-card);
+  border: 1px solid var(--ios-border);
+  border-radius: 22px;
+  padding: 22px;
+}
+
+/* List row (Eat Me First, Fridge) */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  background: var(--ios-card);
+  border: 1px solid var(--ios-border);
+  border-radius: 22px;
+  padding: 18px 22px;
+  margin-bottom: 14px;
+}
+.row .rank {
+  width: 36px;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ios-soft);
+  text-align: center;
+}
+.row .emoji-tile {
+  width: 72px; height: 72px;
+  background: rgba(22,163,74,0.08);
+  border-radius: 16px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 38px;
+  flex-shrink: 0;
+}
+.row .row-body { flex: 1; min-width: 0; }
+.row .row-name {
+  font-size: 30px; font-weight: 700; color: var(--ios-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.row .row-meta {
+  margin-top: 4px;
+  font-size: 22px;
+  color: var(--ios-soft);
+}
+.badge {
+  font-size: 20px;
+  font-weight: 800;
+  padding: 8px 14px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.badge.expired   { color: var(--ios-danger); background: rgba(220,38,38,0.12); }
+.badge.tomorrow  { color: var(--ios-danger); background: rgba(220,38,38,0.12); }
+.badge.warn      { color: var(--ios-warn);   background: rgba(234,88,12,0.12); }
+.badge.amber     { color: #CA8A04;           background: rgba(202,138,4,0.12); }
+.badge.good      { color: var(--ios-accent); background: rgba(22,163,74,0.12); }
+
+.cta {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ios-accent);
+  background: rgba(22,163,74,0.1);
+  padding: 12px 20px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.cta.solid {
+  color: #fff;
+  background: var(--ios-accent);
+}
+
+/* Tab bar */
+.tab-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 1290px;
+  height: 130px;
+  background: #FFFFFF;
+  border-top: 1px solid var(--ios-border);
+  display: flex;
+  padding-top: 12px;
+  padding-bottom: 36px;
+}
+.tab-bar .tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.tab .tab-icon {
+  font-size: 32px;
+  line-height: 1;
+}
+.tab .tab-label {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ios-muted);
+}
+.tab.active .tab-icon,
+.tab.active .tab-label {
+  color: var(--ios-accent);
+}
+
+/* Misc cards used across frames */
+.hero-card {
+  background: linear-gradient(135deg, rgba(22,163,74,0.10), rgba(22,163,74,0.04));
+  border: 2px solid rgba(22,163,74,0.25);
+  border-radius: 26px;
+  padding: 26px 28px;
+  margin-bottom: 18px;
+}
+.hero-label {
+  font-family: "DM Mono", monospace;
+  font-size: 16px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ios-soft);
+}
+.hero-amount {
+  margin-top: 8px;
+  font-size: 88px;
+  font-weight: 800;
+  color: var(--ios-accent);
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+.hero-hint {
+  margin-top: 10px;
+  font-size: 22px;
+  color: var(--ios-soft);
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.stat {
+  background: var(--ios-card);
+  border: 1px solid var(--ios-border);
+  border-radius: 22px;
+  padding: 22px;
+}
+.stat .label {
+  font-family: "DM Mono", monospace;
+  font-size: 14px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ios-soft);
+}
+.stat .value {
+  margin-top: 10px;
+  font-size: 48px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--ios-text);
+}
+.stat.accent .value { color: var(--ios-accent); }
+.stat.warn   .value { color: var(--ios-warn); }
+.stat .hint {
+  margin-top: 8px;
+  font-size: 18px;
+  color: var(--ios-soft);
+}
+
+.chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.chip {
+  font-size: 22px;
+  font-weight: 700;
+  padding: 10px 18px;
+  border: 1px solid var(--ios-border);
+  border-radius: 999px;
+  background: var(--ios-bg);
+  color: var(--ios-text);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.chip.on-green {
+  background: var(--ios-accent);
+  color: #fff;
+  border-color: var(--ios-accent);
+}
+.chip.on-danger {
+  background: var(--ios-danger);
+  color: #fff;
+  border-color: var(--ios-danger);
+}
+
+.usda-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: rgba(22,163,74,0.10);
+  border: 1px solid rgba(22,163,74,0.25);
+  color: var(--ios-accent);
+  font-size: 20px;
+  font-weight: 700;
+  margin-top: 10px;
+}
+
+/* Receipt scan row */
+.receipt-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  background: var(--ios-card);
+  border: 1px solid var(--ios-border);
+  border-radius: 18px;
+  margin-bottom: 10px;
+}
+.receipt-row .left { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+.receipt-row .em-tile {
+  width: 54px; height: 54px;
+  background: rgba(22,163,74,0.08);
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28px;
+}
+.receipt-row .name { font-size: 24px; font-weight: 700; color: var(--ios-text); }
+.receipt-row .meta { font-size: 18px; color: var(--ios-soft); margin-top: 2px; }
+.cont-pill {
+  font-size: 18px;
+  font-weight: 700;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--ios-bg);
+  border: 1px solid var(--ios-border);
+  color: var(--ios-soft);
+}
+.cont-pill.on {
+  background: var(--ios-accent);
+  color: #fff;
+  border-color: var(--ios-accent);
+}
+
+/* Recipe bottom-sheet (Frame 2) */
+.sheet {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 1290px;
+  height: 1620px;
+  background: var(--ios-card);
+  border-top-left-radius: 36px;
+  border-top-right-radius: 36px;
+  padding: 32px 36px 36px;
+  box-shadow: 0 -20px 60px rgba(0,0,0,0.18);
+}
+.sheet-handle {
+  width: 80px;
+  height: 6px;
+  background: var(--ios-border);
+  border-radius: 3px;
+  margin: 0 auto 24px;
+}
+.sheet-title {
+  font-size: 40px;
+  font-weight: 800;
+  color: var(--ios-text);
+  letter-spacing: -0.02em;
+}
+.sheet-sub {
+  margin-top: 8px;
+  font-size: 20px;
+  color: var(--ios-soft);
+  line-height: 1.4;
+}
+.recipe-card {
+  background: var(--ios-bg);
+  border: 1px solid var(--ios-border);
+  border-radius: 20px;
+  padding: 22px;
+  margin-top: 18px;
+}
+.recipe-head { display: flex; gap: 14px; align-items: flex-start; }
+.recipe-head .em { font-size: 44px; line-height: 1; }
+.recipe-head .name { font-size: 30px; font-weight: 800; color: var(--ios-text); }
+.recipe-head .meta { font-size: 20px; color: var(--ios-soft); margin-top: 4px; }
+.recipe-desc { font-size: 22px; color: var(--ios-soft); line-height: 1.4; margin-top: 12px; }
+.recipe-ings { margin-top: 14px; }
+.recipe-ings .lbl {
+  font-family: "DM Mono", monospace;
+  font-size: 14px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--ios-soft);
+}
+.recipe-ings li { list-style: none; font-size: 22px; color: var(--ios-text); padding: 2px 0; }
