@@ -5423,7 +5423,11 @@ export default function App() {
         onClose={() => setShowAdd(false)}
         onAdd={handleAddManual}
         onGoToScan={() => { setShowAdd(false); setTab("scan"); }}
-        onScanReceipt={() => { setShowAdd(false); setShowBulkAdd(true); }}
+        // v1.16 fix — was missing setBulkAddPresetMode("scan-camera"), so the
+        // AddModal "Scan Receipt" tile opened BulkAddModal in manual mode
+        // (3 empty rows) instead of auto-launching the camera. The empty-state
+        // CTA at line 5411 was correctly wired; only this path regressed.
+        onScanReceipt={() => { setShowAdd(false); setBulkAddPresetMode("scan-camera"); setShowBulkAdd(true); }}
         section={addSection}
         onBulkAdd={() => setShowBulkAdd(true)}
         recentItems={recentItems}
