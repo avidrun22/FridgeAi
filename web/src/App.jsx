@@ -5,11 +5,16 @@ import { identify, resetAnalytics, track, trackPageView } from "./lib/analytics.
 import AuthScreen from "./components/AuthScreen.jsx";
 import Fridge from "./screens/Fridge.jsx";
 import Plan from "./screens/Plan.jsx";
-import Alerts from "./screens/Alerts.jsx";
-import HowTo from "./screens/HowTo.jsx";
+import EatMeFirst from "./screens/EatMeFirst.jsx";
+import Dashboard from "./screens/Dashboard.jsx";
+import Settings from "./screens/Settings.jsx";
 
 // Root component. Wraps the auth state listener and the router.
 // Single rule: if no session, show AuthScreen. Otherwise, render the routes.
+//
+// v1.16 routes — five top-level tabs (Fridge / Eat Me First / Plan /
+// Dashboard / Settings). /alerts and /how-to redirect for back-compat with
+// users who bookmarked the old routes.
 export default function App() {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -59,12 +64,16 @@ export default function App() {
 
   return (
     <Routes>
-      <Route path="/"        element={<Navigate to="/fridge" replace />} />
-      <Route path="/fridge"  element={<Fridge user={session.user} />} />
-      <Route path="/alerts"  element={<Alerts user={session.user} />} />
-      <Route path="/plan"    element={<Plan user={session.user} />} />
-      <Route path="/how-to"  element={<HowTo user={session.user} />} />
-      <Route path="*"        element={<Navigate to="/fridge" replace />} />
+      <Route path="/"              element={<Navigate to="/fridge" replace />} />
+      <Route path="/fridge"        element={<Fridge       user={session.user} />} />
+      <Route path="/eat-me-first"  element={<EatMeFirst   user={session.user} />} />
+      <Route path="/plan"          element={<Plan         user={session.user} />} />
+      <Route path="/dashboard"     element={<Dashboard    user={session.user} />} />
+      <Route path="/settings"      element={<Settings     user={session.user} />} />
+      {/* Back-compat redirects for v1.15 bookmarks. */}
+      <Route path="/alerts"        element={<Navigate to="/eat-me-first" replace />} />
+      <Route path="/how-to"        element={<Navigate to="/fridge"       replace />} />
+      <Route path="*"              element={<Navigate to="/fridge"       replace />} />
     </Routes>
   );
 }
