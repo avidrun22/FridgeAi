@@ -12,10 +12,17 @@
       "distribution": "internal"
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "autoSubmit": true
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "appleId": "greg.h.goldberg@gmail.com",
+        "ascAppId": "6761730687",
+        "appleTeamId": "VU4973B972"
+      }
+    }
   }
 }
