@@ -34,18 +34,23 @@
 
 html, body {
   width: 1290px;
-  height: 2796px;
+  height: 100vh;          /* fill whatever viewport Chrome gives, not 2796px;
+                             the post-render Pillow step force-resizes to
+                             1290x2796 exact. */
   font-family: "Bricolage Grotesque", -apple-system, BlinkMacSystemFont, sans-serif;
   -webkit-font-smoothing: antialiased;
   background: var(--bg);
   color: var(--text);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ── Top marketing band ─────────────────────────────────────────────────── */
 .marketing-band {
-  height: 840px;
-  padding: 130px 80px 60px;
+  flex: 0 0 26%;          /* roughly the top ~26% of viewport, scales with
+                             whatever height Chrome renders */
+  padding: 90px 80px 50px;
   position: relative;
   background: var(--bg);
   display: flex;
@@ -132,23 +137,24 @@ html, body {
 
 /* ── App mockup region ─────────────────────────────────────────────────── */
 .app-region {
-  position: absolute;
-  top: 760px;
-  left: 0;
+  flex: 1;
   width: 1290px;
-  height: 2036px;
   background: var(--ios-bg);
+  display: flex;
+  flex-direction: column;
+  position: relative;
   /* No bezel — Apple no longer wants device frames; cleaner is better. */
 }
 
 /* iOS status bar */
 .status-bar {
-  height: 88px;
+  height: 78px;
+  flex-shrink: 0;
   padding: 0 60px;
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  padding-bottom: 14px;
+  padding-bottom: 12px;
   font-size: 28px;
   font-weight: 600;
   color: var(--ios-text);
@@ -165,6 +171,7 @@ html, body {
 /* App bar */
 .app-bar {
   height: 90px;
+  flex-shrink: 0;
   padding: 0 36px;
   display: flex;
   align-items: center;
@@ -191,10 +198,13 @@ html, body {
   font-weight: 600;
 }
 
-/* Body content (the actual screen) */
+/* Body content (the actual screen). Flex:1 = fills whatever's left after the
+   status bar, app bar, and tab bar take their slices. Tab bar still anchors
+   to the bottom even if the headless renderer produces a slightly off
+   viewport height — labels won't get cut. */
 .app-body {
+  flex: 1;
   padding: 36px 36px 0;
-  height: calc(2036px - 88px - 90px - 130px); /* status + appbar + tabbar */
   background: var(--ios-bg);
   overflow: hidden;
 }
@@ -291,18 +301,19 @@ html, body {
   background: var(--ios-accent);
 }
 
-/* Tab bar */
+/* Tab bar — flex item anchored at the bottom of .app-region via flex layout
+   (not absolute positioning). Trimmed home-indicator padding from 36→18px
+   so the labels stay safely above the visible-area bottom even when the
+   headless renderer crops by a few pixels. */
 .tab-bar {
-  position: absolute;
-  bottom: 0;
-  left: 0;
+  height: 116px;
+  flex-shrink: 0;
   width: 1290px;
-  height: 130px;
   background: #FFFFFF;
   border-top: 1px solid var(--ios-border);
   display: flex;
-  padding-top: 12px;
-  padding-bottom: 36px;
+  padding-top: 14px;
+  padding-bottom: 18px;
 }
 .tab-bar .tab {
   flex: 1;
