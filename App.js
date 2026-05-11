@@ -306,6 +306,10 @@ async function dbAddItem(item) {
     opened_at: item.openedAt || null,
     expiry_opened_days: item.expiryOpenedDays || null,
     expiry_unopened: item.expiryUnopened || null,
+    // v1.16 — USDA-suggested expiry date (from lookupShelfLife "foodkeeper"
+    // hit at item-add time). NULL when no FoodKeeper match. Powers the
+    // dual-date display in ItemDetailModal.
+    expiry_usda_date: item.expiryUsdaDate || null,
   }).select().single();
   if (error) throw error;
   return data;
@@ -342,6 +346,11 @@ function rowToItem(row) {
     openedAt: row.opened_at || null,
     expiryOpenedDays: row.expiry_opened_days || null,
     expiryUnopened: row.expiry_unopened || null,
+    // v1.16 — USDA-suggested expiry from FoodKeeper at add time. NULL for
+    // legacy rows + items without a FoodKeeper match. ItemDetailModal shows
+    // a secondary line when this is later than expiryDate (the value moment
+    // from Email 4 — "your date is conservative; USDA says it lasts longer").
+    expiryUsdaDate: row.expiry_usda_date || null,
   };
 }
 
@@ -446,6 +455,31 @@ function guessCategory(name) {
     if (keywords.some(k => n.includes(k))) return cat;
   }
   return "Other";
+}
+
+// v1.16 — smart default container for a parsed/typed item. Used by the
+// BulkAddModal (receipt scan + sample + manual) to pre-fill each row's
+// fridge/pantry/freezer assignment. Rules in priority order:
+//   1. Name explicitly says "frozen" → freezer.
+//   2. Produce that's typically pantry-stored (potato/onion/garlic/squash)
+//      → pantry. Cooks complain when the app says their onions expire in
+//      5 days; FoodKeeper pantry shelf life is weeks.
+//   3. Dry Goods → pantry (canned/dried/boxed by definition).
+//   4. Dairy / Protein / Produce / Beverages / Other → fridge (the safe
+//      default; user can override per row).
+function defaultContainerFor(name, category) {
+  const n = (name || "").toLowerCase();
+  if (n.includes("frozen") || n.includes("ice cream") || n.includes("ice pop") ||
+      n.includes("popsicle") || n.includes("sorbet") || n.includes("frozen pizza")) {
+    return "freezer";
+  }
+  if (category === "Produce" && (
+      n.includes("potato") || n.includes("onion") || n.includes("garlic") ||
+      n.includes("squash") || n.includes("yam") || n.includes("shallot"))) {
+    return "pantry";
+  }
+  if (category === "Dry Goods") return "pantry";
+  return "fridge";
 }
 
 function productFromOFF(p, barcode) {
@@ -831,6 +865,28 @@ function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse
             <View style={[s.expiryBadge, { backgroundColor: color + "22", borderColor: color + "55", marginTop: 10 }]}>
               <Text style={[s.expiryText, { color, fontSize: 13 }]}>{days <= 0 ? "Expired" : days === 1 ? "Expires tomorrow" : `Expires in ${days} days`}</Text>
             </View>
+            {/* v1.16 — dual-date: when the user's expiry is conservative
+                relative to USDA FoodKeeper's window, surface the gap. Only
+                shown when usdaDate is later than expiryDate by at least 2
+                days (avoids noise when they nearly agree). Validates Email 4
+                tip 4's "the app shows both, so you stop trashing yogurt
+                that's fine." */}
+            {(() => {
+              if (!item.expiryUsdaDate || !item.expiryDate) return null;
+              const usdaMs = new Date(item.expiryUsdaDate).getTime();
+              const expMs  = new Date(item.expiryDate).getTime();
+              if (!Number.isFinite(usdaMs) || !Number.isFinite(expMs)) return null;
+              const gapDays = Math.round((usdaMs - expMs) / 86400000);
+              if (gapDays < 2) return null;
+              const usdaTotal = Math.max(0, Math.round((usdaMs - Date.now()) / 86400000));
+              return (
+                <View style={{ marginTop: 8, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "rgba(22,163,74,0.08)", borderRadius: 10, borderWidth: 1, borderColor: "rgba(22,163,74,0.2)" }}>
+                  <Text style={{ fontSize: 12, color: T.accent, fontWeight: "600", textAlign: "center" }}>
+                    🌿 USDA shelf life: {usdaTotal} {usdaTotal === 1 ? "day" : "days"} ({gapDays}+ longer than your date)
+                  </Text>
+                </View>
+              );
+            })()}
           </View>
           <View style={{ paddingHorizontal: 16 }}>
             {!editing && (
@@ -1765,9 +1821,99 @@ function RecipesScreen({ items }) {
 }
 
 // ─── Reminders Screen ─────────────────────────────────────────────────────────
+// v1.16 — dietary + allergen + household-size constants kept in sync with
+// the matching maps in supabase/functions/generate-recipes/index.ts. Change
+// one, change the other.
+const DIETARY_OPTIONS = [
+  { id: "vegetarian",  label: "Vegetarian",  emoji: "🥗" },
+  { id: "vegan",       label: "Vegan",       emoji: "🌱" },
+  { id: "pescatarian", label: "Pescatarian", emoji: "🐟" },
+  { id: "gluten_free", label: "Gluten-free", emoji: "🌾" },
+  { id: "dairy_free",  label: "Dairy-free",  emoji: "🥛" },
+  { id: "nut_free",    label: "Nut-free",    emoji: "🥜" },
+  { id: "low_carb",    label: "Low-carb",    emoji: "🥩" },
+  { id: "keto",        label: "Keto",        emoji: "🥑" },
+];
+const ALLERGEN_OPTIONS = [
+  { id: "peanut",    label: "Peanut" },
+  { id: "tree_nut",  label: "Tree nuts" },
+  { id: "shellfish", label: "Shellfish" },
+  { id: "fish",      label: "Fish" },
+  { id: "egg",       label: "Egg" },
+  { id: "milk",      label: "Milk" },
+  { id: "soy",       label: "Soy" },
+  { id: "wheat",     label: "Wheat" },
+  { id: "sesame",    label: "Sesame" },
+];
+
 function RemindersScreen({ items, notificationsEnabled, onToggleNotifications, emailDigestEnabled, onToggleEmailDigest }) {
   const [dismissed, setDismissed] = useState([]);
   const [reorderItem, setReorderItem] = useState(null);
+  // v1.16 Tier 2 — dietary prefs + household. Local state mirrors user_settings;
+  // writes go through upsert on toggle/change. Optimistic — server failure
+  // just gets logged, the next mount will resync.
+  const [dietary, setDietary]           = useState([]);
+  const [allergens, setAllergens]       = useState([]);
+  const [householdSize, setHouseholdSize] = useState(1);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        const { data } = await supabase
+          .from("user_settings")
+          .select("dietary_restrictions, allergens, household_size")
+          .eq("user_id", user.id)
+          .maybeSingle();
+        if (cancelled || !data) return;
+        if (Array.isArray(data.dietary_restrictions)) setDietary(data.dietary_restrictions);
+        if (Array.isArray(data.allergens)) setAllergens(data.allergens);
+        if (Number.isFinite(Number(data.household_size))) setHouseholdSize(Math.max(1, Number(data.household_size)));
+      } catch (e) {
+        console.warn("user_settings fetch failed:", e?.message || e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  async function persistProfile(patch) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      await supabase.from("user_settings").upsert({
+        user_id: user.id,
+        dietary_restrictions: patch.dietary ?? dietary,
+        allergens: patch.allergens ?? allergens,
+        household_size: patch.householdSize ?? householdSize,
+      });
+      track("profile_updated", {
+        dietary_count: (patch.dietary ?? dietary).length,
+        allergen_count: (patch.allergens ?? allergens).length,
+        household_size: patch.householdSize ?? householdSize,
+      });
+    } catch (e) {
+      console.warn("user_settings upsert failed:", e?.message || e);
+    }
+  }
+
+  function toggleDietary(id) {
+    const next = dietary.includes(id) ? dietary.filter(d => d !== id) : [...dietary, id];
+    setDietary(next);
+    persistProfile({ dietary: next });
+  }
+  function toggleAllergen(id) {
+    const next = allergens.includes(id) ? allergens.filter(a => a !== id) : [...allergens, id];
+    setAllergens(next);
+    persistProfile({ allergens: next });
+  }
+  function changeHouseholdSize(delta) {
+    const next = Math.max(1, Math.min(20, householdSize + delta));
+    if (next === householdSize) return;
+    setHouseholdSize(next);
+    persistProfile({ householdSize: next });
+  }
   const autoReminders = items.filter(i => daysUntil(i.expiryDate) <= 3 && !dismissed.includes("auto-" + i.id)).map(i => ({ id: "auto-" + i.id, type: "toss", text: `Check ${i.name}`, detail: `Expires in ${Math.max(0, daysUntil(i.expiryDate))} day(s)`, time: formatDate(i.expiryDate), emoji: i.emoji, urgent: daysUntil(i.expiryDate) <= 1 }));
   const allReminders = [...autoReminders];
   const urgent = allReminders.filter(r => r.urgent);
@@ -1825,6 +1971,109 @@ function RemindersScreen({ items, notificationsEnabled, onToggleNotifications, e
           >
             <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: "#fff", alignSelf: emailDigestEnabled ? "flex-end" : "flex-start" }} />
           </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* v1.16 Tier 2 — Household size. Drives recipe portion scaling +
+          waste-estimate copy. Single number, +/- stepper. Saves immediately. */}
+      <View style={[s.card, { marginHorizontal: 16, padding: 16, marginBottom: 12 }]}>
+        <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 6, paddingHorizontal: 0 }]}>HOUSEHOLD SIZE</Text>
+        <Text style={{ color: T.textSoft, fontSize: 12, marginBottom: 12 }}>
+          Recipes scale automatically. We'll also personalize your waste-savings number.
+        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <TouchableOpacity
+            onPress={() => changeHouseholdSize(-1)}
+            disabled={householdSize <= 1}
+            style={{
+              width: 44, height: 44, borderRadius: 22,
+              backgroundColor: householdSize <= 1 ? T.border : "rgba(22,163,74,0.10)",
+              borderWidth: 1, borderColor: householdSize <= 1 ? T.border : T.accent,
+              alignItems: "center", justifyContent: "center",
+              opacity: householdSize <= 1 ? 0.5 : 1,
+            }}
+            accessibilityLabel="Decrease household size"
+          ><Text style={{ fontSize: 22, color: T.accent, fontWeight: "700" }}>−</Text></TouchableOpacity>
+          <View style={{ alignItems: "center" }}>
+            <Text style={{ fontSize: 36, fontWeight: "800", color: T.text }}>{householdSize}</Text>
+            <Text style={{ fontSize: 12, color: T.textSoft }}>{householdSize === 1 ? "person" : "people"}</Text>
+          </View>
+          <TouchableOpacity
+            onPress={() => changeHouseholdSize(1)}
+            disabled={householdSize >= 20}
+            style={{
+              width: 44, height: 44, borderRadius: 22,
+              backgroundColor: householdSize >= 20 ? T.border : "rgba(22,163,74,0.10)",
+              borderWidth: 1, borderColor: householdSize >= 20 ? T.border : T.accent,
+              alignItems: "center", justifyContent: "center",
+              opacity: householdSize >= 20 ? 0.5 : 1,
+            }}
+            accessibilityLabel="Increase household size"
+          ><Text style={{ fontSize: 22, color: T.accent, fontWeight: "700" }}>+</Text></TouchableOpacity>
+        </View>
+      </View>
+
+      {/* v1.16 Tier 2 — Dietary preferences. Multi-select toggle chips.
+          Each tap saves to user_settings + re-flows recipe-gen on next request. */}
+      <View style={[s.card, { marginHorizontal: 16, padding: 16, marginBottom: 12 }]}>
+        <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 6, paddingHorizontal: 0 }]}>DIETARY PREFERENCES</Text>
+        <Text style={{ color: T.textSoft, fontSize: 12, marginBottom: 12 }}>
+          Tap what applies. Recipes will respect these. {dietary.length === 0 ? "None selected." : `${dietary.length} active.`}
+        </Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+          {DIETARY_OPTIONS.map(opt => {
+            const active = dietary.includes(opt.id);
+            return (
+              <TouchableOpacity
+                key={opt.id}
+                onPress={() => toggleDietary(opt.id)}
+                style={{
+                  paddingVertical: 8, paddingHorizontal: 12,
+                  borderRadius: 18, borderWidth: 1,
+                  borderColor: active ? T.accent : T.border,
+                  backgroundColor: active ? "rgba(22,163,74,0.10)" : T.card,
+                }}
+                accessibilityLabel={`${active ? "Remove" : "Add"} ${opt.label}`}
+                accessibilityState={{ selected: active }}
+              >
+                <Text style={{ fontSize: 13, fontWeight: active ? "700" : "500", color: active ? T.accent : T.textSoft }}>
+                  {opt.emoji} {opt.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* v1.16 Tier 2 — Allergens. Same chip pattern but framed as safety-
+          critical. Edge Function treats these as MUST-NOT-CONTAIN. */}
+      <View style={[s.card, { marginHorizontal: 16, padding: 16, marginBottom: 12 }]}>
+        <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 6, paddingHorizontal: 0 }]}>ALLERGIES</Text>
+        <Text style={{ color: T.textSoft, fontSize: 12, marginBottom: 12 }}>
+          Safety-critical — we'll always exclude these from recipe suggestions.
+        </Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+          {ALLERGEN_OPTIONS.map(opt => {
+            const active = allergens.includes(opt.id);
+            return (
+              <TouchableOpacity
+                key={opt.id}
+                onPress={() => toggleAllergen(opt.id)}
+                style={{
+                  paddingVertical: 8, paddingHorizontal: 12,
+                  borderRadius: 18, borderWidth: 1,
+                  borderColor: active ? T.danger : T.border,
+                  backgroundColor: active ? "rgba(220,38,38,0.10)" : T.card,
+                }}
+                accessibilityLabel={`${active ? "Remove" : "Add"} ${opt.label} allergy`}
+                accessibilityState={{ selected: active }}
+              >
+                <Text style={{ fontSize: 13, fontWeight: active ? "700" : "500", color: active ? T.danger : T.textSoft }}>
+                  {opt.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </View>
 
@@ -1948,18 +2197,25 @@ function buildSampleRows() {
     const dt = new Date(today + d * 86400000);
     return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
   };
+  // v1.16 — sample rows include container assignments so users see what a
+  // mixed-container receipt looks like (most items → fridge, bread → pantry).
   return [
-    { id: Date.now() + 1, name: "Whole milk",     quantity: "1",   unit: "gallon", expiry: inDays(7)  },
-    { id: Date.now() + 2, name: "Baby spinach",   quantity: "1",   unit: "bag",    expiry: inDays(4)  },
-    { id: Date.now() + 3, name: "Bell peppers",   quantity: "3",   unit: "",       expiry: inDays(6)  },
-    { id: Date.now() + 4, name: "Eggs",           quantity: "1",   unit: "dozen",  expiry: inDays(21) },
-    { id: Date.now() + 5, name: "Greek yogurt",   quantity: "32",  unit: "oz",     expiry: inDays(14) },
-    { id: Date.now() + 6, name: "Sourdough bread", quantity: "1",  unit: "loaf",   expiry: inDays(5)  },
+    { id: Date.now() + 1, name: "Whole milk",     quantity: "1",   unit: "gallon", expiry: inDays(7),  container: "fridge" },
+    { id: Date.now() + 2, name: "Baby spinach",   quantity: "1",   unit: "bag",    expiry: inDays(4),  container: "fridge" },
+    { id: Date.now() + 3, name: "Bell peppers",   quantity: "3",   unit: "",       expiry: inDays(6),  container: "fridge" },
+    { id: Date.now() + 4, name: "Eggs",           quantity: "1",   unit: "dozen",  expiry: inDays(21), container: "fridge" },
+    { id: Date.now() + 5, name: "Greek yogurt",   quantity: "32",  unit: "oz",     expiry: inDays(14), container: "fridge" },
+    { id: Date.now() + 6, name: "Sourdough bread", quantity: "1",  unit: "loaf",   expiry: inDays(5),  container: "pantry" },
   ];
 }
 
 function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPresetConsumed }) {
-  const emptyRow = () => ({ id: Date.now() + Math.random(), name: "", quantity: "1", unit: "", expiry: "" });
+  // v1.16 — each row carries its own `container` so a single receipt can split
+  // across fridge/pantry/freezer. Empty rows inherit the active fridge tab's
+  // section as the default; typed/scanned items get smart defaults via
+  // defaultContainerFor(name, category) once a name is entered (see updateRow
+  // and applyReceiptItems below).
+  const emptyRow = () => ({ id: Date.now() + Math.random(), name: "", quantity: "1", unit: "", expiry: "", container: section || "fridge" });
   const [rows, setRows] = useState([]);
   const [adding, setAdding] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -2056,6 +2312,15 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
           quantity: amount || "1",
           unit: unit,
           expiry: `${yyyy}-${mm}-${dd}`,
+          // v1.16 — pre-assign container based on category + name keywords so
+          // a single receipt parsed scan auto-splits across fridge/pantry/
+          // freezer. User can override per-row before committing.
+          container: defaultContainerFor(item.name, cat),
+          // v1.16 — capture the FoodKeeper-derived expiry from the scan-receipt
+          // Edge Function as the USDA snapshot. The user can later shorten the
+          // visible expiry to match their carton's printed date; this stays as
+          // the "USDA says yours is conservative" reference.
+          usdaDays: days,
         };
       });
     if (newRows.length > 0) setRows(newRows);
@@ -2169,6 +2434,16 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
       // For packaged categories, default-to-closed and stash opened-days +
       // expiry-unopened so "Mark as opened" works on these rows later.
       const packaged = isPackagedCategory(cat);
+      // v1.16 — prefer the per-row container (set by smart-default in
+      // applyReceiptItems / emptyRow, or by user pill tap) over the modal-
+      // level section prop. Falls back to section, then "fridge" for safety.
+      const rowContainer = r.container || section || "fridge";
+      // v1.16 — USDA-suggested date for the dual-date display. Receipt-scan
+      // rows carry `usdaDays` from the FoodKeeper-backed Edge Function;
+      // manual rows don't (yet). NULL → ItemDetailModal hides the secondary.
+      const expiryUsdaDate = (typeof r.usdaDays === "number" && r.usdaDays > 0)
+        ? new Date(Date.now() + r.usdaDays * 86400000).toISOString().slice(0, 10)
+        : null;
       return {
         name: r.name.trim(),
         category: cat,
@@ -2176,11 +2451,12 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
         quantity,
         unit: (r.unit || "").trim() || null,
         expiryDate: expiry,
-        section: section || "fridge",
+        section: rowContainer,
         isOpened: false,
         openedAt: null,
         expiryOpenedDays: packaged ? (OPENED_DAYS_MAP[cat] || 7) : null,
         expiryUnopened: packaged ? expiry.slice(0, 10) : null,
+        expiryUsdaDate,
       };
     });
     await onAddItems(items);
@@ -2240,6 +2516,7 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
 
             {rows.map((row, index) => {
               const cat = row.name.trim() ? guessCategory(row.name) : null;
+              const rowContainer = row.container || section || "fridge";
               return (
                 <View key={row.id} style={[s.card, { padding: 14, marginBottom: 10 }]}>
                   <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
@@ -2259,8 +2536,62 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
                     placeholder="Item name (e.g. Chicken breast)"
                     placeholderTextColor={T.muted}
                     value={row.name}
-                    onChangeText={v => updateRow(row.id, "name", v)}
+                    onChangeText={v => {
+                      // v1.16 — when user types/edits the name, re-evaluate the
+                      // smart container default IF the row hasn't been manually
+                      // overridden yet. We approximate "not manually overridden"
+                      // by checking that current container matches the previous
+                      // smart default for the previous name. Conservative: if
+                      // the user has typed AND the container matches a smart
+                      // default for the OLD name, update it. Otherwise leave
+                      // their explicit choice alone.
+                      const prevCat = row.name.trim() ? guessCategory(row.name) : null;
+                      const prevDefault = defaultContainerFor(row.name, prevCat);
+                      const newCat = v.trim() ? guessCategory(v) : null;
+                      const newDefault = defaultContainerFor(v, newCat);
+                      updateRow(row.id, "name", v);
+                      if (row.container === prevDefault && newDefault !== prevDefault) {
+                        updateRow(row.id, "container", newDefault);
+                      }
+                    }}
                   />
+
+                  {/* v1.16 — per-row container picker. Three equal pills.
+                      Tapping commits the choice and locks it (no further
+                      smart-default overrides on name edit). */}
+                  <View style={{ flexDirection: "row", gap: 6, marginBottom: 8 }}>
+                    {[
+                      { id: "fridge",  label: "🧊 Fridge"  },
+                      { id: "pantry",  label: "🥫 Pantry"  },
+                      { id: "freezer", label: "❄️ Freezer" },
+                    ].map(opt => {
+                      const selected = rowContainer === opt.id;
+                      return (
+                        <TouchableOpacity
+                          key={opt.id}
+                          onPress={() => updateRow(row.id, "container", opt.id)}
+                          style={{
+                            flex: 1,
+                            paddingVertical: 8,
+                            paddingHorizontal: 4,
+                            borderRadius: 10,
+                            borderWidth: 1,
+                            borderColor: selected ? T.accent : T.border,
+                            backgroundColor: selected ? "rgba(22,163,74,0.10)" : "transparent",
+                            alignItems: "center",
+                          }}
+                          accessibilityLabel={`Set container to ${opt.id}`}
+                          accessibilityState={{ selected }}
+                        >
+                          <Text style={{
+                            fontSize: 13,
+                            fontWeight: selected ? "700" : "500",
+                            color: selected ? T.accent : T.textSoft,
+                          }}>{opt.label}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
                   <View style={{ flexDirection: "row", gap: 10 }}>
                     <View style={{ flex: 0.7 }}>
                       <Text style={s.inputLabel}>Amount</Text>
@@ -3070,6 +3401,10 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
   // default from category maps; user can override.
   const [closedDays, setClosedDays] = useState(EXPIRY_MAP["Other"] || 7);
   const [openedDays, setOpenedDays] = useState(OPENED_DAYS_MAP["Other"] || 7);
+  // v1.16 — remembers the most recent FoodKeeper-hit `closedDays` so we can
+  // store the USDA-suggested date alongside the (possibly user-shortened)
+  // expiry_date. NULL when there's no FoodKeeper match for this item.
+  const [usdaSourceDays, setUsdaSourceDays] = useState(null);
   // v1.16 Phase 1 — type-ahead search results from the local product catalog.
   // Calls public.search_products(query) RPC. Debounced 300ms client-side.
   // suppressSearch flips to true when user picks a result, so re-renders
@@ -3086,6 +3421,7 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
       setName(""); setCategory("Other"); setInitialQty(""); setInitialUnit("");
       setClosedDays(EXPIRY_MAP["Other"] || 7);
       setOpenedDays(OPENED_DAYS_MAP["Other"] || 7);
+      setUsdaSourceDays(null);
       setSearchResults([]); setSearching(false); setSuppressSearch(false);
     }
   }, [visible]);
@@ -3141,11 +3477,14 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
     if (sl.source !== "category_default") {
       setClosedDays(sl.closedDays);
       setOpenedDays(sl.openedDays);
+      setUsdaSourceDays(sl.closedDays); // v1.16 — capture USDA-source for dual-date display
       track("shelf_life_lookup_hit", {
         query: (result.name || "").slice(0, 40),
         match: (sl.matchName || "").slice(0, 40),
         days: sl.closedDays,
       });
+    } else {
+      setUsdaSourceDays(null);
     }
   }
 
@@ -3157,11 +3496,13 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
     setCategory(c);
     setClosedDays(EXPIRY_MAP[c] || 7);
     setOpenedDays(OPENED_DAYS_MAP[c] || 7);
+    setUsdaSourceDays(null); // reset; lookup below may re-populate
     if ((name || "").trim().length >= 2) {
       const sl = await lookupShelfLife(name.trim(), c, "fridge");
       if (sl.source !== "category_default") {
         setClosedDays(sl.closedDays);
         setOpenedDays(sl.openedDays);
+        setUsdaSourceDays(sl.closedDays);
       }
     }
   }
@@ -3184,6 +3525,7 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
       if (sl.source !== "category_default") {
         setClosedDays(sl.closedDays);
         setOpenedDays(sl.openedDays);
+        setUsdaSourceDays(sl.closedDays);
       }
     }, 600);
     return () => { cancelled = true; clearTimeout(t); };
@@ -3202,6 +3544,13 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
     const expiryDateIso = new Date(Date.now() + closedDays * 86400000).toISOString();
     const packaged = isPackagedCategory(category);
 
+    // v1.16 — if we got a FoodKeeper hit on this item, snapshot the
+    // USDA-suggested date so ItemDetailModal can surface the dual-date
+    // "USDA says yours is conservative" moment. NULL when no FoodKeeper match.
+    const expiryUsdaDate = usdaSourceDays
+      ? new Date(Date.now() + usdaSourceDays * 86400000).toISOString().slice(0, 10)
+      : null;
+
     onAdd({
       name: name.trim(),
       category,
@@ -3214,6 +3563,7 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
       openedAt: null,
       expiryOpenedDays: packaged ? openedDays : null,
       expiryUnopened: packaged ? expiryDateIso.slice(0, 10) : null,
+      expiryUsdaDate,
     });
     onClose();
   }

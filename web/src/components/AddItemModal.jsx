@@ -26,6 +26,10 @@ export default function AddItemModal({ open, onClose, onAdded, householdId, defa
   const [container, setContainer] = useState(defaultContainer);
   const [closedDays, setClosedDays] = useState(EXPIRY_DAYS_BY_CATEGORY.Other);
   const [openedDays, setOpenedDays] = useState(OPENED_DAYS_MAP.Other);
+  // v1.16 — remembers the FoodKeeper-hit closedDays so we can persist the
+  // USDA-suggested date alongside the (possibly user-shortened) expiry_date.
+  // Mirrors iOS App.js usdaSourceDays.
+  const [usdaSourceDays, setUsdaSourceDays] = useState(null);
   const [saving, setSaving]     = useState(false);
   const [err, setErr]           = useState(null);
   // v1.16 Phase 1 — type-ahead search results from the local product catalog.
@@ -42,6 +46,7 @@ export default function AddItemModal({ open, onClose, onAdded, householdId, defa
       setCategory("Other"); setContainer(defaultContainer);
       setClosedDays(EXPIRY_DAYS_BY_CATEGORY.Other);
       setOpenedDays(OPENED_DAYS_MAP.Other || 7);
+      setUsdaSourceDays(null);
       setSaving(false); setErr(null);
       setSearchResults([]); setSearching(false); setSuppressSearch(false);
     }
@@ -77,12 +82,14 @@ export default function AddItemModal({ open, onClose, onAdded, householdId, defa
     setCategory(c);
     setClosedDays(EXPIRY_DAYS_BY_CATEGORY[c] || 7);
     setOpenedDays(OPENED_DAYS_MAP[c] || 7);
+    setUsdaSourceDays(null);
     // v1.16 — refresh FoodKeeper lookup with the new category context.
     if ((name || "").trim().length >= 2) {
       const sl = await lookupShelfLife(name.trim(), c, container);
       if (sl.source !== "category_default") {
         setClosedDays(sl.closedDays);
         setOpenedDays(sl.openedDays);
+        setUsdaSourceDays(sl.closedDays);
       }
     }
   }
@@ -104,6 +111,7 @@ export default function AddItemModal({ open, onClose, onAdded, householdId, defa
     if (sl.source !== "category_default") {
       setClosedDays(sl.closedDays);
       setOpenedDays(sl.openedDays);
+      setUsdaSourceDays(sl.closedDays);
       track("shelf_life_lookup_hit", {
         query: (result.name || "").slice(0, 40),
         match: (sl.matchName || "").slice(0, 40),
@@ -127,6 +135,7 @@ export default function AddItemModal({ open, onClose, onAdded, householdId, defa
       if (sl.source !== "category_default") {
         setClosedDays(sl.closedDays);
         setOpenedDays(sl.openedDays);
+        setUsdaSourceDays(sl.closedDays);
       }
     }, 600);
     return () => { cancelled = true; clearTimeout(t); };
@@ -148,6 +157,12 @@ export default function AddItemModal({ open, onClose, onAdded, householdId, defa
       const expiryIso = new Date(Date.now() + closedDays * 86400000).toISOString();
       const packaged = isPackagedCategory(category);
       const sectionMirror = container === "pantry" ? "cupboard" : container;
+      // v1.16 — USDA snapshot from the most recent FoodKeeper hit. NULL when
+      // user typed something we couldn't match. Drives ItemDetailModal's
+      // "USDA says yours is conservative" dual-date display.
+      const expiryUsdaDate = usdaSourceDays
+        ? new Date(Date.now() + usdaSourceDays * 86400000).toISOString().slice(0, 10)
+        : null;
 
       const { data: { user } } = await supabase.auth.getUser();
       const { data, error } = await supabase
@@ -168,6 +183,7 @@ export default function AddItemModal({ open, onClose, onAdded, householdId, defa
           opened_at: null,
           expiry_opened_days: packaged ? openedDays : null,
           expiry_unopened: packaged ? expiryIso.slice(0, 10) : null,
+          expiry_usda_date: expiryUsdaDate,
         })
         .select()
         .single();

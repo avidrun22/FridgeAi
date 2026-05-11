@@ -1,9 +1,15 @@
 // POST /functions/v1/generate-recipes
-// Body: { items: ["Milk", "Eggs", ...] }
+// Body: { items: ["Milk", "Eggs", ...], servings?: number }
 // Auth: required. Rate limit: GENERATE_RECIPES_DAILY_LIMIT/day/user.
-// Response: { recipes: [...] }
+// Response: { recipes: [...], usage: {count, limit}, applied: {servings, dietary, allergens} }
+//
+// v1.16 Tier 2 — pulls the caller's user_settings (dietary_restrictions,
+// allergens, household_size) and injects them into the prompt so the
+// generated recipes respect lifestyle + safety constraints and scale to the
+// right serving count. `servings` body param lets a single recipe override
+// the user's default household_size (e.g. "this one's just for me tonight").
 import { corsHeaders } from "../_shared/cors.ts";
-import { getUserId } from "../_shared/supabase.ts";
+import { getUserId, serviceClient } from "../_shared/supabase.ts";
 import { checkAndIncrement } from "../_shared/rate_limit.ts";
 import { callClaude, extractJson } from "../_shared/anthropic.ts";
 
@@ -12,6 +18,87 @@ const DAILY_LIMIT = parseInt(
   10,
 );
 
+// Human-readable phrases for dietary / allergen tags. Keep in sync with the
+// iOS + web profile screen lists.
+const DIETARY_PHRASES: Record<string, string> = {
+  vegetarian:   "vegetarian (no meat, poultry, or fish)",
+  vegan:        "vegan (no animal products at all — no meat, dairy, eggs, honey)",
+  pescatarian:  "pescatarian (no meat or poultry; fish is fine)",
+  gluten_free:  "gluten-free (no wheat, barley, rye, or conventional pasta/bread)",
+  dairy_free:   "dairy-free (no milk, cheese, butter, yogurt, cream)",
+  nut_free:     "nut-free (no peanuts or tree nuts)",
+  low_carb:     "low-carb",
+  keto:         "keto-friendly",
+};
+
+const ALLERGEN_PHRASES: Record<string, string> = {
+  peanut:      "peanuts",
+  tree_nut:    "tree nuts (almonds, walnuts, cashews, pecans, pistachios, etc.)",
+  shellfish:   "shellfish (shrimp, crab, lobster, scallops, mussels, clams)",
+  fish:        "fish",
+  egg:         "eggs",
+  milk:        "milk or dairy",
+  soy:         "soy",
+  wheat:       "wheat",
+  sesame:      "sesame",
+};
+
+interface ProfilePrefs {
+  dietary: string[];
+  allergens: string[];
+  householdSize: number;
+}
+
+async function loadProfile(userId: string): Promise<ProfilePrefs> {
+  const supa = serviceClient();
+  const { data } = await supa
+    .from("user_settings")
+    .select("dietary_restrictions, allergens, household_size")
+    .eq("user_id", userId)
+    .maybeSingle();
+  return {
+    dietary: Array.isArray(data?.dietary_restrictions) ? data!.dietary_restrictions : [],
+    allergens: Array.isArray(data?.allergens) ? data!.allergens : [],
+    householdSize: Number.isFinite(Number(data?.household_size))
+      ? Math.max(1, Math.min(20, Number(data!.household_size)))
+      : 1,
+  };
+}
+
+function buildPromptPreamble(prefs: ProfilePrefs, overrideServings: number | null): string {
+  const parts: string[] = [];
+
+  // Dietary lifestyle (preferences)
+  const dietaryClauses = prefs.dietary
+    .map(d => DIETARY_PHRASES[d])
+    .filter(Boolean);
+  if (dietaryClauses.length === 1) {
+    parts.push(`I am ${dietaryClauses[0]}.`);
+  } else if (dietaryClauses.length > 1) {
+    parts.push(`I am ${dietaryClauses.join(" AND ")}.`);
+  }
+
+  // Allergens (safety-critical — must-not-contain)
+  const allergenClauses = prefs.allergens
+    .map(a => ALLERGEN_PHRASES[a])
+    .filter(Boolean);
+  if (allergenClauses.length > 0) {
+    parts.push(
+      `I have a serious allergy to ${allergenClauses.join(", ")} — ` +
+      `recipes MUST NOT contain these or any cross-contamination ingredients.`,
+    );
+  }
+
+  // Serving count — prefer the per-request override, fall back to the
+  // user's default household_size.
+  const servings = overrideServings && Number.isFinite(overrideServings)
+    ? Math.max(1, Math.min(20, Math.round(overrideServings)))
+    : prefs.householdSize;
+  parts.push(`Scale ingredient amounts to ${servings} ${servings === 1 ? "serving" : "servings"}.`);
+
+  return parts.join(" ");
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
@@ -19,7 +106,7 @@ Deno.serve(async (req) => {
   const userId = await getUserId(req);
   if (!userId) return json({ error: "unauthenticated" }, 401);
 
-  let body: { items?: string[] };
+  let body: { items?: string[]; servings?: number };
   try {
     body = await req.json();
   } catch {
@@ -37,6 +124,10 @@ Deno.serve(async (req) => {
     .map((i) => i.trim())
     .filter(Boolean)
     .slice(0, 100);
+
+  const overrideServings = Number.isFinite(Number(body?.servings))
+    ? Number(body!.servings)
+    : null;
 
   let rl;
   try {
@@ -56,9 +147,22 @@ Deno.serve(async (req) => {
     );
   }
 
+  // v1.16 Tier 2 — load dietary + portion prefs and inject into prompt.
+  // Failures here degrade gracefully to "no preferences" rather than 500.
+  let prefs: ProfilePrefs;
+  try {
+    prefs = await loadProfile(userId);
+  } catch (e) {
+    console.error("loadProfile error (continuing with defaults)", e);
+    prefs = { dietary: [], allergens: [], householdSize: 1 };
+  }
+  const preamble = buildPromptPreamble(prefs, overrideServings);
+
   try {
     const prompt =
-      `I have: ${cleaned.join(", ")}. Suggest 3 recipes. Respond ONLY with JSON array (no markdown): ` +
+      `${preamble} I have these ingredients on hand: ${cleaned.join(", ")}. ` +
+      `Suggest 3 recipes that use as many of them as possible. ` +
+      `Respond ONLY with JSON array (no markdown): ` +
       `[{"name":"","time":"","difficulty":"","emoji":"","description":"","ingredients":[{"item":"","amount":""}],"instructions":[""],"tip":""}]`;
     const { text } = await callClaude({
       max_tokens: 2000,
@@ -66,7 +170,15 @@ Deno.serve(async (req) => {
     });
     const recipes = extractJson<unknown[]>(text);
     if (!Array.isArray(recipes)) return json({ error: "bad model output" }, 502);
-    return json({ recipes, usage: { count: rl.count, limit: rl.limit } });
+    return json({
+      recipes,
+      usage: { count: rl.count, limit: rl.limit },
+      applied: {
+        servings: overrideServings ?? prefs.householdSize,
+        dietary: prefs.dietary,
+        allergens: prefs.allergens,
+      },
+    });
   } catch (e) {
     console.error("anthropic error", e);
     return json({ error: "recipe generation failed" }, 502);

@@ -24,6 +24,27 @@ import {
 
 const MAX_FILE_BYTES = 4_500_000; // 4.5 MB pre-encoding
 
+// v1.16 — smart-default container for a parsed item. Mirrors the iOS
+// defaultContainerFor in App.js. Rules in priority order:
+//   1. Name says "frozen/ice cream/sorbet/etc." → freezer.
+//   2. Produce that's typically pantry-stored (potato/onion/garlic) → pantry.
+//   3. Dry Goods → pantry.
+//   4. Everything else → fridge (safe default; user can override per row).
+function defaultContainerFor(name, category) {
+  const n = (name || "").toLowerCase();
+  if (n.includes("frozen") || n.includes("ice cream") || n.includes("ice pop") ||
+      n.includes("popsicle") || n.includes("sorbet") || n.includes("frozen pizza")) {
+    return "freezer";
+  }
+  if (category === "Produce" && (
+      n.includes("potato") || n.includes("onion") || n.includes("garlic") ||
+      n.includes("squash") || n.includes("yam") || n.includes("shallot"))) {
+    return "pantry";
+  }
+  if (category === "Dry Goods") return "pantry";
+  return "fridge";
+}
+
 export default function ScanReceiptModal({ open, onClose, onAdded, householdId, defaultContainer = "fridge" }) {
   const fileRef = useRef(null);
 
@@ -128,17 +149,21 @@ export default function ScanReceiptModal({ open, onClose, onAdded, householdId, 
       }
 
       // Normalize each item — make category one of the known ones, force
-      // expiry_days into a sensible range, default missing fields.
+      // expiry_days into a sensible range, default missing fields. v1.16 also
+      // assigns a smart-default container based on category + name keywords
+      // so a mixed receipt auto-splits across fridge/pantry/freezer.
       const normalized = parsed.map((it) => {
         const cat = CATEGORIES.includes(it?.category) ? it.category : "Other";
         const days = Number.isFinite(Number(it?.expiry_days))
           ? Math.max(1, Math.min(365, Math.round(Number(it.expiry_days))))
           : EXPIRY_DAYS_BY_CATEGORY[cat] || 7;
+        const name = String(it?.name || "Unknown item").slice(0, 80);
         return {
-          name: String(it?.name || "Unknown item").slice(0, 80),
+          name,
           quantity: it?.quantity ? String(it.quantity).slice(0, 40) : "1",
           category: cat,
           expiry_days: days,
+          container: defaultContainerFor(name, cat),
         };
       });
 
@@ -172,12 +197,21 @@ export default function ScanReceiptModal({ open, onClose, onAdded, householdId, 
         hhId = data;
       }
       const { data: { user } } = await supabase.auth.getUser();
-      const sectionMirror = container === "pantry" ? "cupboard" : container;
       const now = new Date();
 
+      // v1.16 — each row carries its own container (set by smart-default in
+      // normalization or by user pill tap). Save uses per-row container, not
+      // the modal-level state. Also persists the FoodKeeper-suggested days
+      // as expiry_usda_date so ItemDetailModal can show the dual-date.
       const rows = items.map(it => {
+        const itContainer = it.container || container || "fridge";
+        const sectionMirror = itContainer === "pantry" ? "cupboard" : itContainer;
         const expiryDate = new Date(now.getTime() + it.expiry_days * 86_400_000).toISOString();
         const packaged = isPackagedCategory(it.category);
+        // The Edge Function returns expiry_days derived from FoodKeeper for
+        // the receipt scan. We treat that as the USDA snapshot; the visible
+        // expiry can later be shortened by the user without losing this.
+        const usdaDate = expiryDate.slice(0, 10);
         return {
           name: it.name,
           category: it.category,
@@ -188,12 +222,13 @@ export default function ScanReceiptModal({ open, onClose, onAdded, householdId, 
           expiry_date: expiryDate,
           user_id: user.id,
           household_id: hhId,
-          container,
+          container: itContainer,
           section: sectionMirror,
           is_opened: false,
           opened_at: null,
           expiry_opened_days: packaged ? (OPENED_DAYS_MAP[it.category] || 7) : null,
           expiry_unopened: packaged ? expiryDate.slice(0, 10) : null,
+          expiry_usda_date: usdaDate,
         };
       });
 
@@ -292,61 +327,81 @@ export default function ScanReceiptModal({ open, onClose, onAdded, householdId, 
       {phase === "review" && (
         <div className="space-y-3">
           <p className="text-textSoft text-sm">
-            Found <strong className="text-text">{items.length}</strong> {items.length === 1 ? "item" : "items"}. Edit category or remove anything you don't want, then save.
+            Found <strong className="text-text">{items.length}</strong> {items.length === 1 ? "item" : "items"}. Containers are pre-assigned by category — tap to override per row, or bulk-move all below.
           </p>
 
-          <div>
-            <label className="block text-xs text-textSoft mb-1.5 font-medium uppercase tracking-wide">
-              Container (applied to all)
-            </label>
-            <div className="flex gap-2">
-              {CONTAINERS.map(c => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => setContainer(c.id)}
-                  className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium border transition ${
-                    container === c.id
-                      ? "bg-accent/10 border-accent text-accent"
-                      : "bg-card border-border text-textSoft hover:border-accent"
-                  }`}
-                >{c.label}</button>
-              ))}
-            </div>
+          {/* v1.16 — bulk-move action chip. Single click sets every row's
+              container, useful for "I just emptied the freezer haul" cases. */}
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-textSoft">Move all to:</span>
+            {CONTAINERS.map(c => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setItems(curr => curr.map(it => ({ ...it, container: c.id })))}
+                className="px-2.5 py-1 rounded-full border border-border bg-card text-textSoft hover:border-accent hover:text-accent transition"
+              >→ {c.label}</button>
+            ))}
           </div>
 
-          <div className="max-h-[40vh] overflow-y-auto -mx-1 px-1 space-y-1.5">
-            {items.map((it, i) => (
-              <div key={i} className="flex items-center gap-2 bg-card border border-border rounded-lg px-3 py-2">
-                <span className="text-lg flex-shrink-0">{CATEGORY_EMOJI[it.category] || "📦"}</span>
-                <input
-                  value={it.name}
-                  onChange={(e) => updateItem(i, { name: e.target.value })}
-                  className="flex-1 min-w-0 bg-transparent border-0 text-sm font-medium focus:outline-none focus:ring-0"
-                />
-                <select
-                  value={it.category}
-                  onChange={(e) => updateItem(i, { category: e.target.value, expiry_days: EXPIRY_DAYS_BY_CATEGORY[e.target.value] || it.expiry_days })}
-                  className="text-xs bg-bg border border-border rounded-md px-1.5 py-1 focus:outline-none focus:border-accent flex-shrink-0"
-                >
-                  {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-                <input
-                  type="number"
-                  min="1" max="365" step="1"
-                  value={it.expiry_days}
-                  onChange={(e) => updateItem(i, { expiry_days: Math.max(1, parseInt(e.target.value || "1", 10) || 1) })}
-                  className="w-14 text-xs bg-bg border border-border rounded-md px-1.5 py-1 text-center focus:outline-none focus:border-accent flex-shrink-0"
-                />
-                <span className="text-xs text-textSoft flex-shrink-0">d</span>
-                <button
-                  type="button"
-                  onClick={() => removeItem(i)}
-                  className="text-textSoft hover:text-danger w-6 h-6 flex items-center justify-center flex-shrink-0"
-                  aria-label="Remove item"
-                >×</button>
-              </div>
-            ))}
+          <div className="max-h-[40vh] overflow-y-auto -mx-1 px-1 space-y-2">
+            {items.map((it, i) => {
+              const rowContainer = it.container || "fridge";
+              return (
+                <div key={i} className="bg-card border border-border rounded-lg px-3 py-2">
+                  {/* Line 1: emoji + name + category + expiry days + remove */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg flex-shrink-0">{CATEGORY_EMOJI[it.category] || "📦"}</span>
+                    <input
+                      value={it.name}
+                      onChange={(e) => updateItem(i, { name: e.target.value })}
+                      className="flex-1 min-w-0 bg-transparent border-0 text-sm font-medium focus:outline-none focus:ring-0"
+                    />
+                    <select
+                      value={it.category}
+                      onChange={(e) => updateItem(i, { category: e.target.value, expiry_days: EXPIRY_DAYS_BY_CATEGORY[e.target.value] || it.expiry_days })}
+                      className="text-xs bg-bg border border-border rounded-md px-1.5 py-1 focus:outline-none focus:border-accent flex-shrink-0"
+                    >
+                      {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    <input
+                      type="number"
+                      min="1" max="365" step="1"
+                      value={it.expiry_days}
+                      onChange={(e) => updateItem(i, { expiry_days: Math.max(1, parseInt(e.target.value || "1", 10) || 1) })}
+                      className="w-14 text-xs bg-bg border border-border rounded-md px-1.5 py-1 text-center focus:outline-none focus:border-accent flex-shrink-0"
+                    />
+                    <span className="text-xs text-textSoft flex-shrink-0">d</span>
+                    <button
+                      type="button"
+                      onClick={() => removeItem(i)}
+                      className="text-textSoft hover:text-danger w-6 h-6 flex items-center justify-center flex-shrink-0"
+                      aria-label="Remove item"
+                    >×</button>
+                  </div>
+                  {/* Line 2: container pills — three equal-width tap targets */}
+                  <div className="flex gap-1 mt-2">
+                    {CONTAINERS.map(c => {
+                      const selected = rowContainer === c.id;
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => updateItem(i, { container: c.id })}
+                          className={`flex-1 py-1 rounded-md text-xs font-medium border transition ${
+                            selected
+                              ? "bg-accent/10 border-accent text-accent"
+                              : "bg-bg border-border text-textSoft hover:border-accent"
+                          }`}
+                          aria-pressed={selected}
+                          aria-label={`Set container to ${c.label}`}
+                        >{c.label}</button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           {saveError && <p className="text-sm text-danger">{saveError}</p>}

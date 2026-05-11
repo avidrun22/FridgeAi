@@ -59,5 +59,9 @@ export function rowToItem(row) {
     openedAt: row.opened_at || null,
     expiryOpenedDays: row.expiry_opened_days || null,
     expiryUnopened: row.expiry_unopened || null,
+    // v1.16 — USDA-suggested expiry from FoodKeeper at add time. NULL for
+    // legacy rows and items without a FoodKeeper match. ItemDetailModal
+    // shows the dual-date when this is later than expiryDate.
+    expiryUsdaDate: row.expiry_usda_date || null,
   };
 }

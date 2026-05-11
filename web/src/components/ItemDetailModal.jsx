@@ -163,6 +163,24 @@ export default function ItemDetailModal({ open, onClose, item, onUpdated, onRemo
           <p className="inline-block mt-2 px-3 py-1 rounded-full text-xs font-semibold" style={{ background: color + "22", color }}>
             {expiryLabel(days)}
           </p>
+          {/* v1.16 — dual-date display. When USDA's window is at least 2 days
+              longer than the user's committed expiry, surface the gap. This
+              is the "you can stop trashing yogurt that's fine" moment from
+              Email 4 tip 4. Hidden when usdaDate is missing or roughly equal. */}
+          {(() => {
+            if (!item.expiryUsdaDate || !item.expiryDate) return null;
+            const usdaMs = new Date(item.expiryUsdaDate).getTime();
+            const expMs  = new Date(item.expiryDate).getTime();
+            if (!Number.isFinite(usdaMs) || !Number.isFinite(expMs)) return null;
+            const gapDays = Math.round((usdaMs - expMs) / 86_400_000);
+            if (gapDays < 2) return null;
+            const usdaTotal = Math.max(0, Math.round((usdaMs - Date.now()) / 86_400_000));
+            return (
+              <p className="mt-2 inline-block px-3 py-1.5 rounded-lg text-xs font-medium" style={{ background: "rgba(22,163,74,0.08)", color: "#16a34a", border: "1px solid rgba(22,163,74,0.2)" }}>
+                🌿 USDA shelf life: {usdaTotal} {usdaTotal === 1 ? "day" : "days"} ({gapDays}+ longer than your date)
+              </p>
+            );
+          })()}
         </div>
 
         {!editing && (
