@@ -3228,9 +3228,14 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
               {adding
                 ? <ActivityIndicator color="#FFFFFF" />
                 : <Text style={s.btnPrimaryText}>
+                    {/* v1.16 bug fix — was hardcoded "to Fridge" but in v1.16
+                        each row has its own per-row container picker
+                        (Fridge/Pantry/Freezer). Dropping the destination
+                        from the button — the row pills are the source of
+                        truth for where each item lands. */}
                     {validRows.length === 0
                       ? "Enter items above"
-                      : `✅  Add ${validRows.length} Item${validRows.length !== 1 ? "s" : ""} to Fridge`}
+                      : `✅  Add ${validRows.length} Item${validRows.length !== 1 ? "s" : ""}`}
                   </Text>
               }
             </TouchableOpacity>
@@ -4377,7 +4382,16 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
                 : "Fresh items don't change after opening — same expiry either way."}
             </Text>
 
-            <TouchableOpacity style={s.btnPrimary} onPress={handleAdd}><Text style={s.btnPrimaryText}>Add to Fridge</Text></TouchableOpacity>
+            {/* v1.16 bug fix — button label was hardcoded "Add to Fridge"
+                regardless of which container was selected. Support email
+                2026-05-11: "When I add things to the pantry, the button to
+                add still says add to fridge which causes confusion."
+                section prop is "fridge"/"pantry"/"freezer". */}
+            <TouchableOpacity style={s.btnPrimary} onPress={handleAdd}>
+              <Text style={s.btnPrimaryText}>
+                Add to {(section || "fridge").charAt(0).toUpperCase() + (section || "fridge").slice(1)}
+              </Text>
+            </TouchableOpacity>
             {/* v1.13 — explicit Cancel button below Add. Tapping outside the
                 modal sheet also closes it (overlay onPress=onClose), but
                 testers reported feeling "stuck" inside the manual-add flow
