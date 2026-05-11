@@ -3,7 +3,7 @@ import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   StyleSheet, SafeAreaView, StatusBar, Modal, Alert,
   Animated, Platform, ActivityIndicator, AppState, KeyboardAvoidingView,
-  PanResponder, Dimensions, Keyboard, InputAccessoryView, Image,
+  PanResponder, Dimensions, Keyboard, InputAccessoryView, Image, Switch,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Linking, Share } from "react-native";
@@ -2107,6 +2107,589 @@ function RemindersScreen({ items, notificationsEnabled, onToggleNotifications, e
 
       <View style={{ height: 32 }} />
       <ReorderSheet item={reorderItem} visible={!!reorderItem} onClose={() => setReorderItem(null)} />
+    </ScrollView>
+  );
+}
+
+// ─── Eat Me First Screen ─────────────────────────────────────────────────────
+// v1.16 headline tab. Ranks fridge items by urgency (days-until-expiry plus a
+// per-category spoil weighting), shows the top 12, and gives each row a one-
+// tap "Get recipes" button that calls generate-recipes with that item leading
+// + the 4 next-most-urgent items as context. The web mirror lives at
+// web/src/screens/EatMeFirst.jsx — keep the urgency score in sync.
+function urgencyScoreIOS(item) {
+  const d = daysUntil(item.expiryDate);
+  if (d <= 0) return -1000 + d;
+  const spoil = {
+    Produce: -0.5, Dairy: -0.4, Protein: -0.3, Bakery: -0.2,
+    Frozen: 0.5, "Dry goods": 0.8, Beverages: 0.2,
+  }[item.category] ?? 0;
+  return d + spoil;
+}
+function urgencyBadgeIOS(days) {
+  if (days <= 0)  return { text: "Expired",          color: T.danger, bg: "rgba(220,38,38,0.12)" };
+  if (days === 1) return { text: "Expires tomorrow", color: T.danger, bg: "rgba(220,38,38,0.12)" };
+  if (days <= 3)  return { text: `${days} days left`, color: T.warn,  bg: "rgba(234,88,12,0.12)" };
+  if (days <= 7)  return { text: `${days} days left`, color: "#CA8A04", bg: "rgba(202,138,4,0.12)" };
+  return            { text: `${days} days left`, color: T.accent, bg: "rgba(22,163,74,0.12)" };
+}
+
+function EatMeFirstScreen({ items }) {
+  const [recipeModal, setRecipeModal] = useState(null); // { leadItem, items, recipes, loading, error }
+
+  const ranked = (items || [])
+    .filter(i => daysUntil(i.expiryDate) <= 14)
+    .sort((a, b) => urgencyScoreIOS(a) - urgencyScoreIOS(b))
+    .slice(0, 12);
+
+  const expiredCount = (items || []).filter(i => daysUntil(i.expiryDate) <= 0).length;
+  const soonCount    = (items || []).filter(i => { const d = daysUntil(i.expiryDate); return d > 0 && d <= 3; }).length;
+
+  async function fetchRecipes({ leadItem, contextItems }) {
+    setRecipeModal({ leadItem, items: contextItems, recipes: [], loading: true, error: null });
+    track("eat_me_first_recipes_requested", {
+      lead_item: leadItem?.name || null,
+      context_count: contextItems.length,
+      surface: leadItem ? "row" : "header_top5",
+    });
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Please sign in to generate recipes.");
+      const names = [
+        ...(leadItem ? [leadItem.name] : []),
+        ...contextItems.map(i => i.name).filter(n => n && n !== leadItem?.name),
+      ].slice(0, 8);
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/generate-recipes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ items: names }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      setRecipeModal(m => m && { ...m, recipes: Array.isArray(data.recipes) ? data.recipes : [], loading: false });
+    } catch (e) {
+      setRecipeModal(m => m && { ...m, error: e?.message || "Couldn't generate recipes.", loading: false });
+    }
+  }
+
+  function onUseLeading(item) {
+    const context = ranked.filter(i => i.id !== item.id).slice(0, 4);
+    fetchRecipes({ leadItem: item, contextItems: context });
+  }
+  function onUseTop5() {
+    fetchRecipes({ leadItem: null, contextItems: ranked.slice(0, 5) });
+  }
+
+  return (
+    <ScrollView style={s.screen} showsVerticalScrollIndicator={false}>
+      <View style={s.headerRow}>
+        <View>
+          <Text style={s.pageTitle}>Eat me first</Text>
+          <Text style={s.pageSubtitle}>
+            {ranked.length === 0
+              ? "Nothing in your fridge is close to spoiling — nice."
+              : `${ranked.length} ${ranked.length === 1 ? "item" : "items"} ranked by urgency` +
+                (expiredCount + soonCount > 0 ? ` · ${expiredCount} expired · ${soonCount} expiring within 3 days` : "")}
+          </Text>
+        </View>
+      </View>
+
+      {ranked.length >= 3 && (
+        <View style={[s.card, { margin: 16, padding: 14, marginBottom: 12, borderColor: "rgba(22,163,74,0.3)", backgroundColor: "rgba(22,163,74,0.05)" }]}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <Text style={{ fontSize: 28 }}>🍳</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={s.bold}>Cook with your top 5 expiring items</Text>
+              <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>3 recipes that use as many as possible.</Text>
+            </View>
+            <TouchableOpacity onPress={onUseTop5} style={{ backgroundColor: T.accent, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999 }}>
+              <Text style={{ color: "#FFFFFF", fontSize: 12, fontWeight: "700" }}>Suggest</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {ranked.length === 0 && (
+        <View style={[s.card, { margin: 16, padding: 32, alignItems: "center" }]}>
+          <Text style={{ fontSize: 44, marginBottom: 10 }}>✨</Text>
+          <Text style={s.bold}>All clear</Text>
+          <Text style={{ color: T.textSoft, fontSize: 13, marginTop: 4, textAlign: "center" }}>
+            Nothing in your fridge is close to spoiling.
+          </Text>
+        </View>
+      )}
+
+      {ranked.map((item, idx) => {
+        const d = daysUntil(item.expiryDate);
+        const badge = urgencyBadgeIOS(d);
+        return (
+          <View key={item.id} style={[s.fridgeItem, { marginHorizontal: 16, marginBottom: 8 }]}>
+            <Text style={{ width: 22, textAlign: "center", color: T.textSoft, fontSize: 12, fontWeight: "700" }}>{idx + 1}</Text>
+            <View style={[s.reminderIcon, { backgroundColor: "rgba(22,163,74,0.08)", marginLeft: 6 }]}>
+              <Text style={{ fontSize: 20 }}>{item.emoji || "📦"}</Text>
+            </View>
+            <View style={{ flex: 1, marginLeft: 10 }}>
+              <Text style={s.bold} numberOfLines={1}>{item.name}</Text>
+              <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>{item.category}</Text>
+            </View>
+            <View style={{ backgroundColor: badge.bg, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4, marginRight: 8 }}>
+              <Text style={{ color: badge.color, fontSize: 10, fontWeight: "700" }}>{badge.text}</Text>
+            </View>
+            <TouchableOpacity onPress={() => onUseLeading(item)} style={{ backgroundColor: "rgba(22,163,74,0.1)", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999 }}>
+              <Text style={{ color: T.accent, fontSize: 11, fontWeight: "700" }}>Get recipes</Text>
+            </TouchableOpacity>
+          </View>
+        );
+      })}
+
+      <View style={{ height: 32 }} />
+
+      {/* Recipe modal */}
+      <Modal visible={!!recipeModal} transparent animationType="slide" onRequestClose={() => setRecipeModal(null)}>
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" }}>
+          <View style={{ backgroundColor: T.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "85%" }}>
+            <ScrollView style={{ padding: 20 }}>
+              <Text style={[s.pageTitle, { fontSize: 18, paddingHorizontal: 0, paddingTop: 0 }]}>
+                {recipeModal?.leadItem
+                  ? `Recipes using ${recipeModal.leadItem.name}`
+                  : "Recipes for your top expiring items"}
+              </Text>
+              <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 4, marginBottom: 14 }}>
+                Using: {[recipeModal?.leadItem?.name, ...(recipeModal?.items || []).map(i => i.name)].filter(Boolean).join(", ")}
+              </Text>
+
+              {recipeModal?.loading && (
+                <View style={{ paddingVertical: 30, alignItems: "center" }}>
+                  <ActivityIndicator color={T.accent} />
+                  <Text style={{ color: T.textSoft, fontSize: 13, marginTop: 10 }}>Generating recipes…</Text>
+                </View>
+              )}
+              {recipeModal?.error && (
+                <View style={{ backgroundColor: "rgba(220,38,38,0.08)", borderColor: "rgba(220,38,38,0.3)", borderWidth: 1, borderRadius: 10, padding: 12 }}>
+                  <Text style={{ color: T.danger, fontSize: 13 }}>{recipeModal.error}</Text>
+                </View>
+              )}
+
+              {(recipeModal?.recipes || []).map((r, i) => (
+                <View key={i} style={[s.card, { padding: 14, marginBottom: 10 }]}>
+                  <View style={{ flexDirection: "row", gap: 10, marginBottom: 8 }}>
+                    <Text style={{ fontSize: 26 }}>{r.emoji || "🍽️"}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[s.bold, { fontSize: 15 }]}>{r.name}</Text>
+                      <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 2 }}>
+                        {[r.time, r.difficulty].filter(Boolean).join(" · ")}
+                      </Text>
+                    </View>
+                  </View>
+                  {r.description && <Text style={{ color: T.textSoft, fontSize: 13, lineHeight: 19, marginBottom: 8 }}>{r.description}</Text>}
+                  {Array.isArray(r.ingredients) && r.ingredients.length > 0 && (
+                    <View style={{ marginBottom: 8 }}>
+                      <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 4, paddingHorizontal: 0, fontSize: 10 }]}>INGREDIENTS</Text>
+                      {r.ingredients.map((ing, j) => (
+                        <Text key={j} style={{ color: T.text, fontSize: 13, lineHeight: 20 }}>
+                          • {typeof ing === "object" ? ing.item : ing}{ing?.amount ? ` — ${ing.amount}` : ""}
+                        </Text>
+                      ))}
+                    </View>
+                  )}
+                  {Array.isArray(r.instructions) && r.instructions.length > 0 && (
+                    <View>
+                      <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 4, paddingHorizontal: 0, fontSize: 10 }]}>INSTRUCTIONS</Text>
+                      {r.instructions.map((step, j) => (
+                        <Text key={j} style={{ color: T.text, fontSize: 13, lineHeight: 20 }}>{j + 1}. {step}</Text>
+                      ))}
+                    </View>
+                  )}
+                  {r.tip && <Text style={{ color: T.accent, fontSize: 12, marginTop: 8, fontStyle: "italic" }}>💡 {r.tip}</Text>}
+                </View>
+              ))}
+
+              <TouchableOpacity onPress={() => setRecipeModal(null)} style={[s.btnPrimary, { marginTop: 4, marginBottom: 16 }]}>
+                <Text style={s.btnPrimaryText}>Close</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    </ScrollView>
+  );
+}
+
+// ─── Dashboard Screen ────────────────────────────────────────────────────────
+// v1.16 strategic-reposition supporting tab. Single-glance impact view from
+// money_saved_events. Cold-start framing uses USDA aspirational average so
+// the empty state still communicates value. Mirrors web/src/screens/Dashboard.jsx.
+const _AVG_HOUSEHOLD_WASTE_YEAR = 1866;
+const _CO2_KG_PER_DOLLAR_RESCUED = 1.4;
+const _POUNDS_PER_DOLLAR_RESCUED = 0.5;
+function _fmt$(cents) {
+  const d = (cents || 0) / 100;
+  return d >= 100 ? `$${Math.round(d).toLocaleString()}` : `$${d.toFixed(2)}`;
+}
+function _fmtN(n) { return Math.round(n).toLocaleString(); }
+
+function DashboardScreen({ items }) {
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
+  const [lifetimeCents, setLifetimeCents] = useState(0);
+  const [weekCents, setWeekCents] = useState(0);
+  const [lifetimeCount, setLifetimeCount] = useState(0);
+  const [weekCount, setWeekCount] = useState(0);
+  const [topCategories, setTopCategories] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const weekAgo = new Date();
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        const weekAgoIso = weekAgo.toISOString();
+        const { data: events, error } = await supabase
+          .from("money_saved_events")
+          .select("value_cents, category, saved_at")
+          .order("saved_at", { ascending: false });
+        if (error) throw error;
+        if (cancelled) return;
+        let lifeC = 0, weekC = 0, lifeN = 0, weekN = 0;
+        const byCat = new Map();
+        for (const e of events || []) {
+          lifeC += e.value_cents || 0;
+          lifeN += 1;
+          if (e.saved_at && e.saved_at >= weekAgoIso) {
+            weekC += e.value_cents || 0;
+            weekN += 1;
+          }
+          const c = e.category || "Other";
+          byCat.set(c, (byCat.get(c) || 0) + (e.value_cents || 0));
+        }
+        setLifetimeCents(lifeC);
+        setWeekCents(weekC);
+        setLifetimeCount(lifeN);
+        setWeekCount(weekN);
+        setTopCategories(
+          Array.from(byCat.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5)
+            .map(([category, cents]) => ({ category, cents }))
+        );
+      } catch (e) {
+        if (!cancelled) setErr(e?.message || "Couldn't load dashboard.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const lifetimeDollars = (lifetimeCents || 0) / 100;
+  const lbsRescued = lifetimeDollars * _POUNDS_PER_DOLLAR_RESCUED;
+  const co2Kg = lifetimeDollars * _CO2_KG_PER_DOLLAR_RESCUED;
+  const isColdStart = lifetimeCents === 0;
+  const atRisk = (items || []).filter(i => daysUntil(i.expiryDate) <= 3);
+
+  return (
+    <ScrollView style={s.screen} showsVerticalScrollIndicator={false}>
+      <View style={s.headerRow}>
+        <View>
+          <Text style={s.pageTitle}>Your impact</Text>
+          <Text style={s.pageSubtitle}>
+            {loading ? "Loading…" :
+             isColdStart
+               ? `Avg US household wastes $${_AVG_HOUSEHOLD_WASTE_YEAR.toLocaleString()}/yr. Yours so far: $0.`
+               : `${lifetimeCount} ${lifetimeCount === 1 ? "item" : "items"} rescued — keep it up.`}
+          </Text>
+        </View>
+      </View>
+
+      {err && (
+        <View style={{ marginHorizontal: 16, marginBottom: 12, backgroundColor: "rgba(220,38,38,0.08)", borderColor: "rgba(220,38,38,0.3)", borderWidth: 1, borderRadius: 10, padding: 10 }}>
+          <Text style={{ color: T.danger, fontSize: 13 }}>{err}</Text>
+        </View>
+      )}
+
+      {/* Hero */}
+      <View style={[s.card, { margin: 16, padding: 18, marginBottom: 12, borderColor: "rgba(22,163,74,0.3)", backgroundColor: "rgba(22,163,74,0.06)" }]}>
+        <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 4, paddingHorizontal: 0 }]}>// LIFETIME MONEY SAVED</Text>
+        <Text style={{ color: T.accent, fontSize: 40, fontWeight: "800" }}>{_fmt$(lifetimeCents)}</Text>
+        <Text style={{ color: T.textSoft, fontSize: 13, marginTop: 4 }}>
+          {isColdStart ? "Mark items as \"used\" before they expire to start counting." : `${_fmt$(weekCents)} saved in the last 7 days`}
+        </Text>
+      </View>
+
+      {/* 2x2 stats */}
+      <View style={{ flexDirection: "row", flexWrap: "wrap", paddingHorizontal: 8 }}>
+        <View style={[s.card, { width: "47%", margin: 8, padding: 14 }]}>
+          <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 4, paddingHorizontal: 0, fontSize: 9 }]}>// THIS WEEK</Text>
+          <Text style={{ color: T.accent, fontSize: 22, fontWeight: "800" }}>{_fmt$(weekCents)}</Text>
+          <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 4 }}>{weekCount} {weekCount === 1 ? "item" : "items"} rescued</Text>
+        </View>
+        <View style={[s.card, { width: "47%", margin: 8, padding: 14 }]}>
+          <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 4, paddingHorizontal: 0, fontSize: 9 }]}>// POUNDS RESCUED</Text>
+          <Text style={{ color: T.text, fontSize: 22, fontWeight: "800" }}>{_fmtN(lbsRescued)}</Text>
+          <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 4 }}>Lifetime, estimated</Text>
+        </View>
+        <View style={[s.card, { width: "47%", margin: 8, padding: 14 }]}>
+          <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 4, paddingHorizontal: 0, fontSize: 9 }]}>// CO₂ AVOIDED</Text>
+          <Text style={{ color: T.text, fontSize: 22, fontWeight: "800" }}>{_fmtN(co2Kg)} kg</Text>
+          <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 4 }}>Lifetime, estimated</Text>
+        </View>
+        <View style={[s.card, { width: "47%", margin: 8, padding: 14 }]}>
+          <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 4, paddingHorizontal: 0, fontSize: 9 }]}>// AT RISK NOW</Text>
+          <Text style={{ color: atRisk.length > 0 ? T.warn : T.text, fontSize: 22, fontWeight: "800" }}>{atRisk.length}</Text>
+          <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 4 }}>
+            {atRisk.length === 0 ? "Nothing expiring soon" : "Expiring in 3 days"}
+          </Text>
+        </View>
+      </View>
+
+      {topCategories.length > 0 && (
+        <View style={[s.card, { margin: 16, padding: 14 }]}>
+          <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 10, paddingHorizontal: 0 }]}>// TOP RESCUED CATEGORIES</Text>
+          {topCategories.map(row => {
+            const pct = lifetimeCents > 0 ? Math.round((row.cents / lifetimeCents) * 100) : 0;
+            return (
+              <View key={row.category} style={{ marginBottom: 10 }}>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 4 }}>
+                  <Text style={{ color: T.text, fontSize: 13, fontWeight: "600" }}>{row.category}</Text>
+                  <Text style={{ color: T.textSoft, fontSize: 12 }}>{_fmt$(row.cents)} · {pct}%</Text>
+                </View>
+                <View style={{ height: 6, borderRadius: 3, backgroundColor: T.bg, overflow: "hidden" }}>
+                  <View style={{ width: `${Math.max(pct, 2)}%`, height: "100%", backgroundColor: T.accent }} />
+                </View>
+              </View>
+            );
+          })}
+        </View>
+      )}
+
+      <Text style={{ color: T.muted, fontSize: 10, paddingHorizontal: 16, marginTop: 8, marginBottom: 24 }}>
+        Estimates use USDA food-waste averages — ~$4/lb basket value, 5.6kg CO₂ per kg of food wasted (Project Drawdown).
+      </Text>
+    </ScrollView>
+  );
+}
+
+// ─── Settings Screen ─────────────────────────────────────────────────────────
+// v1.16 destination for everything that used to live in the Alerts/Reminders
+// tab + the global app-bar Share + Logout buttons. Mirrors
+// web/src/screens/Settings.jsx — same sections, same upsert pattern, same
+// user_settings round-tripping.
+const _DIETARY_OPTIONS = [
+  { id: "vegetarian",  label: "Vegetarian",  emoji: "🥗" },
+  { id: "vegan",       label: "Vegan",       emoji: "🌱" },
+  { id: "pescatarian", label: "Pescatarian", emoji: "🐟" },
+  { id: "gluten_free", label: "Gluten-free", emoji: "🌾" },
+  { id: "dairy_free",  label: "Dairy-free",  emoji: "🥛" },
+  { id: "nut_free",    label: "Nut-free",    emoji: "🥜" },
+  { id: "low_carb",    label: "Low-carb",    emoji: "🥩" },
+  { id: "keto",        label: "Keto",        emoji: "🥑" },
+];
+const _ALLERGEN_OPTIONS = [
+  { id: "peanut",    label: "Peanut" },
+  { id: "tree_nut",  label: "Tree nuts" },
+  { id: "shellfish", label: "Shellfish" },
+  { id: "fish",      label: "Fish" },
+  { id: "egg",       label: "Egg" },
+  { id: "milk",      label: "Milk" },
+  { id: "soy",       label: "Soy" },
+  { id: "wheat",     label: "Wheat" },
+  { id: "sesame",    label: "Sesame" },
+];
+
+function SettingsScreen({ notificationsEnabled, onToggleNotifications, emailDigestEnabled, onToggleEmailDigest, onOpenShare, userEmail }) {
+  const [dietary, setDietary]             = useState([]);
+  const [allergens, setAllergens]         = useState([]);
+  const [householdSize, setHouseholdSize] = useState(1);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        const { data } = await supabase
+          .from("user_settings")
+          .select("dietary_restrictions, allergens, household_size")
+          .eq("user_id", user.id)
+          .maybeSingle();
+        if (cancelled || !data) return;
+        if (Array.isArray(data.dietary_restrictions)) setDietary(data.dietary_restrictions);
+        if (Array.isArray(data.allergens)) setAllergens(data.allergens);
+        if (Number.isFinite(Number(data.household_size))) setHouseholdSize(Math.max(1, Number(data.household_size)));
+      } catch (e) {
+        console.warn("user_settings fetch failed:", e?.message || e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  async function persistProfile(patch) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      await supabase.from("user_settings").upsert({
+        user_id: user.id,
+        dietary_restrictions: patch.dietary ?? dietary,
+        allergens: patch.allergens ?? allergens,
+        household_size: patch.householdSize ?? householdSize,
+      });
+      track("profile_updated", {
+        surface: "ios_settings",
+        dietary_count: (patch.dietary ?? dietary).length,
+        allergen_count: (patch.allergens ?? allergens).length,
+        household_size: patch.householdSize ?? householdSize,
+      });
+    } catch (e) {
+      console.warn("user_settings upsert failed:", e?.message || e);
+    }
+  }
+  function toggleDietary(id) {
+    const next = dietary.includes(id) ? dietary.filter(d => d !== id) : [...dietary, id];
+    setDietary(next);
+    persistProfile({ dietary: next });
+  }
+  function toggleAllergen(id) {
+    const next = allergens.includes(id) ? allergens.filter(a => a !== id) : [...allergens, id];
+    setAllergens(next);
+    persistProfile({ allergens: next });
+  }
+  function changeHouseholdSize(delta) {
+    const next = Math.max(1, Math.min(20, householdSize + delta));
+    if (next === householdSize) return;
+    setHouseholdSize(next);
+    persistProfile({ householdSize: next });
+  }
+
+  return (
+    <ScrollView style={s.screen} showsVerticalScrollIndicator={false}>
+      <View style={s.headerRow}>
+        <View>
+          <Text style={s.pageTitle}>Settings</Text>
+          <Text style={s.pageSubtitle}>Recipe preferences, notifications, household, account.</Text>
+        </View>
+      </View>
+
+      {/* Household size + share */}
+      <Text style={s.sectionLabel}>// HOUSEHOLD</Text>
+      <View style={[s.card, { margin: 16, padding: 14, marginBottom: 8 }]}>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <View style={[s.reminderIcon, { backgroundColor: "rgba(22,163,74,0.1)" }]}><Text style={{ fontSize: 20 }}>👥</Text></View>
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={s.bold}>Household size</Text>
+            <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Recipes will be scaled for this many people.</Text>
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <TouchableOpacity onPress={() => changeHouseholdSize(-1)} disabled={householdSize <= 1} style={{ width: 32, height: 32, borderRadius: 16, borderWidth: 1, borderColor: T.border, backgroundColor: T.bg, alignItems: "center", justifyContent: "center", opacity: householdSize <= 1 ? 0.4 : 1 }}>
+              <Text style={{ color: T.text, fontWeight: "700", fontSize: 18 }}>−</Text>
+            </TouchableOpacity>
+            <Text style={{ width: 24, textAlign: "center", color: T.text, fontWeight: "700" }}>{householdSize}</Text>
+            <TouchableOpacity onPress={() => changeHouseholdSize(1)} disabled={householdSize >= 20} style={{ width: 32, height: 32, borderRadius: 16, borderWidth: 1, borderColor: T.border, backgroundColor: T.bg, alignItems: "center", justifyContent: "center", opacity: householdSize >= 20 ? 0.4 : 1 }}>
+              <Text style={{ color: T.text, fontWeight: "700", fontSize: 18 }}>+</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+      <View style={[s.card, { margin: 16, padding: 14, marginTop: 0, marginBottom: 8 }]}>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <View style={[s.reminderIcon, { backgroundColor: "rgba(22,163,74,0.1)" }]}><Text style={{ fontSize: 20 }}>🔗</Text></View>
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={s.bold}>Share fridge with household</Text>
+            <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Invite a partner or roommate.</Text>
+          </View>
+          <TouchableOpacity onPress={onOpenShare} style={{ backgroundColor: T.accent, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999 }}>
+            <Text style={{ color: "#FFFFFF", fontSize: 12, fontWeight: "700" }}>Share</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Dietary */}
+      <Text style={s.sectionLabel}>// DIETARY PREFERENCES</Text>
+      <View style={[s.card, { margin: 16, padding: 14, marginBottom: 8 }]}>
+        <Text style={{ color: T.textSoft, fontSize: 12, marginBottom: 10 }}>Recipe suggestions will respect these. Tap to toggle.</Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+          {_DIETARY_OPTIONS.map(opt => {
+            const active = dietary.includes(opt.id);
+            return (
+              <TouchableOpacity
+                key={opt.id}
+                onPress={() => toggleDietary(opt.id)}
+                style={{
+                  paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, borderWidth: 1,
+                  borderColor: active ? T.accent : T.border,
+                  backgroundColor: active ? T.accent : T.bg,
+                  flexDirection: "row", alignItems: "center", gap: 6,
+                }}
+              >
+                <Text style={{ fontSize: 13 }}>{opt.emoji}</Text>
+                <Text style={{ color: active ? "#FFFFFF" : T.text, fontSize: 12, fontWeight: "600" }}>{opt.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* Allergens */}
+      <Text style={s.sectionLabel}>// ALLERGIES</Text>
+      <View style={[s.card, { margin: 16, padding: 14, marginBottom: 8 }]}>
+        <Text style={{ color: T.textSoft, fontSize: 12, marginBottom: 10 }}>Recipes will never include these ingredients.</Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+          {_ALLERGEN_OPTIONS.map(opt => {
+            const active = allergens.includes(opt.id);
+            return (
+              <TouchableOpacity
+                key={opt.id}
+                onPress={() => toggleAllergen(opt.id)}
+                style={{
+                  paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, borderWidth: 1,
+                  borderColor: active ? T.danger : T.border,
+                  backgroundColor: active ? T.danger : T.bg,
+                }}
+              >
+                <Text style={{ color: active ? "#FFFFFF" : T.text, fontSize: 12, fontWeight: "600" }}>{opt.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* Notifications */}
+      <Text style={s.sectionLabel}>// NOTIFICATIONS</Text>
+      <View style={[s.card, { margin: 16, padding: 14, marginBottom: 8 }]}>
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+          <View style={[s.reminderIcon, { backgroundColor: "rgba(22,163,74,0.1)" }]}><Text style={{ fontSize: 20 }}>🔔</Text></View>
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={s.bold}>Push notifications</Text>
+            <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>The day before something expires.</Text>
+          </View>
+          <Switch value={notificationsEnabled} onValueChange={onToggleNotifications} trackColor={{ false: T.border, true: T.accent }} />
+        </View>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <View style={[s.reminderIcon, { backgroundColor: "rgba(22,163,74,0.1)" }]}><Text style={{ fontSize: 20 }}>✉️</Text></View>
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={s.bold}>Daily email digest</Text>
+            <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Once-a-day summary, sent to {userEmail || "your email"}.</Text>
+          </View>
+          <Switch value={emailDigestEnabled} onValueChange={onToggleEmailDigest} trackColor={{ false: T.border, true: T.accent }} />
+        </View>
+      </View>
+
+      {/* Account */}
+      <Text style={s.sectionLabel}>// ACCOUNT</Text>
+      <View style={[s.card, { margin: 16, padding: 14, marginBottom: 24 }]}>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <View style={[s.reminderIcon, { backgroundColor: "rgba(22,163,74,0.1)" }]}><Text style={{ fontSize: 20 }}>👤</Text></View>
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={s.bold}>{userEmail || "Signed in"}</Text>
+            <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Signed in</Text>
+          </View>
+          <TouchableOpacity
+            onPress={() => supabase.auth.signOut()}
+            style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: T.border, backgroundColor: T.surface }}
+          >
+            <Text style={{ color: T.danger, fontSize: 12, fontWeight: "700" }}>Sign out</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
     </ScrollView>
   );
 }
@@ -5706,10 +6289,18 @@ export default function App() {
 
   if (!user) return <AuthScreen onAuth={setUser} />;
 
-  // v1.0.10 — Share moved off the bottom nav into the fridge header (icon),
-  // and "How To" took its slot. Tester feedback: help should be the most
-  // discoverable thing for new users.
-  const navItems = [{ id: "fridge", label: "Fridge" }, { id: "reminders", label: "Alerts" }, { id: "plan", label: "Plan" }, { id: "howto", label: "How To" }];
+  // v1.16 nav consolidation: Fridge / Eat Me First / Plan / Dashboard /
+  // Settings. Reminders' urgency lists became the Eat Me First tab; its
+  // profile + digest toggles moved into Settings. How-to retired — the
+  // v1.15 first-run tour covers it. Share + Logout moved off the app-bar
+  // into Settings → Household + Account sections.
+  const navItems = [
+    { id: "fridge",      label: "Fridge" },
+    { id: "eatMeFirst",  label: "Eat First" },
+    { id: "plan",        label: "Plan" },
+    { id: "dashboard",   label: "Dashboard" },
+    { id: "settings",    label: "Settings" },
+  ];
 
   return (
     // v1.0.10 — root is a plain View now, with the SafeAreaView nested
@@ -5726,19 +6317,9 @@ export default function App() {
           <Text style={s.appName}>ok2eat</Text>
         </View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          {/* v1.0.10 — Share promoted to the global app bar so it's
-              reachable from every tab. Replaces the Feedback button
-              (whose action moved into the Share screen as a button). */}
-          <TouchableOpacity
-            onPress={() => { track("share_appbar_tapped"); setTab("share"); }}
-            style={{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "rgba(22,163,74,0.1)", borderWidth: 1, borderColor: "rgba(22,163,74,0.2)", borderRadius: 8 }}
-            accessibilityLabel="Share or invite household members"
-          >
-            <Text style={{ fontSize: 12, color: T.accent, fontWeight: "600" }}>Share</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => supabase.auth.signOut()} style={{ paddingHorizontal: 10, paddingVertical: 6 }} accessibilityLabel="Log out">
-            <Text style={{ fontSize: 12, color: T.muted, fontWeight: "600" }}>Logout</Text>
-          </TouchableOpacity>
+          {/* v1.16 — Share + Logout moved into the Settings tab (Household +
+              Account sections). The app-bar now stays clean for the brand
+              mark only, which keeps the 5-tab nav from feeling crowded. */}
         </View>
       </View>
       <View style={{ flex: 1 }}>
@@ -5763,9 +6344,32 @@ export default function App() {
         />}
         {tab === "scan" && <ScanScreen onScanned={handleScanned} />}
         {tab === "plan" && <PlanScreen items={items} householdId={householdId} />}
-        {tab === "reminders" && <RemindersScreen items={items} notificationsEnabled={notificationsEnabled} onToggleNotifications={toggleNotifications} emailDigestEnabled={emailDigestEnabled} onToggleEmailDigest={toggleEmailDigest} />}
-        {tab === "share" && <ShareScreen householdName={householdName} memberCount={memberCount} onOpenInvite={() => setShowInvite(true)} onBack={() => setTab("fridge")} />}
-        {tab === "howto" && <HowToScreen />}
+        {/* v1.16 Tier 3 — new headline tabs. */}
+        {tab === "eatMeFirst" && <EatMeFirstScreen items={items} />}
+        {tab === "dashboard"  && <DashboardScreen  items={items} />}
+        {tab === "settings"   && (
+          <SettingsScreen
+            notificationsEnabled={notificationsEnabled}
+            onToggleNotifications={toggleNotifications}
+            emailDigestEnabled={emailDigestEnabled}
+            onToggleEmailDigest={toggleEmailDigest}
+            onOpenShare={() => setTab("share")}
+            userEmail={user?.email}
+          />
+        )}
+        {/* v1.15 → v1.16 back-compat: anyone still on the old tab IDs
+            (e.g. coming back from a deep-link or AsyncStorage value)
+            falls through to the new home. */}
+        {tab === "reminders" && <EatMeFirstScreen items={items} />}
+        {tab === "howto"     && <SettingsScreen
+          notificationsEnabled={notificationsEnabled}
+          onToggleNotifications={toggleNotifications}
+          emailDigestEnabled={emailDigestEnabled}
+          onToggleEmailDigest={toggleEmailDigest}
+          onOpenShare={() => setTab("share")}
+          userEmail={user?.email}
+        />}
+        {tab === "share" && <ShareScreen householdName={householdName} memberCount={memberCount} onOpenInvite={() => setShowInvite(true)} onBack={() => setTab("settings")} />}
       </View>
       {toast !== "" && <Animated.View style={[s.toast, { opacity: toastOpacity }]}><Text style={s.toastText}>{toast}</Text></Animated.View>}
       <AddModal
@@ -5873,15 +6477,22 @@ export default function App() {
           extends through the home-indicator zone. paddingBottom on iOS
           (~24pt) keeps the labels above the actual indicator. */}
       <View style={[s.navBar, Platform.OS === "ios" && { paddingBottom: 24 }]}>
-        {navItems.map(n => (
-          <TouchableOpacity key={n.id} style={s.navBtn} onPress={() => setTab(n.id)}>
-            {n.id === "fridge" && <MaterialIcons name="kitchen" size={24} color={tab === n.id ? T.accent : T.muted} />}
-            {n.id === "reminders" && <Ionicons name="notifications-outline" size={24} color={tab === n.id ? T.accent : T.muted} />}
-            {n.id === "plan" && <Ionicons name="list-outline" size={24} color={tab === n.id ? T.accent : T.muted} />}
-            {n.id === "howto" && <Ionicons name="help-circle-outline" size={24} color={tab === n.id ? T.accent : T.muted} />}
-            <Text style={[s.navLabel, tab === n.id && { color: T.accent }]}>{n.label}</Text>
-          </TouchableOpacity>
-        ))}
+        {navItems.map(n => {
+          const active = tab === n.id ||
+            (n.id === "eatMeFirst" && tab === "reminders") || // back-compat
+            (n.id === "settings"   && (tab === "howto" || tab === "share"));
+          const color = active ? T.accent : T.muted;
+          return (
+            <TouchableOpacity key={n.id} style={s.navBtn} onPress={() => setTab(n.id)}>
+              {n.id === "fridge"     && <MaterialIcons name="kitchen"            size={24} color={color} />}
+              {n.id === "eatMeFirst" && <MaterialIcons name="local-fire-department" size={24} color={color} />}
+              {n.id === "plan"       && <Ionicons      name="list-outline"       size={24} color={color} />}
+              {n.id === "dashboard"  && <Ionicons      name="bar-chart-outline"  size={24} color={color} />}
+              {n.id === "settings"   && <Ionicons      name="settings-outline"   size={24} color={color} />}
+              <Text style={[s.navLabel, active && { color: T.accent }]}>{n.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
     </View>
   );
