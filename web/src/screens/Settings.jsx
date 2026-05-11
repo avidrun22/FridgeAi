@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase.js";
 import { track } from "../lib/analytics.js";
 import Layout from "../components/Layout.jsx";
@@ -70,6 +70,22 @@ export default function Settings({ user }) {
     }
   }
   useEffect(() => { load(); /* eslint-disable-line */ }, []);
+
+  // v1.16 — fire once per mount when settings finish loading. Includes
+  // counts of what's set so we can answer "do users with allergens set
+  // also set dietary?" without needing user-level joins.
+  const viewedRef = useRef(false);
+  useEffect(() => {
+    if (loading || viewedRef.current) return;
+    track("settings_viewed", {
+      surface: "web",
+      dietary_count: dietary.length,
+      allergen_count: allergens.length,
+      household_size: householdSize,
+      digest_enabled: digestEnabled,
+    });
+    viewedRef.current = true;
+  }, [loading, dietary.length, allergens.length, householdSize, digestEnabled]);
 
   async function persistProfile(patch) {
     try {

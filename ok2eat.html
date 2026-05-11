@@ -3,13 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ok2eat — Is it ok2eat? Finally, an answer.</title>
-<meta name="description" content="The age-old household question, finally answered. ok2eat tracks what's in your fridge, reminds you what's about to spoil, and shows you what to cook tonight from what you already have. Free for iOS.">
+<title>ok2eat — What to eat first, before it goes bad.</title>
+<meta name="description" content="ok2eat tells you what to use up next so dinner uses what's about to spoil, not what you'd have to buy. USDA-backed expiry dates, dietary-aware recipes, household sharing. Free for iOS + web.">
 <meta name="theme-color" content="#F0EADC">
-<meta property="og:title" content="ok2eat — Is it ok2eat? Finally, an answer.">
-<meta property="og:description" content="Snap a grocery receipt to populate your fridge in 10 seconds. Get reminded what's about to spoil. See recipe ideas from what you already have. Share in real time with your household. Free for iOS.">
+<meta property="og:title" content="ok2eat — What to eat first, before it goes bad.">
+<meta property="og:description" content="Snap a grocery receipt — your fridge fills itself. Open the Eat Me First tab — see what's closest to spoiling. Tap any item — get three recipes that use it plus the four next-most-urgent things alongside it. Free for iOS + web.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://ok2eat.com">
+<meta name="p:domain_verify" content="980d32c602d246a628ba296ac4b75894"/>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'%3E%3Crect width='36' height='36' rx='8' fill='%23F0EADC'/%3E%3Cpath fill='%233E721D' d='M35 5.904c2.394 6.042-1.438 20.543-10.5 26.5-9.06 5.957-20.395 3.573-23.097-6.443-1.669-6.186 2.79-10.721 11.851-16.677C22.315 3.327 32.64-.053 35 5.904z'/%3E%3Cpath fill='%23A6D388' d='M19.815 26.578c-5.757 4.013-13.482 3.097-16.29-.934C.718 21.613 4 14.474 9.757 10.463c5.755-4.011 20.258-9.264 23.068-5.234 2.807 4.03-4.825 16.175-13.01 21.349'/%3E%3Cpath fill='%23662113' d='M11.162 12.488c3.48-2.332 7.382-1.495 9.798.995 1.433 1.477-.88 5.382-4.359 7.714-3.478 2.33-7.769 1.763-8.239.731-1.44-3.157-.677-7.109 2.8-9.44z'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,700;12..96,800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -849,11 +850,11 @@
   "@context": "https://schema.org",
   "@type": "MobileApplication",
   "name": "ok2eat",
-  "alternateName": "ok2eat - Less waste, more savings",
-  "description": "ok2eat answers the age-old household question: what do we have to eat? Snap a grocery receipt and your fridge inventory populates in 10 seconds. Get reminded what's about to spoil, see recipes from what you already have, and share a real-time grocery list with your household. Free for iOS.",
+  "alternateName": "ok2eat: Eat First, Waste Less",
+  "description": "ok2eat tells you what to eat first — before it goes bad. Snap a grocery receipt and your fridge fills itself in 10 seconds. The Eat Me First tab ranks every item by urgency. Tap any item to get three recipes that use it (plus the four next-most-urgent things alongside it), respecting your dietary preferences and scaled to your household. Backed by USDA FoodKeeper data — 660 foods. Free for iOS and web.",
   "url": "https://ok2eat.com",
   "applicationCategory": "FoodAndDrinkApplication",
-  "operatingSystem": "iOS 17.0+",
+  "operatingSystem": "iOS 17.0+; Web (any modern browser)",
   "downloadUrl": "https://apps.apple.com/app/id6761730687",
   "installUrl": "https://apps.apple.com/app/id6761730687",
   "offers": {
@@ -869,15 +870,17 @@
     "https://ok2eat.com/screenshots/reorder.png"
   ],
   "featureList": [
-    "Smart product search across 800,000+ items",
-    "Barcode scanning with automatic nutrition lookup",
-    "Receipt scanning to bulk-add groceries",
+    "Eat Me First — fridge ranked by urgency, three recipes per item",
+    "USDA FoodKeeper expiry dates for 660+ foods (printed date + USDA window)",
+    "Receipt scanning to bulk-add groceries with smart container defaults",
+    "Dietary preferences + allergen filtering (vegetarian, vegan, gluten-free, peanut, tree nut, etc.)",
+    "Household-scaled recipe portions",
+    "Impact dashboard: money saved, pounds rescued, CO2 avoided",
     "Daily email digest of what's expiring",
     "Shared household inventory (real-time sync)",
     "Multi-list shopping with creator initials",
-    "One-tap reorder via Instacart, Amazon, or Walmart",
-    "Calorie + macro tracking per item",
-    "Recipe suggestions based on what you have"
+    "Barcode scanning with automatic nutrition lookup",
+    "One-tap reorder via Instacart, Amazon, or Walmart"
   ],
   "publisher": {
     "@type": "Organization",
@@ -886,8 +889,8 @@
     "email": "support@ok2eat.com",
     "logo": "https://ok2eat.com/icon-512.png"
   },
-  "softwareVersion": "1.14",
-  "datePublished": "2026-04-21",
+  "softwareVersion": "1.16",
+  "datePublished": "2026-05-11",
   "inLanguage": "en-US"
 }
 </script>
@@ -989,11 +992,11 @@
   <ul class="nav-links">
     <li class="mobile-hide"><a href="#features">Features</a></li>
     <li class="mobile-hide"><a href="#how">How it works</a></li>
-    <li class="mobile-hide"><a href="#impact">Impact</a></li>
+    <li><a href="/scan/">Scan receipt</a></li>
     <li><a href="/shelf-life/">Shelf life</a></li>
-    <li><a href="/blog/">Blog</a></li>
+    <li class="mobile-hide"><a href="/blog/">Blog</a></li>
     <li class="mobile-hide"><a href="#support">Support</a></li>
-    <li><a href="https://app.ok2eat.com">Log in</a></li>
+    <li class="mobile-hide"><a href="https://app.ok2eat.com">Log in</a></li>
     <li><a href="https://apps.apple.com/us/app/ok2eat/id6761730687" class="nav-cta">Download</a></li>
   </ul>
 </nav>
@@ -1002,9 +1005,9 @@
 <div class="hero">
   <div class="hero-glow"></div>
   <svg class="hero-mark"><use href="#avocado"/></svg>
-  <div class="hero-badge">Now on iOS · and the web</div>
-  <h1>Is it <span>ok2eat?</span></h1>
-  <p class="hero-sub">The age-old household question, finally answered. Snap a grocery receipt and your fridge populates in 10 seconds. ok2eat reminds you what's about to spoil, suggests recipes from what you already have, and shares a real-time list with your household. Free.</p>
+  <div class="hero-badge">v1.16 · iOS + web</div>
+  <h1>What to eat first — <span>before it goes bad.</span></h1>
+  <p class="hero-sub">Open your fridge. There's leftover chicken, half a bag of spinach, three yogurts, and that cilantro you forgot about. Which is going bad first? Most apps make you scroll. ok2eat just tells you — in the new Eat Me First tab — plus three recipes that use whatever's closest to spoiling. Free.</p>
   <div class="hero-cta">
     <a href="https://apps.apple.com/us/app/ok2eat/id6761730687" class="btn-primary">Download on the App Store</a>
     <a href="https://app.ok2eat.com" class="btn-secondary">Open the web app →</a>
@@ -1103,13 +1106,33 @@
 <section id="features">
   <div class="section-tag">// What you get</div>
   <h2>Everything you need to waste nothing.</h2>
-  <p class="section-sub">ok2eat is built around a simple idea — the more you know about what's in your kitchen, the less you'll throw away.</p>
+  <p class="section-sub">ok2eat is built around one question — what should you eat first, before it goes bad? Every feature below answers that, or makes the answer faster.</p>
 
   <div class="features-grid">
     <div class="feature-card">
+      <span class="feature-icon">🔥</span>
+      <div class="feature-title">Eat Me First <span style="font-size:11px;background:var(--green);color:#fff;padding:2px 8px;border-radius:99px;margin-left:6px;vertical-align:middle;letter-spacing:0.05em;">NEW</span></div>
+      <div class="feature-desc">A new top-level tab that ranks your fridge by urgency. The thing closest to spoiling sits at the top. Tap any item to get three recipes that use it — plus the four next-most-urgent things alongside it — so dinner uses what's about to go bad instead of what you'd have to buy.</div>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">⏰</span>
+      <div class="feature-title">USDA-backed expiry dates</div>
+      <div class="feature-desc">Per-item shelf life from the <strong>USDA FoodKeeper</strong> dataset — 660+ foods with their own typical fridge, freezer, and pantry windows. ok2eat stores both the printed date and the USDA window, so you stop throwing out yogurt that's still good.</div>
+    </div>
+    <div class="feature-card">
       <span class="feature-icon">📸</span>
       <div class="feature-title">Receipt Scanning</div>
-      <div class="feature-desc">Photograph your grocery receipt and ok2eat fills your fridge for you. AI vision reads every item, categorizes it, and sets smart expiry dates — done in seconds, not scans.</div>
+      <div class="feature-desc">Snap your grocery receipt and ok2eat fills your fridge for you in seconds. Every line gets smart expiry dates from FoodKeeper plus a smart container default — bread to pantry, ice cream to freezer, no manual sorting.</div>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">📊</span>
+      <div class="feature-title">Impact Dashboard <span style="font-size:11px;background:var(--green);color:#fff;padding:2px 8px;border-radius:99px;margin-left:6px;vertical-align:middle;letter-spacing:0.05em;">NEW</span></div>
+      <div class="feature-desc">Lifetime money saved, pounds of food rescued, CO₂ avoided. Live numbers, recalculated every time you mark something used. The average US household wastes $1,866 of food a year — yours doesn't have to.</div>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">🥗</span>
+      <div class="feature-title">Recipes that respect your diet <span style="font-size:11px;background:var(--green);color:#fff;padding:2px 8px;border-radius:99px;margin-left:6px;vertical-align:middle;letter-spacing:0.05em;">NEW</span></div>
+      <div class="feature-desc">Set dietary preferences (vegetarian, vegan, gluten-free, dairy-free, nut-free, low-carb, keto) and allergies (peanut, tree nut, shellfish, fish, egg, milk, soy, wheat, sesame) once. Every recipe respects them. Ingredient amounts scale to your household size.</div>
     </div>
     <div class="feature-card">
       <span class="feature-icon">📷</span>
@@ -1120,16 +1143,6 @@
       <span class="feature-icon">🔔</span>
       <div class="feature-title">Daily Digest</div>
       <div class="feature-desc">Get a morning summary by push notification, email, or both — your choice. See what's expiring, what's expired, and what to use first.</div>
-    </div>
-    <div class="feature-card">
-      <span class="feature-icon">⏰</span>
-      <div class="feature-title">Smart Expiry Tracking</div>
-      <div class="feature-desc">Per-item shelf life from the <strong>USDA FoodKeeper</strong> dataset — 660+ foods with their own typical fridge, freezer, and pantry windows. Color-coded badges tell you at a glance what to eat first. Override per item anytime.</div>
-    </div>
-    <div class="feature-card">
-      <span class="feature-icon">🧠</span>
-      <div class="feature-title">AI Recipe Ideas</div>
-      <div class="feature-desc">Tap one button. Get 3 creative recipes built from exactly what's in your fridge — with full instructions, ingredient amounts, and pro tips.</div>
     </div>
     <div class="feature-card">
       <span class="feature-icon">🛒</span>
@@ -1206,8 +1219,8 @@
     </div>
     <div class="step">
       <div class="step-num">03</div>
-      <div class="step-title">Cook from what you have</div>
-      <div class="step-desc">Tap any item for AI-generated recipe ideas built from your actual inventory. Three recipes, full instructions, made from what's in your fridge right now.</div>
+      <div class="step-title">Open Eat Me First</div>
+      <div class="step-desc">Your fridge already sorted by urgency. Tap any item and get three recipe ideas that use it plus the four next-most-urgent things alongside it — respecting your dietary preferences and scaled to your household size.</div>
     </div>
     <div class="step">
       <div class="step-num">04</div>

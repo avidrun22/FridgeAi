@@ -2145,6 +2145,22 @@ function EatMeFirstScreen({ items }) {
   const expiredCount = (items || []).filter(i => daysUntil(i.expiryDate) <= 0).length;
   const soonCount    = (items || []).filter(i => { const d = daysUntil(i.expiryDate); return d > 0 && d <= 3; }).length;
 
+  // v1.16 — fire once per mount so we can measure post-launch adoption of
+  // the new headline tab. Counts let us split engagement by "did the user
+  // have anything actionable to see" vs. an empty/all-clear state.
+  const viewedRef = useRef(false);
+  useEffect(() => {
+    if (viewedRef.current) return;
+    track("eat_me_first_viewed", {
+      surface: "ios",
+      total_items: (items || []).length,
+      expired_count: expiredCount,
+      expiring_soon_count: soonCount,
+      has_actionable: expiredCount + soonCount > 0,
+    });
+    viewedRef.current = true;
+  }, [items, expiredCount, soonCount]);
+
   async function fetchRecipes({ leadItem, contextItems }) {
     setRecipeModal({ leadItem, items: contextItems, recipes: [], loading: true, error: null });
     track("eat_me_first_recipes_requested", {
@@ -2387,6 +2403,28 @@ function DashboardScreen({ items }) {
   const isColdStart = lifetimeCents === 0;
   const atRisk = (items || []).filter(i => daysUntil(i.expiryDate) <= 3);
 
+  // v1.16 — fire once after the money_saved_events query lands. Bucketed
+  // lifetime so we don't leak per-user spend in event properties; is_cold_start
+  // lets us split first-impression engagement from returning-user engagement.
+  const viewedRef = useRef(false);
+  useEffect(() => {
+    if (loading || viewedRef.current) return;
+    const bucket =
+      lifetimeDollars === 0   ? "0"      :
+      lifetimeDollars <= 10   ? "1-10"   :
+      lifetimeDollars <= 50   ? "11-50"  :
+      lifetimeDollars <= 200  ? "51-200" :
+                                "200+";
+    track("dashboard_viewed", {
+      surface: "ios",
+      is_cold_start: isColdStart,
+      lifetime_bucket: bucket,
+      lifetime_count: lifetimeCount,
+      at_risk_count: atRisk.length,
+    });
+    viewedRef.current = true;
+  }, [loading, lifetimeDollars, lifetimeCount, atRisk.length, isColdStart]);
+
   return (
     <ScrollView style={s.screen} showsVerticalScrollIndicator={false}>
       <View style={s.headerRow}>
@@ -2500,6 +2538,24 @@ function SettingsScreen({ notificationsEnabled, onToggleNotifications, emailDige
   const [dietary, setDietary]             = useState([]);
   const [allergens, setAllergens]         = useState([]);
   const [householdSize, setHouseholdSize] = useState(1);
+  const [profileLoaded, setProfileLoaded] = useState(false);
+
+  // v1.16 — fire once when the profile data lands, including counts so we
+  // can split engagement by "did the user fill in their dietary/allergen
+  // settings" without needing per-user joins in PostHog.
+  const viewedRef = useRef(false);
+  useEffect(() => {
+    if (!profileLoaded || viewedRef.current) return;
+    track("settings_viewed", {
+      surface: "ios",
+      dietary_count: dietary.length,
+      allergen_count: allergens.length,
+      household_size: householdSize,
+      push_enabled: !!notificationsEnabled,
+      digest_enabled: !!emailDigestEnabled,
+    });
+    viewedRef.current = true;
+  }, [profileLoaded, dietary.length, allergens.length, householdSize, notificationsEnabled, emailDigestEnabled]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2512,12 +2568,14 @@ function SettingsScreen({ notificationsEnabled, onToggleNotifications, emailDige
           .select("dietary_restrictions, allergens, household_size")
           .eq("user_id", user.id)
           .maybeSingle();
-        if (cancelled || !data) return;
+        if (cancelled || !data) { setProfileLoaded(true); return; }
         if (Array.isArray(data.dietary_restrictions)) setDietary(data.dietary_restrictions);
         if (Array.isArray(data.allergens)) setAllergens(data.allergens);
         if (Number.isFinite(Number(data.household_size))) setHouseholdSize(Math.max(1, Number(data.household_size)));
       } catch (e) {
         console.warn("user_settings fetch failed:", e?.message || e);
+      } finally {
+        if (!cancelled) setProfileLoaded(true);
       }
     })();
     return () => { cancelled = true; };

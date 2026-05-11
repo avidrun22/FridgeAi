@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase.js";
 import { rowToItem, daysUntil } from "../lib/helpers.js";
+import { track } from "../lib/analytics.js";
 import Layout from "../components/Layout.jsx";
 
 // Dashboard tab — v1.16 strategic-reposition supporting feature.
@@ -131,6 +132,30 @@ export default function Dashboard({ user }) {
   }
 
   useEffect(() => { load(); /* eslint-disable-line */ }, []);
+
+  // v1.16 — fire once per mount when data finishes loading. Includes the
+  // is-cold-start flag so we can split "first impression" engagement from
+  // "returning user" engagement in PostHog. lifetime_cents bucketed (not
+  // raw) so we don't accidentally leak per-user spend in event properties.
+  const viewedRef = useRef(false);
+  useEffect(() => {
+    if (loading || viewedRef.current) return;
+    const lifetimeDollars = (lifetimeCents || 0) / 100;
+    const bucket =
+      lifetimeDollars === 0   ? "0"        :
+      lifetimeDollars <= 10   ? "1-10"     :
+      lifetimeDollars <= 50   ? "11-50"    :
+      lifetimeDollars <= 200  ? "51-200"   :
+                                "200+";
+    track("dashboard_viewed", {
+      surface: "web",
+      is_cold_start: lifetimeCents === 0,
+      lifetime_bucket: bucket,
+      lifetime_count: lifetimeCount,
+      at_risk_count: atRiskCount,
+    });
+    viewedRef.current = true;
+  }, [loading, lifetimeCents, lifetimeCount, atRiskCount]);
 
   // Derived metrics.
   const lifetimeDollars = (lifetimeCents || 0) / 100;

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase.js";
 import { rowToItem, daysUntil } from "../lib/helpers.js";
 import { CATEGORY_EMOJI } from "../lib/constants.js";
@@ -78,6 +78,25 @@ export default function EatMeFirst({ user }) {
   }
 
   useEffect(() => { load(); /* eslint-disable-line */ }, []);
+
+  // v1.16 — fire once per mount when data finishes loading so we get a clean
+  // "user actually saw the ranked list" signal (vs. "user navigated then
+  // bounced before fetch returned"). Includes counts so we can correlate
+  // with "do empty-state visitors retain less than populated-state ones".
+  const viewedRef = useRef(false);
+  useEffect(() => {
+    if (loading || viewedRef.current) return;
+    const expCount = items.filter(i => daysUntil(i.expiryDate) <= 0).length;
+    const soonCount = items.filter(i => { const d = daysUntil(i.expiryDate); return d > 0 && d <= 3; }).length;
+    track("eat_me_first_viewed", {
+      surface: "web",
+      total_items: items.length,
+      expired_count: expCount,
+      expiring_soon_count: soonCount,
+      has_actionable: expCount + soonCount > 0,
+    });
+    viewedRef.current = true;
+  }, [loading, items.length]);
 
   // Sort + cap. Anything past 14 days drops off — they're not "eat me first".
   const ranked = items
