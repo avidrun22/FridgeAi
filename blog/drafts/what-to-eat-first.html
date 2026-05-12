@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<!--
+  Draft. Move to blog/what-to-eat-first.html when ready to publish, add a card
+  to blog/index.html, then run /deploy. Preview locally:
+    cd ~/fridgeai-native && python3 -m http.server 8000
+    open http://localhost:8000/blog/drafts/what-to-eat-first.html
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>What to eat first, before it goes bad — ok2eat</title>
+<meta name="description" content="Why the fridge problem is a priority problem, not an inventory problem — and how we rebuilt ok2eat around one question in v1.16.">
+<meta name="theme-color" content="#F0EADC">
+<meta property="og:title" content="What to eat first, before it goes bad">
+<meta property="og:description" content="Why the fridge problem is a priority problem, not an inventory problem — and how we rebuilt ok2eat around one question in v1.16.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://ok2eat.com/blog/what-to-eat-first.html">
+<meta property="article:published_time" content="2026-05-11">
+<meta property="article:author" content="Greg">
+<link rel="canonical" href="https://ok2eat.com/blog/what-to-eat-first.html">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'%3E%3Crect width='36' height='36' rx='8' fill='%23F0EADC'/%3E%3Cpath fill='%233E721D' d='M35 5.904c2.394 6.042-1.438 20.543-10.5 26.5-9.06 5.957-20.395 3.573-23.097-6.443-1.669-6.186 2.79-10.721 11.851-16.677C22.315 3.327 32.64-.053 35 5.904z'/%3E%3Cpath fill='%23A6D388' d='M19.815 26.578c-5.757 4.013-13.482 3.097-16.29-.934C.718 21.613 4 14.474 9.757 10.463c5.755-4.011 20.258-9.264 23.068-5.234 2.807 4.03-4.825 16.175-13.01 21.349'/%3E%3Cpath fill='%23662113' d='M11.162 12.488c3.48-2.332 7.382-1.495 9.798.995 1.433 1.477-.88 5.382-4.359 7.714-3.478 2.33-7.769 1.763-8.239.731-1.44-3.157-.677-7.109 2.8-9.44z'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,700;12..96,800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/blog/styles.css">
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="avocado" viewBox="0 0 36 36">
+    <rect width="36" height="36" rx="8" fill="#F0EADC"/>
+    <path fill="#3E721D" d="M35 5.904c2.394 6.042-1.438 20.543-10.5 26.5-9.06 5.957-20.395 3.573-23.097-6.443-1.669-6.186 2.79-10.721 11.851-16.677C22.315 3.327 32.64-.053 35 5.904z"/>
+    <path fill="#A6D388" d="M19.815 26.578c-5.757 4.013-13.482 3.097-16.29-.934C.718 21.613 4 14.474 9.757 10.463c5.755-4.011 20.258-9.264 23.068-5.234 2.807 4.03-4.825 16.175-13.01 21.349"/>
+    <path fill="#662113" d="M11.162 12.488c3.48-2.332 7.382-1.495 9.798.995 1.433 1.477-.88 5.382-4.359 7.714-3.478 2.33-7.769 1.763-8.239.731-1.44-3.157-.677-7.109 2.8-9.44z"/>
+  </symbol>
+</svg>
+
+<nav>
+  <a href="/" class="nav-logo"><svg><use href="#avocado"/></svg> ok2eat</a>
+  <ul class="nav-links">
+    <li><a href="/#features">Features</a></li>
+    <li><a href="/#how">How it works</a></li>
+    <li><a href="/blog/" class="is-active">Blog</a></li>
+    <li><a href="/#support">Support</a></li>
+    <li><a href="https://app.ok2eat.com">Log in</a></li>
+    <li><a href="https://apps.apple.com/us/app/ok2eat/id6761730687" class="nav-cta">Download</a></li>
+  </ul>
+</nav>
+
+<main>
+  <article>
+    <p class="article-meta">2026-05-11 · 5 min read</p>
+    <h1 class="article-title">What to eat first, before it goes bad.</h1>
+    <p class="article-author">By Greg, founder of ok2eat</p>
+
+    <div class="article-body">
+      <p>For most of the time I've been building ok2eat, I assumed the hard part was knowing what was in the fridge. Inventory was the problem. If we could just get an accurate, frictionless picture of what people owned, the rest would solve itself. We built receipt scanning, barcode scanning, smart expiry dates from <strong>USDA FoodKeeper</strong> data, household sharing, daily digests. People used all of it. And then they kept ordering takeout.</p>
+
+      <p>That last part bothered me for months.</p>
+
+      <h2>The fridge isn't an inventory problem</h2>
+
+      <p>I started watching how people — including me — actually opened the app. Almost nobody pulled it up to "manage their inventory." They pulled it up at 6pm, standing in front of the fridge, asking one question: <em>what should we eat tonight?</em> And the answer the app was giving them was a list. Twelve items. Three categories. Six expiry dates in the next two weeks. Useful, but not an answer.</p>
+
+      <p>The honest answer to <em>"what should we eat tonight?"</em> is a single item, not a list. It's the thing that's going to go bad first, and ideally a recipe that uses it. Everything else is noise at that moment. The half-bag of spinach, the leftover chicken, the three yogurts — those don't need equal billing on the screen. One of them is about to spoil, and that's the one to cook.</p>
+
+      <p>Once I saw the problem that way, the architecture of the app didn't make sense anymore. We had built an inventory tool, and the user was asking for a priority tool.</p>
+
+      <h2>v1.16 — the reorganization</h2>
+
+      <p>Version 1.16, which shipped this week, is the answer to that. The headline is a new top-level tab called <strong>Eat Me First</strong>. Open it and your fridge is already sorted by urgency, with a per-item score that combines the days-until-expiry with a category weighting (because herbs and produce spoil faster than dry goods at the same labeled date, and the app should know that).</p>
+
+      <p>The thing closest to going bad sits at the top. Tap any item and you get three recipe ideas that use it <em>plus</em> the four next-most-urgent things in your fridge alongside it. The recipes respect your dietary preferences and scale to your household size. So dinner uses what's about to spoil, not what you'd have to buy.</p>
+
+      <p>That single decision — reorganize around priority instead of inventory — turned out to imply a handful of supporting changes. They all fell out of the same idea:</p>
+
+      <ol>
+        <li><strong>Dietary preferences and allergens have to be set once</strong>, then respected forever. If we're suggesting recipes for whatever's about to spoil, we can't ask the user to filter again every time. Vegetarian, vegan, gluten-free, dairy-free, plus the major allergens (peanut, tree nut, shellfish, fish, egg, milk, soy, wheat, sesame). Set in Settings, applied automatically.</li>
+        <li><strong>Recipes scale to household size.</strong> A recipe that serves 1 is useless if you're cooking for 4. Tell the app your household size and the ingredient quantities adjust.</li>
+        <li><strong>Expiry dates show both the printed date and the USDA window.</strong> Most printed dates are quality indicators, not safety ones. The USDA FoodKeeper data we already use says unopened milk typically lasts a week past its printed date in the fridge. We now show both numbers so you stop trashing yogurt that's still good.</li>
+        <li><strong>An Impact Dashboard.</strong> Money saved, pounds rescued, CO₂ avoided, recalculated every time you mark something used. The average US household throws out $1,866 of food a year. Yours doesn't have to.</li>
+      </ol>
+
+      <h2>What I learned</h2>
+
+      <p>The lesson I'm taking out of this release is something like: <em>features answer the question the user is asking, not the one you're asking about them</em>. Inventory is what I, as the builder, was thinking about. Priority is what the user was asking about. The gap between those two framings was the entire reason takeout was winning.</p>
+
+      <p>If you've been using ok2eat for a while and the habit didn't quite stick, the new Eat Me First tab is the one to open first. Built for the exact moment you're standing at the fridge door wondering <em>"what do I cook tonight?"</em></p>
+
+      <p>If you're new, ok2eat is free on iPhone and the web — <a href="https://apps.apple.com/us/app/ok2eat/id6761730687">App Store</a>, or <a href="https://app.ok2eat.com">app.ok2eat.com</a>. And our shelf-life directory at <a href="/shelf-life/">ok2eat.com/shelf-life</a> covers 660+ foods with USDA windows, free, no sign-up — useful for the "is this still good?" texts even if you don't want another app on your phone.</p>
+
+      <p>I'd love to hear how the new tab feels. Reply to any of our emails or write to <a href="mailto:support@ok2eat.com">support@ok2eat.com</a>. Read same day.</p>
+
+      <p>— Greg</p>
+    </div>
+
+    <div class="article-footer">
+      <a href="/blog/" class="back-to-blog">← Back to all posts</a>
+      <a href="https://apps.apple.com/us/app/ok2eat/id6761730687" class="nav-cta" style="text-decoration: none;">Download ok2eat</a>
+    </div>
+
+    <section class="signup" id="subscribe">
+      <h3>Get new posts in your inbox</h3>
+      <p>Two short emails a week, Tuesdays and Thursdays. No spam, no upsells, easy unsubscribe.</p>
+      <form class="signup-form" data-newsletter>
+        <input type="email" name="email" placeholder="you@example.com" required autocomplete="email">
+        <button type="submit">Subscribe</button>
+      </form>
+      <p class="signup-note">We use Resend for delivery. Your email is never shared.</p>
+      <p class="signup-msg" data-newsletter-msg></p>
+    </section>
+  </article>
+</main>
+
+<footer>
+  <p>
+    <a href="/">Home</a>
+    <a href="/blog/">Blog</a>
+    <a href="/#support">Support</a>
+    <a href="/#privacy">Privacy</a>
+    <a href="https://apps.apple.com/us/app/ok2eat/id6761730687">Download</a>
+  </p>
+  <p style="margin-top: 14px;">© 2026 ok2eat · Less waste, more savings.</p>
+</footer>
+
+<script src="/blog/newsletter.js" defer></script>
+</body>
+</html>
