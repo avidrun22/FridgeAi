@@ -11,6 +11,10 @@
 # SPA fallback — without this, refreshing on /fridge would 404 because there's
 # no real /fridge file on disk. Netlify rewrites every unknown path to index.html
 # so React Router can take over.
+#
+# IMPORTANT: redirect rules are applied AFTER static files, so the AASA file
+# at /.well-known/apple-app-site-association (deployed from web/public/) is
+# served as-is. The catch-all only fires when no matching file exists.
 [[redirects]]
   from = "/*"
   to = "/index.html"
@@ -21,3 +25,12 @@
   for = "/assets/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
+
+# Apple Universal Links — AASA file must be served as application/json with
+# no extension. Apple validators warn if Content-Type is wrong, even though
+# the spec is permissive in practice.
+[[headers]]
+  for = "/.well-known/apple-app-site-association"
+  [headers.values]
+    Content-Type = "application/json"
+    Cache-Control = "public, max-age=3600"

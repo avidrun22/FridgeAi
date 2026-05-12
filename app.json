@@ -6,6 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "scheme": "ok2eat",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -16,7 +17,8 @@
       "bundleIdentifier": "com.gregorygoldberg.ok2eat",
       "buildNumber": "21",
       "associatedDomains": [
-        "applinks:ok2eat.com"
+        "applinks:ok2eat.com",
+        "applinks:app.ok2eat.com"
       ],
       "infoPlist": {
         "NSCameraUsageDescription": "ok2eat uses your camera to read grocery receipts and scan product barcodes. Photos stay on your device.",

@@ -5911,42 +5911,113 @@ export default function App() {
     };
   }, []);
 
-  // v1.15 — Deep link / Universal Link listener. Fires `digest_email_opened`
-  // when the user clicks the "Open ok2eat" CTA in a daily digest email
-  // (those CTAs carry utm_source=email_digest). Generalized: any URL with
-  // utm_source attribution will fire `link_followed` so we can also see
-  // X-thread / blog-CTA traffic landing in the app.
+  // v1.17 — combined deep-link + Universal Link handler.
+  //
+  // What it does:
+  //   1. Parses the URL path and routes to the right v1.16 tab (or modal).
+  //   2. Keeps the v1.15 UTM telemetry (digest_email_opened, link_followed).
+  //   3. Fires a new `deep_link_opened` event for every routed URL so we can
+  //      measure routing usage independent of UTM presence.
+  //
+  // Supported URL shapes (handle both Universal Links and ok2eat:// scheme):
+  //   https://app.ok2eat.com/fridge        → Fridge tab
+  //   https://app.ok2eat.com/eat-me-first  → Eat Me First tab (v1.16 headline)
+  //   https://app.ok2eat.com/plan          → Plan tab
+  //   https://app.ok2eat.com/dashboard     → Dashboard tab
+  //   https://app.ok2eat.com/settings      → Settings tab
+  //   https://app.ok2eat.com/scan          → Scan camera flow
+  //   https://app.ok2eat.com/add           → Add-item modal
+  //   https://app.ok2eat.com/alerts        → Eat Me First (v1.15 back-compat)
+  //   https://app.ok2eat.com/how-to        → Settings (v1.15 back-compat)
+  //   https://ok2eat.com/open              → no-op (existing digest button)
+  //   ok2eat://settings, ok2eat://profile/edit, etc. — same path map
+  //
+  // AASA file lives at https://app.ok2eat.com/.well-known/apple-app-site-association
+  // (served from web/public/.well-known/). The marketing site's AASA at
+  // ok2eat.com still claims only /open* — by design, so marketing-site links
+  // don't accidentally hijack browser navigation.
   useEffect(() => {
-    const fireFromUrl = (url) => {
+    const PATH_TO_TAB = {
+      "/fridge":       "fridge",
+      "/eat-me-first": "eatMeFirst",
+      "/eat-first":    "eatMeFirst",
+      "/plan":         "plan",
+      "/dashboard":    "dashboard",
+      "/settings":     "settings",
+      "/profile":      "settings",       // ok2eat://profile/edit lands here
+      "/profile/edit": "settings",
+      "/scan":         "scan",
+      "/alerts":       "eatMeFirst",     // v1.15 back-compat
+      "/how-to":       "settings",       // v1.15 back-compat
+    };
+
+    const handleUrl = (url) => {
       if (!url || typeof url !== "string") return;
       try {
-        // Pull query params manually — the `URL` global isn't fully
-        // implemented in older RN runtimes, and we only need a couple of keys.
+        // Parse the path. Two URL flavors to handle:
+        //   1. Universal Links: https://[app.]ok2eat.com/<path>?utm…
+        //   2. Custom scheme:    ok2eat://<path>
+        //
+        // For the custom scheme, everything after "ok2eat://" is treated as
+        // path — there's no real "host" concept since we don't need to
+        // distinguish ok2eat://settings from ok2eat://app/settings. Both
+        // map cleanly to the path map.
+        let path = "/";
+        if (url.startsWith("ok2eat://")) {
+          let rest = url.slice("ok2eat://".length).split(/[?#]/)[0];
+          path = "/" + rest.replace(/^\/+/, "");
+        } else {
+          const m = url.match(/^https?:\/\/[^/]+(\/[^?#]*)?/);
+          if (m && m[1]) path = m[1];
+        }
+        // Strip trailing slash (but keep "/" as-is)
+        if (path.length > 1 && path.endsWith("/")) path = path.slice(0, -1);
+
+        // Route. Anything not in the map (incl. /open and /) is a no-op —
+        // just opening the app is enough.
+        const tab = PATH_TO_TAB[path];
+        if (tab) {
+          setTab(tab);
+        } else if (path === "/add" || path === "/add-item") {
+          setShowAdd(true);
+        }
+
+        // UTM telemetry — kept identical to v1.15 behaviour.
         const qIdx = url.indexOf("?");
-        if (qIdx < 0) return;
-        const search = url.slice(qIdx + 1);
-        const params = {};
-        for (const part of search.split("&")) {
-          const [k, v] = part.split("=").map(decodeURIComponent);
-          if (k) params[k] = v ?? "";
+        if (qIdx >= 0) {
+          const params = {};
+          for (const part of url.slice(qIdx + 1).split("&")) {
+            const [k, v] = part.split("=").map(decodeURIComponent);
+            if (k) params[k] = v ?? "";
+          }
+          if (params.utm_source === "email_digest") {
+            track("digest_email_opened", {
+              campaign: params.utm_campaign || "daily_digest",
+              medium: params.utm_medium || "email",
+            });
+          }
+          if (params.utm_source) {
+            track("link_followed", {
+              source: params.utm_source,
+              medium: params.utm_medium || "",
+              campaign: params.utm_campaign || "",
+              path,
+            });
+          }
         }
-        const src = params.utm_source;
-        if (!src) return;
-        if (src === "email_digest") {
-          track("digest_email_opened", {
-            campaign: params.utm_campaign || "daily_digest",
-            medium: params.utm_medium || "email",
-          });
-        }
-        track("link_followed", {
-          source: src,
-          medium: params.utm_medium || "",
-          campaign: params.utm_campaign || "",
+
+        // v1.17 — always fire deep_link_opened so routing usage shows up in
+        // PostHog whether or not the link carried UTM params.
+        track("deep_link_opened", {
+          path,
+          scheme: url.startsWith("ok2eat://") ? "custom" : "universal",
+          routed_to: tab || (path === "/add" || path === "/add-item" ? "add_modal" : null),
         });
       } catch (e) { /* analytics never crashes the app */ }
     };
-    Linking.getInitialURL().then(fireFromUrl).catch(() => { /* noop */ });
-    const sub = Linking.addEventListener("url", (event) => fireFromUrl(event?.url));
+
+    Linking.getInitialURL().then(handleUrl).catch(() => { /* noop */ });
+    const sub = Linking.addEventListener("url", (event) => handleUrl(event?.url));
     return () => sub.remove();
   }, []);
 

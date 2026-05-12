@@ -1,0 +1,22 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["VU4973B972.com.gregorygoldberg.ok2eat"],
+        "components": [
+          { "/": "/",              "comment": "Web app root → opens iOS app at last-used tab" },
+          { "/": "/fridge*",       "comment": "Fridge tab" },
+          { "/": "/eat-me-first*", "comment": "Eat Me First tab (v1.16 headline)" },
+          { "/": "/eat-first*",    "comment": "Eat Me First alias" },
+          { "/": "/plan*",         "comment": "Plan tab" },
+          { "/": "/dashboard*",    "comment": "Dashboard tab" },
+          { "/": "/settings*",     "comment": "Settings tab" },
+          { "/": "/scan*",         "comment": "Open scan flow" },
+          { "/": "/add*",          "comment": "Open add-item modal" },
+          { "/": "/alerts*",       "comment": "v1.15 back-compat → Eat Me First" },
+          { "/": "/how-to*",       "comment": "v1.15 back-compat → Settings" }
+        ]
+      }
+    ]
+  }
+}

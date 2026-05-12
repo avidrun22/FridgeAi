@@ -8,7 +8,7 @@ Working doc. Edit anything that doesn't read right.
 
 Sign in at https://www.producthunt.com — easiest is **Sign in with X** so it auto-pulls @ok2eatapp's avatar/handle. After the OAuth handshake:
 
-1. Set the **maker profile** name to **Greg Goldberg** (real names build trust on PH).
+1. Set the **maker profile** name to **Greg** (first name only — keeps the founder presence personal without surfacing the full legal name in public copy).
 2. Add a one-line bio: *"Solo maker. Building ok2eat — the fridge tracker that answers 'what do we have to eat?'"*
 3. Link **website** to https://ok2eat.com
 4. Verify the email matches `hello@ok2eat.com` (so launch-day comment notifications come to the inbox you read).
