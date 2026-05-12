@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scan a receipt — ok2eat</title>
+<meta name="description" content="Drop a grocery receipt, see when every item expires. Free, no signup. Powered by USDA FoodKeeper data and ok2eat's AI.">
+<meta name="theme-color" content="#F0EADC">
+<meta property="og:title" content="Scan a receipt → see what lasts. Free.">
+<meta property="og:description" content="Drop your last grocery receipt. ok2eat tells you when each item expires — backed by USDA data, no signup, no email.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://ok2eat.com/scan">
+<meta property="og:image" content="https://ok2eat.com/marketing/og-scan.png">
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'%3E%3Crect width='36' height='36' rx='8' fill='%23F0EADC'/%3E%3Cpath fill='%233E721D' d='M35 5.904c2.394 6.042-1.438 20.543-10.5 26.5-9.06 5.957-20.395 3.573-23.097-6.443-1.669-6.186 2.79-10.721 11.851-16.677C22.315 3.327 32.64-.053 35 5.904z'/%3E%3Cpath fill='%23A6D388' d='M19.815 26.578c-5.757 4.013-13.482 3.097-16.29-.934C.718 21.613 4 14.474 9.757 10.463c5.755-4.011 20.258-9.264 23.068-5.234 2.807 4.03-4.825 16.175-13.01 21.349'/%3E%3Cpath fill='%23662113' d='M11.162 12.488c3.48-2.332 7.382-1.495 9.798.995 1.433 1.477-.88 5.382-4.359 7.714-3.478 2.33-7.769 1.763-8.239.731-1.44-3.157-.677-7.109 2.8-9.44z'/%3E%3C/svg%3E">
+<link rel="canonical" href="https://ok2eat.com/scan">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --green: #3E721D;
+    --green-dim: #2A4F12;
+    --green-soft: #A6D388;
+    --green-soft-bg: rgba(166, 211, 136, 0.18);
+    --bg: #F0EADC;
+    --surface: #F7F3E8;
+    --card: #EDE6D2;
+    --border: #D6D2C4;
+    --text: #1C261C;
+    --text-soft: #3A4A38;
+    --muted: #6B8264;
+    --warn: #C97E1E;
+    --danger: #B23A3A;
+    --urgent-bg: rgba(178, 58, 58, 0.10);
+    --warn-bg: rgba(201, 126, 30, 0.13);
+    --safe-bg: rgba(166, 211, 136, 0.18);
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Bricolage Grotesque', sans-serif;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* Nav (mirrors ok2eat.html) */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 48px;
+    background: rgba(240, 234, 220, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-logo {
+    font-size: 22px; font-weight: 700; color: var(--text);
+    letter-spacing: -0.5px; text-decoration: none;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .nav-logo svg { width: 28px; height: 28px; }
+  .nav-links {
+    display: flex; gap: 28px; list-style: none; align-items: center;
+  }
+  .nav-links a {
+    color: var(--muted); text-decoration: none;
+    font-size: 14px; font-weight: 500; transition: color 0.2s;
+  }
+  .nav-links a:hover { color: var(--text); }
+  .nav-cta {
+    background: var(--green);
+    color: #FFFFFF !important;
+    padding: 8px 18px;
+    border-radius: 100px;
+    font-weight: 600 !important;
+  }
+
+  /* Page layout */
+  main {
+    max-width: 760px; margin: 0 auto;
+    padding: 120px 24px 64px;
+  }
+
+  .eyebrow {
+    font-family: 'DM Mono', monospace;
+    font-size: 13px; color: var(--green);
+    text-transform: uppercase; letter-spacing: 1.6px;
+    font-weight: 500; margin-bottom: 12px;
+  }
+  .eyebrow::before { content: '// '; opacity: 0.5; }
+
+  h1 {
+    font-size: 56px; font-weight: 800;
+    line-height: 1.05; letter-spacing: -2.2px;
+    margin-bottom: 18px;
+  }
+  h1 .green { color: var(--green); }
+
+  .lead {
+    font-size: 19px; color: var(--text-soft);
+    line-height: 1.5; margin-bottom: 32px;
+    max-width: 580px;
+  }
+
+  /* Drop zone */
+  .dropzone {
+    background: var(--surface);
+    border: 2px dashed var(--border);
+    border-radius: 22px;
+    padding: 48px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    position: relative;
+  }
+  .dropzone:hover, .dropzone.drag-over {
+    border-color: var(--green);
+    background: var(--green-soft-bg);
+  }
+  .dropzone.has-image { padding: 0; border-style: solid; cursor: default; background: var(--surface); }
+  .dropzone-icon {
+    width: 56px; height: 56px;
+    background: var(--green-soft-bg);
+    border-radius: 16px;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 18px;
+    color: var(--green);
+  }
+  .dropzone h2 {
+    font-size: 22px; font-weight: 700;
+    margin-bottom: 8px; letter-spacing: -0.5px;
+  }
+  .dropzone p {
+    font-size: 15px; color: var(--muted);
+  }
+  .dropzone .subhint {
+    font-size: 13px; color: var(--muted);
+    margin-top: 6px; opacity: 0.8;
+  }
+  .dropzone input[type="file"] { display: none; }
+
+  /* Preview */
+  .preview-wrap {
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .preview-img-row {
+    display: flex; gap: 18px; align-items: center;
+  }
+  .preview-img {
+    width: 96px; height: 96px;
+    object-fit: cover;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .preview-meta {
+    flex: 1;
+    min-width: 0;
+  }
+  .preview-name {
+    font-weight: 600; font-size: 15px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .preview-size {
+    font-family: 'DM Mono', monospace;
+    font-size: 13px; color: var(--muted); margin-top: 2px;
+  }
+  .btn-row {
+    display: flex; gap: 10px; flex-wrap: wrap;
+  }
+  .btn {
+    padding: 14px 24px; border-radius: 12px;
+    font-family: 'Bricolage Grotesque', sans-serif;
+    font-weight: 700; font-size: 16px;
+    cursor: pointer; border: none;
+    transition: background 0.2s, transform 0.1s;
+    letter-spacing: -0.2px;
+  }
+  .btn:active { transform: scale(0.98); }
+  .btn-primary {
+    background: var(--green); color: #FFFFFF;
+    flex: 1;
+    min-width: 200px;
+  }
+  .btn-primary:hover { background: var(--green-dim); }
+  .btn-primary:disabled { background: var(--muted); cursor: not-allowed; }
+  .btn-secondary {
+    background: transparent; color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover { background: var(--card); }
+
+  /* Loading */
+  .loading {
+    text-align: center;
+    padding: 48px 24px;
+  }
+  .spinner {
+    width: 44px; height: 44px;
+    border: 4px solid var(--border);
+    border-top-color: var(--green);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 16px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text {
+    font-size: 16px; color: var(--text-soft);
+    font-weight: 500;
+  }
+
+  /* Error message */
+  .error-msg {
+    background: var(--urgent-bg);
+    border: 1px solid rgba(178, 58, 58, 0.3);
+    color: var(--danger);
+    padding: 16px 20px;
+    border-radius: 14px;
+    margin-top: 20px;
+    font-weight: 500; font-size: 15px;
+  }
+  .error-msg .install-link {
+    display: inline-block;
+    margin-top: 8px;
+    color: var(--danger);
+    font-weight: 700;
+    text-decoration: underline;
+  }
+
+  /* Results */
+  .results {
+    margin-top: 32px;
+  }
+  .results-summary {
+    background: var(--green-soft-bg);
+    border: 1px solid rgba(166, 211, 136, 0.4);
+    border-radius: 16px;
+    padding: 20px 22px;
+    margin-bottom: 24px;
+  }
+  .results-summary-title {
+    font-weight: 700; font-size: 18px;
+    letter-spacing: -0.4px; margin-bottom: 4px;
+  }
+  .results-summary-detail {
+    font-size: 14px; color: var(--muted);
+  }
+  .category {
+    margin-bottom: 22px;
+  }
+  .category-name {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px; font-weight: 500;
+    color: var(--green);
+    text-transform: uppercase; letter-spacing: 1.3px;
+    margin-bottom: 10px;
+    padding-left: 4px;
+  }
+  .category-name::before { content: '// '; opacity: 0.5; }
+  .item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin-bottom: 8px;
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 12px;
+  }
+  .item-info {
+    flex: 1; min-width: 0;
+  }
+  .item-name {
+    font-weight: 600; font-size: 15px;
+    letter-spacing: -0.2px;
+  }
+  .item-quantity {
+    font-size: 13px; color: var(--muted);
+    margin-top: 2px;
+  }
+  .item-shelf {
+    font-weight: 700; font-size: 14px;
+    padding: 6px 12px; border-radius: 8px;
+    flex-shrink: 0;
+    white-space: nowrap;
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 0.4px;
+  }
+  .item-shelf.urgent { background: var(--urgent-bg); color: var(--danger); }
+  .item-shelf.warn { background: var(--warn-bg); color: var(--warn); }
+  .item-shelf.safe { background: var(--safe-bg); color: var(--green); }
+
+  /* CTA after results */
+  .cta-card {
+    margin-top: 36px;
+    background: var(--text);
+    color: var(--bg);
+    border-radius: 22px;
+    padding: 36px 32px;
+    text-align: center;
+  }
+  .cta-card h3 {
+    font-size: 28px; font-weight: 800;
+    letter-spacing: -1px; line-height: 1.15;
+    margin-bottom: 10px;
+  }
+  .cta-card h3 .green { color: var(--green-soft); }
+  .cta-card p {
+    font-size: 16px; color: rgba(240, 234, 220, 0.8);
+    margin-bottom: 22px;
+  }
+  .cta-card .btn-primary {
+    background: var(--green-soft);
+    color: var(--text);
+    display: inline-block;
+    text-decoration: none;
+    padding: 14px 28px;
+  }
+  .cta-card .btn-primary:hover { background: #B8DC9C; }
+
+  /* Trust strip */
+  .trust-strip {
+    margin-top: 28px;
+    text-align: center;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    font-weight: 500;
+  }
+  .trust-strip span { margin: 0 6px; opacity: 0.5; }
+
+  /* Footer */
+  footer {
+    border-top: 1px solid var(--border);
+    margin-top: 80px;
+    padding: 32px 24px;
+    text-align: center;
+    font-size: 14px;
+    color: var(--muted);
+  }
+  footer a { color: var(--muted); margin: 0 10px; }
+
+  @media (max-width: 720px) {
+    nav { padding: 14px 18px; }
+    .nav-links { gap: 14px; }
+    .nav-links li.mobile-hide { display: none; }
+    main { padding: 96px 18px 48px; }
+    h1 { font-size: 38px; letter-spacing: -1.4px; }
+    .lead { font-size: 17px; }
+    .dropzone { padding: 36px 18px; }
+    .preview-img-row { flex-direction: column; align-items: flex-start; gap: 10px; }
+    .preview-img { width: 100%; height: auto; max-height: 200px; }
+    .btn-primary { min-width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <a class="nav-logo" href="/">
+    <svg viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <rect width="36" height="36" rx="8" fill="#F0EADC"/>
+      <path fill="#3E721D" d="M35 5.904c2.394 6.042-1.438 20.543-10.5 26.5-9.06 5.957-20.395 3.573-23.097-6.443-1.669-6.186 2.79-10.721 11.851-16.677C22.315 3.327 32.64-.053 35 5.904z"/>
+      <path fill="#A6D388" d="M19.815 26.578c-5.757 4.013-13.482 3.097-16.29-.934C.718 21.613 4 14.474 9.757 10.463c5.755-4.011 20.258-9.264 23.068-5.234 2.807 4.03-4.825 16.175-13.01 21.349"/>
+      <path fill="#662113" d="M11.162 12.488c3.48-2.332 7.382-1.495 9.798.995 1.433 1.477-.88 5.382-4.359 7.714-3.478 2.33-7.769 1.763-8.239.731-1.44-3.157-.677-7.109 2.8-9.44z"/>
+    </svg>
+    ok2eat
+  </a>
+  <ul class="nav-links">
+    <li><a href="/shelf-life/">Shelf life</a></li>
+    <li class="mobile-hide"><a href="/blog/">Blog</a></li>
+    <li><a href="https://apps.apple.com/us/app/ok2eat/id6761730687" class="nav-cta">Get the app</a></li>
+  </ul>
+</nav>
+
+<main>
+  <p class="eyebrow">free demo · no signup</p>
+  <h1>Snap a receipt. <span class="green">See what lasts.</span></h1>
+  <p class="lead">
+    Drop your last grocery receipt. We'll tell you when each item actually expires — sourced from USDA FoodKeeper. No email. No signup. Free.
+  </p>
+
+  <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Upload a receipt photo">
+    <div id="dropzone-empty">
+      <div class="dropzone-icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+      </div>
+      <h2>Tap or drop a photo of your receipt</h2>
+      <p>JPEG or PNG · up to 4 MB</p>
+      <p class="subhint">5 free scans per day. The iOS app has unlimited.</p>
+    </div>
+    <div id="dropzone-preview" class="preview-wrap" style="display:none;">
+      <div class="preview-img-row">
+        <img id="preview-img" class="preview-img" alt="Receipt preview">
+        <div class="preview-meta">
+          <div id="preview-name" class="preview-name"></div>
+          <div id="preview-size" class="preview-size"></div>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button id="btn-scan" class="btn btn-primary">Scan receipt</button>
+        <button id="btn-clear" class="btn btn-secondary">Clear</button>
+      </div>
+    </div>
+    <input type="file" id="file-input" accept="image/jpeg,image/jpg,image/png,image/heic,image/webp">
+  </div>
+
+  <div id="loading" class="loading" style="display:none;">
+    <div class="spinner"></div>
+    <p class="loading-text">Reading your receipt…</p>
+  </div>
+
+  <div id="error" class="error-msg" style="display:none;"></div>
+
+  <div id="results" class="results" style="display:none;"></div>
+
+  <p class="trust-strip">
+    660 foods<span>·</span>USDA data<span>·</span>no signup<span>·</span>free
+  </p>
+</main>
+
+<footer>
+  <a href="/">Home</a>
+  <a href="/shelf-life/">Shelf life directory</a>
+  <a href="/blog/">Blog</a>
+  <a href="/privacy/">Privacy</a>
+  <p style="margin-top: 14px; font-size: 13px;">© 2026 ok2eat</p>
+</footer>
+
+<script src="/assets/posthog.js" defer></script>
+<script>
+  const SUPABASE_URL = "https://qemarhvgeuzhlwybmbie.supabase.co";
+  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlbWFyaHZnZXV6aGx3eWJtYmllIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2Njc2NTgsImV4cCI6MjA5MDI0MzY1OH0.ejYeJkucIwAWZ7Rf0hcmpIENSnnmXMh4V_nhjXlDQk4";
+  const APP_STORE_URL = "https://apps.apple.com/us/app/ok2eat/id6761730687";
+  const MAX_FILE_BYTES = 4_500_000; // 4.5 MB pre-encoding
+
+  const dropzone = document.getElementById("dropzone");
+  const fileInput = document.getElementById("file-input");
+  const previewWrap = document.getElementById("dropzone-preview");
+  const previewEmpty = document.getElementById("dropzone-empty");
+  const previewImg = document.getElementById("preview-img");
+  const previewName = document.getElementById("preview-name");
+  const previewSize = document.getElementById("preview-size");
+  const btnScan = document.getElementById("btn-scan");
+  const btnClear = document.getElementById("btn-clear");
+  const loading = document.getElementById("loading");
+  const errorBox = document.getElementById("error");
+  const resultsBox = document.getElementById("results");
+
+  let currentFile = null;
+  let currentBase64 = null;
+
+  function track(event, props) {
+    if (typeof window.posthog !== "undefined") {
+      try { window.posthog.capture(event, props || {}); } catch (e) {}
+    }
+  }
+
+  // Drop zone events
+  dropzone.addEventListener("click", (e) => {
+    if (e.target.tagName === "BUTTON") return;
+    if (currentFile) return;
+    fileInput.click();
+  });
+  dropzone.addEventListener("keydown", (e) => {
+    if ((e.key === "Enter" || e.key === " ") && !currentFile) {
+      e.preventDefault();
+      fileInput.click();
+    }
+  });
+  dropzone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    dropzone.classList.add("drag-over");
+  });
+  dropzone.addEventListener("dragleave", () => dropzone.classList.remove("drag-over"));
+  dropzone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropzone.classList.remove("drag-over");
+    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener("change", (e) => {
+    if (e.target.files.length) handleFile(e.target.files[0]);
+  });
+
+  btnClear.addEventListener("click", clearFile);
+  btnScan.addEventListener("click", scanReceipt);
+
+  function handleFile(file) {
+    if (!file.type.startsWith("image/")) {
+      showError("That doesn't look like an image. Try a JPEG or PNG of your receipt.");
+      return;
+    }
+    if (file.size > MAX_FILE_BYTES) {
+      showError(`File is ${(file.size / 1_000_000).toFixed(1)} MB — please use one under 4 MB.`);
+      return;
+    }
+    hideError();
+    currentFile = file;
+    track("web_scan_file_chosen", { size: file.size, type: file.type });
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      previewImg.src = e.target.result;
+      currentBase64 = e.target.result.split(",")[1];
+      previewName.textContent = file.name || "receipt";
+      previewSize.textContent = `${(file.size / 1024).toFixed(0)} KB · ${file.type.split("/")[1].toUpperCase()}`;
+      previewEmpty.style.display = "none";
+      previewWrap.style.display = "flex";
+      dropzone.classList.add("has-image");
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function clearFile() {
+    currentFile = null;
+    currentBase64 = null;
+    fileInput.value = "";
+    previewImg.src = "";
+    previewEmpty.style.display = "block";
+    previewWrap.style.display = "none";
+    dropzone.classList.remove("has-image");
+    hideError();
+    resultsBox.style.display = "none";
+    resultsBox.innerHTML = "";
+    track("web_scan_cleared");
+  }
+
+  async function scanReceipt() {
+    if (!currentBase64) return;
+    btnScan.disabled = true;
+    hideError();
+    resultsBox.style.display = "none";
+    loading.style.display = "block";
+    track("web_scan_started");
+
+    try {
+      const url = `${SUPABASE_URL}/functions/v1/scan-receipt-public`;
+      const t0 = performance.now();
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({ image: currentBase64 }),
+      });
+      const ms = Math.round(performance.now() - t0);
+      const json = await resp.json();
+      loading.style.display = "none";
+
+      if (!resp.ok) {
+        track("web_scan_failed", { status: resp.status, error: json.error, ms });
+        if (resp.status === 429) {
+          renderRateLimitError(json);
+        } else {
+          showError(json.error || "Something went wrong. Try a clearer photo.");
+        }
+        btnScan.disabled = false;
+        return;
+      }
+
+      track("web_scan_completed", {
+        item_count: (json.items || []).length,
+        usage_count: json.usage?.count,
+        ms,
+      });
+      renderResults(json.items || []);
+      btnScan.disabled = false;
+    } catch (e) {
+      loading.style.display = "none";
+      btnScan.disabled = false;
+      track("web_scan_failed", { error: String(e) });
+      showError("Couldn't reach our scanner. Check your connection and try again.");
+    }
+  }
+
+  function renderResults(items) {
+    if (!items.length) {
+      showError("We couldn't find any food items on that receipt. Try a clearer photo of just the receipt body.");
+      return;
+    }
+
+    // Group by category
+    const groups = {};
+    for (const it of items) {
+      const cat = it.category || "Other";
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(it);
+    }
+
+    // Find most-urgent
+    const sorted = [...items].sort((a, b) => (a.expiry_days ?? 999) - (b.expiry_days ?? 999));
+    const mostUrgent = sorted[0];
+
+    let html = `
+      <div class="results-summary">
+        <div class="results-summary-title">Found ${items.length} item${items.length === 1 ? "" : "s"} on your receipt.</div>
+        <div class="results-summary-detail">
+          ${mostUrgent ? `Most urgent: <strong>${escapeHtml(mostUrgent.name)}</strong> in ${mostUrgent.expiry_days} day${mostUrgent.expiry_days === 1 ? "" : "s"}.` : ""}
+        </div>
+      </div>
+    `;
+
+    const order = ["Produce", "Dairy", "Protein", "Beverages", "Dry Goods", "Other"];
+    const catNames = Object.keys(groups).sort((a, b) => order.indexOf(a) - order.indexOf(b));
+
+    for (const cat of catNames) {
+      html += `<div class="category">`;
+      html += `<div class="category-name">${escapeHtml(cat)}</div>`;
+      for (const it of groups[cat]) {
+        const days = typeof it.expiry_days === "number" ? it.expiry_days : null;
+        const cls = days === null ? "safe" : days <= 3 ? "urgent" : days <= 7 ? "warn" : "safe";
+        const label = days === null ? "—" : days === 1 ? "1 day" : `${days} days`;
+        html += `
+          <div class="item">
+            <div class="item-info">
+              <div class="item-name">${escapeHtml(it.name || "Unknown item")}</div>
+              ${it.quantity ? `<div class="item-quantity">${escapeHtml(String(it.quantity))}</div>` : ""}
+            </div>
+            <div class="item-shelf ${cls}">${escapeHtml(label)}</div>
+          </div>
+        `;
+      }
+      html += `</div>`;
+    }
+
+    // CTA
+    html += `
+      <div class="cta-card">
+        <h3>Want this <span class="green">for everything in your fridge?</span></h3>
+        <p>ok2eat tracks expiration dates for what you already have, alerts you a day before each item goes bad, and suggests recipes to use what's about to expire. Free for iOS.</p>
+        <a class="btn btn-primary" href="${APP_STORE_URL}" data-cta="post-scan-install">Get ok2eat — Free</a>
+      </div>
+    `;
+
+    resultsBox.innerHTML = html;
+    resultsBox.style.display = "block";
+
+    // Track install-CTA clicks
+    const installCta = resultsBox.querySelector('[data-cta="post-scan-install"]');
+    if (installCta) {
+      installCta.addEventListener("click", () => track("web_scan_install_cta_clicked", { item_count: items.length }));
+    }
+  }
+
+  function renderRateLimitError(json) {
+    errorBox.innerHTML = `
+      ${escapeHtml(json.error || "Daily limit reached.")}
+      <a class="install-link" href="${APP_STORE_URL}" target="_blank" rel="noopener">Get the iOS app for unlimited scans →</a>
+    `;
+    errorBox.style.display = "block";
+  }
+
+  function showError(msg) {
+    errorBox.textContent = msg;
+    errorBox.style.display = "block";
+  }
+  function hideError() {
+    errorBox.style.display = "none";
+    errorBox.innerHTML = "";
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+  }
+
+  // Page-view event
+  track("web_scan_page_viewed");
+</script>
+
+</body>
+</html>

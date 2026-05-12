@@ -65,6 +65,14 @@ ASSETS: list[tuple[str, Path, bool]] = [
     # auto-discovered when sitemap.xml's lastmod is updated and re-deployed.
     ("/sitemap.xml", PROJECT_ROOT / "sitemap.xml", False),
     ("/robots.txt", PROJECT_ROOT / "robots.txt", False),
+    # v1.16 — PNG favicons at the site root. Google Search ignores inline
+    # data:image/svg+xml favicons (only shows a generic globe), so we ship
+    # real PNG files. Multiple sizes for proper Apple home-screen + Android
+    # PWA + Google Search compliance.
+    ("/favicon.png", PROJECT_ROOT / "favicon.png", False),
+    ("/icon-192.png", PROJECT_ROOT / "icon-192.png", False),
+    ("/icon-512.png", PROJECT_ROOT / "icon-512.png", False),
+    ("/apple-touch-icon.png", PROJECT_ROOT / "apple-touch-icon.png", False),
 ]
 
 # Auto-include every file under these top-level directories (recursively).
@@ -74,7 +82,7 @@ ASSETS: list[tuple[str, Path, bool]] = [
 #
 # `excludes` are path components that skip auto-include (drafts in blog/ stay
 # local-only; __pycache__ keeps Python noise out of production).
-_AUTO_INCLUDE_DIRS = ["blog", "join", "privacy", "shelf-life", "assets"]
+_AUTO_INCLUDE_DIRS = ["blog", "join", "privacy", "shelf-life", "assets", "scan"]
 _EXCLUDED_PARTS = {"drafts", "__pycache__"}
 
 for _top in _AUTO_INCLUDE_DIRS:
