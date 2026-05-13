@@ -1029,6 +1029,36 @@ function AuthScreen({ onAuth }) {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // v1.17 — UI states for the confirmation-resend flow.
+  //  signedUpPending: after a successful signUp, switch to a "check your inbox"
+  //    screen with a Resend button. This is the cohort that previously got
+  //    stuck (1 user reported the email went to spam with no way to retry).
+  //  needsConfirm: surfaced when Sign In fails with Supabase's "Email not
+  //    confirmed" error. Inline Resend button appears in the error box.
+  //  resendingConfirm: spinner state for the Resend tap.
+  //  resendMsg: success/error toast under the button.
+  const [signedUpPending, setSignedUpPending] = useState(false);
+  const [needsConfirm, setNeedsConfirm] = useState(false);
+  const [resendingConfirm, setResendingConfirm] = useState(false);
+  const [resendMsg, setResendMsg] = useState("");
+
+  // v1.17 — Resend the Supabase Auth confirmation email for the typed address.
+  // Idempotent on Supabase's side; safe to spam (Supabase rate-limits at 1/min).
+  async function handleResendConfirm() {
+    const addr = (email || "").trim();
+    if (!addr) { setResendMsg("Enter your email address first."); return; }
+    setResendingConfirm(true);
+    setResendMsg("");
+    try {
+      const { error } = await supabase.auth.resend({ type: "signup", email: addr });
+      if (error) throw error;
+      track("auth_confirm_resend_requested", { method: "email" });
+      setResendMsg("Sent! Check your inbox (and spam folder).");
+    } catch (e) {
+      setResendMsg(e?.message || "Couldn't resend. Try again in a minute.");
+    }
+    setResendingConfirm(false);
+  }
 
   async function handleAppleSignIn() {
     try {
@@ -1053,7 +1083,7 @@ function AuthScreen({ onAuth }) {
 
   async function handleAuth() {
     if (!email.trim() || !password.trim()) { setError("Please enter your email and password."); return; }
-    setLoading(true); setError("");
+    setLoading(true); setError(""); setNeedsConfirm(false); setResendMsg("");
     try {
       if (mode === "login") {
         const { error, data } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
@@ -1063,10 +1093,25 @@ function AuthScreen({ onAuth }) {
         const { error, data } = await supabase.auth.signUp({ email: email.trim(), password });
         if (error) throw error;
         if (data?.user) { identifyUser(data.user.id); track("user_signed_up", { method: "email" }); }
-        Alert.alert("Account created!", "You can now sign in with your email and password.");
-        setMode("login");
+        // v1.17 — was: Alert "Account created!" + setMode("login"). Replaced
+        // with a dedicated "check your inbox" screen that surfaces a Resend
+        // button. 63% of pre-v1.17 signups never confirmed (mostly emails
+        // hitting spam with no retry affordance) — this is the fix for that.
+        setSignedUpPending(true);
       }
-    } catch (e) { setError(e.message || "Something went wrong. Please try again."); }
+    } catch (e) {
+      const msg = e?.message || "Something went wrong. Please try again.";
+      // v1.17 — surface the email-not-confirmed flow inline. Supabase returns
+      // various error messages depending on auth settings; match loosely.
+      const looksLikeNotConfirmed =
+        /not confirmed|not verified|email link is invalid|confirm your email/i.test(msg);
+      if (looksLikeNotConfirmed) {
+        setNeedsConfirm(true);
+        setError("Your email isn't confirmed yet. Check your inbox for a confirmation email.");
+      } else {
+        setError(msg);
+      }
+    }
     setLoading(false);
   }
 
@@ -1082,12 +1127,52 @@ function AuthScreen({ onAuth }) {
             <Text style={{ fontSize: 32, fontWeight: "800", color: T.accent, letterSpacing: -1 }}>ok2eat</Text>
             <Text style={{ color: T.textSoft, fontSize: 15, marginTop: 6, textAlign: "center" }}>know before you throw</Text>
           </View>
+          {signedUpPending ? (
+            /* v1.17 — Post-signup confirmation screen. Replaces the previous
+               Alert + bounce-to-login. Tells the user explicitly what to do
+               next AND gives them a one-tap recovery if the email vanished
+               into spam. */
+            <View style={[s.card, { padding: 24, marginBottom: 16 }]}>
+              <Text style={{ fontSize: 28, marginBottom: 12, textAlign: "center" }}>📬</Text>
+              <Text style={{ fontSize: 20, fontWeight: "700", color: T.text, textAlign: "center", marginBottom: 8 }}>
+                Check your email
+              </Text>
+              <Text style={{ fontSize: 14, color: T.textSoft, textAlign: "center", lineHeight: 20, marginBottom: 20 }}>
+                We sent a confirmation link to{"\n"}
+                <Text style={{ fontWeight: "700", color: T.text }}>{email.trim()}</Text>.{"\n"}
+                Click it to finish signing up.
+              </Text>
+              <View style={{ backgroundColor: T.card, borderRadius: 10, padding: 12, marginBottom: 16 }}>
+                <Text style={{ fontSize: 12, color: T.muted, lineHeight: 18, textAlign: "center" }}>
+                  Not in your inbox? Check the spam folder — sometimes new accounts land there.
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={[s.btnPrimary, resendingConfirm && { opacity: 0.6 }]}
+                onPress={handleResendConfirm}
+                disabled={resendingConfirm}
+              >
+                {resendingConfirm
+                  ? <ActivityIndicator color="#FFFFFF" />
+                  : <Text style={s.btnPrimaryText}>Resend confirmation</Text>}
+              </TouchableOpacity>
+              {resendMsg !== "" && (
+                <Text style={{ fontSize: 12, color: T.textSoft, textAlign: "center", marginTop: 10 }}>{resendMsg}</Text>
+              )}
+              <TouchableOpacity
+                style={{ marginTop: 14, alignItems: "center", paddingVertical: 10 }}
+                onPress={() => { setSignedUpPending(false); setMode("login"); setPassword(""); setResendMsg(""); }}
+              >
+                <Text style={{ color: T.textSoft, fontSize: 14, fontWeight: "600" }}>Back to sign in</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
           <View style={[s.card, { padding: 24, marginBottom: 16 }]}>
             <View style={[s.modeToggle, { marginBottom: 20, marginHorizontal: 0 }]}>
-              <TouchableOpacity style={[s.modeBtn, mode === "login" && s.modeBtnActive]} onPress={() => { setMode("login"); setError(""); }}>
+              <TouchableOpacity style={[s.modeBtn, mode === "login" && s.modeBtnActive]} onPress={() => { setMode("login"); setError(""); setNeedsConfirm(false); setResendMsg(""); }}>
                 <Text style={[s.modeBtnText, mode === "login" && s.modeBtnTextActive]}>Sign In</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[s.modeBtn, mode === "signup" && s.modeBtnActive]} onPress={() => { setMode("signup"); setError(""); }}>
+              <TouchableOpacity style={[s.modeBtn, mode === "signup" && s.modeBtnActive]} onPress={() => { setMode("signup"); setError(""); setNeedsConfirm(false); setResendMsg(""); }}>
                 <Text style={[s.modeBtnText, mode === "signup" && s.modeBtnTextActive]}>Create Account</Text>
               </TouchableOpacity>
             </View>
@@ -1095,11 +1180,35 @@ function AuthScreen({ onAuth }) {
             <TextInput style={s.input} placeholder="you@example.com" placeholderTextColor={T.muted} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} />
             <Text style={s.inputLabel}>Password</Text>
             <TextInput style={s.input} placeholder="••••••••" placeholderTextColor={T.muted} value={password} onChangeText={setPassword} secureTextEntry />
-            {error !== "" && <View style={[s.errorBox, { marginBottom: 12 }]}><Text style={{ color: T.danger, fontSize: 13 }}>{error}</Text></View>}
+            {error !== "" && (
+              <View style={[s.errorBox, { marginBottom: 12 }]}>
+                <Text style={{ color: T.danger, fontSize: 13 }}>{error}</Text>
+                {/* v1.17 — Inline "Resend confirmation" affordance when
+                    Supabase Auth tells us the user's email isn't confirmed.
+                    Same handler as the post-signup screen. */}
+                {needsConfirm && (
+                  <>
+                    <TouchableOpacity
+                      style={{ marginTop: 10, alignSelf: "flex-start", paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: T.danger }}
+                      onPress={handleResendConfirm}
+                      disabled={resendingConfirm}
+                    >
+                      {resendingConfirm
+                        ? <ActivityIndicator color={T.danger} size="small" />
+                        : <Text style={{ color: T.danger, fontSize: 12, fontWeight: "700" }}>Resend confirmation email</Text>}
+                    </TouchableOpacity>
+                    {resendMsg !== "" && (
+                      <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 8 }}>{resendMsg}</Text>
+                    )}
+                  </>
+                )}
+              </View>
+            )}
             <TouchableOpacity style={s.btnPrimary} onPress={handleAuth} disabled={loading}>
               {loading ? <ActivityIndicator color="#FFFFFF" /> : <Text style={s.btnPrimaryText}>{mode === "login" ? "Sign In" : "Create Account"}</Text>}
             </TouchableOpacity>
           </View>
+          )}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginVertical: 16 }}>
             <View style={{ flex: 1, height: 1, backgroundColor: T.border }} />
             <Text style={{ color: T.muted, fontSize: 12 }}>or</Text>
@@ -2260,19 +2369,44 @@ function EatMeFirstScreen({ items }) {
 
       <View style={{ height: 32 }} />
 
-      {/* Recipe modal */}
+      {/* Recipe modal.
+          v1.16 papercut fix: backdrop-tap dismisses AND there's an explicit
+          X in the header. Previously users had to scroll through every
+          recipe to find the Close button at the bottom — testers (and the
+          demo recording) made the modal feel "stuck". */}
       <Modal visible={!!recipeModal} transparent animationType="slide" onRequestClose={() => setRecipeModal(null)}>
-        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" }}>
-          <View style={{ backgroundColor: T.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "85%" }}>
-            <ScrollView style={{ padding: 20 }}>
-              <Text style={[s.pageTitle, { fontSize: 18, paddingHorizontal: 0, paddingTop: 0 }]}>
-                {recipeModal?.leadItem
-                  ? `Recipes using ${recipeModal.leadItem.name}`
-                  : "Recipes for your top expiring items"}
-              </Text>
-              <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 4, marginBottom: 14 }}>
-                Using: {[recipeModal?.leadItem?.name, ...(recipeModal?.items || []).map(i => i.name)].filter(Boolean).join(", ")}
-              </Text>
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => setRecipeModal(null)}
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" }}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={() => { /* swallow taps inside the sheet so they don't dismiss */ }}
+            style={{ backgroundColor: T.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "85%" }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "flex-start", paddingTop: 20, paddingHorizontal: 20, paddingBottom: 6 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={[s.pageTitle, { fontSize: 18, paddingHorizontal: 0, paddingTop: 0 }]}>
+                  {recipeModal?.leadItem
+                    ? `Recipes using ${recipeModal.leadItem.name}`
+                    : "Recipes for your top expiring items"}
+                </Text>
+                <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 4 }}>
+                  Using: {[recipeModal?.leadItem?.name, ...(recipeModal?.items || []).map(i => i.name)].filter(Boolean).join(", ")}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setRecipeModal(null)}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                accessibilityLabel="Close recipes"
+                style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: T.bg, alignItems: "center", justifyContent: "center", marginLeft: 12 }}
+              >
+                <Ionicons name="close" size={20} color={T.text} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ paddingHorizontal: 20, paddingBottom: 20 }}>
+              <View style={{ height: 8 }} />
 
               {recipeModal?.loading && (
                 <View style={{ paddingVertical: 30, alignItems: "center" }}>
@@ -2324,8 +2458,8 @@ function EatMeFirstScreen({ items }) {
                 <Text style={s.btnPrimaryText}>Close</Text>
               </TouchableOpacity>
             </ScrollView>
-          </View>
-        </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
     </ScrollView>
   );
@@ -4041,6 +4175,13 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
   const [category, setCategory] = useState("Other");
   const [initialQty, setInitialQty] = useState("");
   const [initialUnit, setInitialUnit] = useState("");
+  // v1.17 — container is selectable from inside AddModal (was previously
+  // locked to whatever section the modal opened from). Mirrors BulkAddModal's
+  // per-row container chips. Default to the section the user is on; fall
+  // back to "fridge".
+  const [container, setContainer] = useState(
+    ["fridge", "pantry", "freezer"].includes(section) ? section : "fridge"
+  );
   // v1.0.9 — expiration is now editable in the form. closedDays = days from
   // today the item lasts UNOPENED (or just "lasts" for fresh items).
   // openedDays = how many days after opening the item is still good. Both
@@ -4065,12 +4206,17 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
   useEffect(() => {
     if (visible) {
       setName(""); setCategory("Other"); setInitialQty(""); setInitialUnit("");
+      // v1.17 — reset container to the section the modal opened from. If the
+      // section isn't a known container, default to fridge.
+      setContainer(
+        ["fridge", "pantry", "freezer"].includes(section) ? section : "fridge"
+      );
       setClosedDays(EXPIRY_MAP["Other"] || 7);
       setOpenedDays(OPENED_DAYS_MAP["Other"] || 7);
       setUsdaSourceDays(null);
       setSearchResults([]); setSearching(false); setSuppressSearch(false);
     }
-  }, [visible]);
+  }, [visible, section]);
 
   // v1.16 Phase 1 — debounced type-ahead. Watches `name`. Skips if user just
   // picked a result (suppressSearch is true for one tick). Skips queries
@@ -4119,7 +4265,9 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
     // This way the form is responsive (no flicker waiting for RPC).
     setClosedDays(EXPIRY_MAP[cat] || 7);
     setOpenedDays(OPENED_DAYS_MAP[cat] || 7);
-    const sl = await lookupShelfLife(result.name || "", cat, "fridge");
+    // v1.17 — look up against the user-selected container so freezer items
+    // don't get pantry-window shelf life.
+    const sl = await lookupShelfLife(result.name || "", cat, container);
     if (sl.source !== "category_default") {
       setClosedDays(sl.closedDays);
       setOpenedDays(sl.openedDays);
@@ -4144,7 +4292,8 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
     setOpenedDays(OPENED_DAYS_MAP[c] || 7);
     setUsdaSourceDays(null); // reset; lookup below may re-populate
     if ((name || "").trim().length >= 2) {
-      const sl = await lookupShelfLife(name.trim(), c, "fridge");
+      // v1.17 — pass selected container so shelf-life matches user's choice.
+      const sl = await lookupShelfLife(name.trim(), c, container);
       if (sl.source !== "category_default") {
         setClosedDays(sl.closedDays);
         setOpenedDays(sl.openedDays);
@@ -4166,7 +4315,9 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
     if (trimmed.length < 3) return;
     let cancelled = false;
     const t = setTimeout(async () => {
-      const sl = await lookupShelfLife(trimmed, category, "fridge");
+      // v1.17 — debounced FoodKeeper lookup now respects the container chip.
+      // Re-runs if the user switches Fridge/Pantry/Freezer mid-form.
+      const sl = await lookupShelfLife(trimmed, category, container);
       if (cancelled) return;
       if (sl.source !== "category_default") {
         setClosedDays(sl.closedDays);
@@ -4175,7 +4326,7 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
       }
     }, 600);
     return () => { cancelled = true; clearTimeout(t); };
-  }, [name, category, visible]);
+  }, [name, category, container, visible]);
 
   function handleAdd() {
     if (!name.trim()) return;
@@ -4204,7 +4355,11 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
       quantity,
       unit,
       expiryDate: expiryDateIso,
-      section,
+      // v1.17 — use the user-selected container (chip picker) instead of the
+      // section the modal was opened from. Lets you add a freezer item from
+      // the Fridge tab without re-navigating first.
+      section: container,
+      container,
       isOpened: false,
       openedAt: null,
       expiryOpenedDays: packaged ? openedDays : null,
@@ -4266,27 +4421,38 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
               </TouchableOpacity>
             </View>
 
-            {/* v1.0.10 — Two prominent peer tiles for the fast-paths.
-                Receipt scanning was previously buried inside "Add multiple
-                items"; testers said they didn't realize it existed. */}
-            <View style={{ flexDirection: "row", gap: 10, marginBottom: 14 }}>
+            {/* v1.17 — Three prominent peer tiles for the fast-paths.
+                "Multi-add" was previously a low-emphasis text link below the
+                form; testers reported they didn't find it. Promoted to peer
+                of Scan Barcode + Scan Receipt for discoverability. The text
+                link at the bottom of the modal was removed. */}
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 14 }}>
               <TouchableOpacity
-                style={{ flex: 1, backgroundColor: "rgba(22,163,74,0.08)", borderWidth: 1, borderColor: "rgba(22,163,74,0.25)", borderRadius: 14, padding: 14, alignItems: "center", gap: 6 }}
+                style={{ flex: 1, backgroundColor: "rgba(22,163,74,0.08)", borderWidth: 1, borderColor: "rgba(22,163,74,0.25)", borderRadius: 14, padding: 12, alignItems: "center", gap: 4 }}
                 onPress={() => { onClose(); setTimeout(() => onGoToScan && onGoToScan(), 350); }}
                 accessibilityLabel="Scan barcode"
               >
-                <Text style={{ fontSize: 28 }}>📷</Text>
-                <Text style={[s.bold, { fontSize: 13, textAlign: "center" }]}>Scan Barcode</Text>
-                <Text style={{ color: T.textSoft, fontSize: 11, textAlign: "center" }}>One product</Text>
+                <Text style={{ fontSize: 26 }}>📷</Text>
+                <Text style={[s.bold, { fontSize: 12, textAlign: "center" }]}>Scan Barcode</Text>
+                <Text style={{ color: T.textSoft, fontSize: 10, textAlign: "center" }}>One product</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={{ flex: 1, backgroundColor: "rgba(22,163,74,0.08)", borderWidth: 1, borderColor: "rgba(22,163,74,0.25)", borderRadius: 14, padding: 14, alignItems: "center", gap: 6 }}
+                style={{ flex: 1, backgroundColor: "rgba(22,163,74,0.08)", borderWidth: 1, borderColor: "rgba(22,163,74,0.25)", borderRadius: 14, padding: 12, alignItems: "center", gap: 4 }}
                 onPress={() => { onClose(); setTimeout(() => onScanReceipt && onScanReceipt(), 350); }}
                 accessibilityLabel="Scan receipt"
               >
-                <Text style={{ fontSize: 28 }}>🧾</Text>
-                <Text style={[s.bold, { fontSize: 13, textAlign: "center" }]}>Scan Receipt</Text>
-                <Text style={{ color: T.textSoft, fontSize: 11, textAlign: "center" }}>Whole grocery run</Text>
+                <Text style={{ fontSize: 26 }}>🧾</Text>
+                <Text style={[s.bold, { fontSize: 12, textAlign: "center" }]}>Scan Receipt</Text>
+                <Text style={{ color: T.textSoft, fontSize: 10, textAlign: "center" }}>Whole grocery run</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: "rgba(22,163,74,0.08)", borderWidth: 1, borderColor: "rgba(22,163,74,0.25)", borderRadius: 14, padding: 12, alignItems: "center", gap: 4 }}
+                onPress={() => { onClose(); setTimeout(() => onBulkAdd && onBulkAdd(), 350); }}
+                accessibilityLabel="Add multiple items"
+              >
+                <Text style={{ fontSize: 26 }}>📝</Text>
+                <Text style={[s.bold, { fontSize: 12, textAlign: "center" }]}>Add a List</Text>
+                <Text style={{ color: T.textSoft, fontSize: 10, textAlign: "center" }}>Several at once</Text>
               </TouchableOpacity>
             </View>
 
@@ -4317,6 +4483,46 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
               <View style={{ flex: 1, height: 1, backgroundColor: T.border }} />
               <Text style={{ color: T.muted, fontSize: 11, fontWeight: "600", letterSpacing: 0.5 }}>OR ADD MANUALLY</Text>
               <View style={{ flex: 1, height: 1, backgroundColor: T.border }} />
+            </View>
+
+            {/* v1.17 — Container picker. Mirrors BulkAddModal's per-row chips.
+                Defaults to the section the modal opened from (e.g. opening
+                Add from the Freezer tab pre-selects Freezer), but the user
+                can override. The selection drives the FoodKeeper shelf-life
+                window used to compute closedDays / openedDays. */}
+            <Text style={s.inputLabel}>Container</Text>
+            <View style={{ flexDirection: "row", gap: 6, marginBottom: 14 }}>
+              {[
+                { id: "fridge",  label: "🧊 Fridge"  },
+                { id: "pantry",  label: "🥫 Pantry"  },
+                { id: "freezer", label: "❄️ Freezer" },
+              ].map(opt => {
+                const selected = container === opt.id;
+                return (
+                  <TouchableOpacity
+                    key={opt.id}
+                    onPress={() => setContainer(opt.id)}
+                    style={{
+                      flex: 1,
+                      paddingVertical: 10,
+                      paddingHorizontal: 4,
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: selected ? T.accent : T.border,
+                      backgroundColor: selected ? "rgba(22,163,74,0.10)" : "transparent",
+                      alignItems: "center",
+                    }}
+                    accessibilityLabel={`Set container to ${opt.id}`}
+                    accessibilityState={{ selected }}
+                  >
+                    <Text style={{
+                      fontSize: 14,
+                      fontWeight: selected ? "700" : "500",
+                      color: selected ? T.accent : T.textSoft,
+                    }}>{opt.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
 
             <Text style={s.inputLabel}>Item name *</Text>
@@ -4440,14 +4646,12 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
                 : "Fresh items don't change after opening — same expiry either way."}
             </Text>
 
-            {/* v1.16 bug fix — button label was hardcoded "Add to Fridge"
-                regardless of which container was selected. Support email
-                2026-05-11: "When I add things to the pantry, the button to
-                add still says add to fridge which causes confusion."
-                section prop is "fridge"/"pantry"/"freezer". */}
+            {/* v1.17 — Button label tracks the in-modal container chip (was
+                section prop in v1.16; broken when user changed the picker
+                mid-form). */}
             <TouchableOpacity style={s.btnPrimary} onPress={handleAdd}>
               <Text style={s.btnPrimaryText}>
-                Add to {(section || "fridge").charAt(0).toUpperCase() + (section || "fridge").slice(1)}
+                Add to {container.charAt(0).toUpperCase() + container.slice(1)}
               </Text>
             </TouchableOpacity>
             {/* v1.13 — explicit Cancel button below Add. Tapping outside the
@@ -4461,12 +4665,10 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
             >
               <Text style={{ color: T.textSoft, fontSize: 14, fontWeight: "600" }}>Cancel</Text>
             </TouchableOpacity>
-            {/* v1.0.10 — kept as a low-emphasis link; "Scan Receipt" tile up
-                top now opens the same multi-add screen, but the manual list
-                workflow still has its own path for users who prefer it. */}
-            <TouchableOpacity style={{ marginTop: 6, alignSelf: "center", paddingVertical: 6, paddingHorizontal: 12 }} onPress={() => { onClose(); setTimeout(() => onBulkAdd && onBulkAdd(), 350); }}>
-              <Text style={{ color: T.textSoft, fontSize: 13, fontWeight: "500", textDecorationLine: "underline" }}>Add a list of items manually →</Text>
-            </TouchableOpacity>
+            {/* v1.17 — removed the low-emphasis "Add a list of items
+                manually" link here. The "Add a List" tile in the top row
+                now surfaces the multi-add screen at peer-level with Scan
+                Barcode + Scan Receipt. */}
             <View style={{ height: 16 }} />
           </ScrollView>
         </TouchableOpacity>
