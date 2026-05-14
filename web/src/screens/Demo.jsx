@@ -7,6 +7,7 @@ import DemoLayout from "../components/DemoLayout.jsx";
 import Modal from "../components/Modal.jsx";
 import SignupPromptModal from "../components/SignupPromptModal.jsx";
 import AddDemoItemModal from "../components/AddDemoItemModal.jsx";
+import DemoItemDetailModal from "../components/DemoItemDetailModal.jsx";
 
 // Demo screen — v1.20 no-auth onboarding.
 //
@@ -55,6 +56,11 @@ export default function Demo() {
   const [promptOpen, setPromptOpen]   = useState(false);
   const [promptReason, setPromptReason] = useState("default");
   const [addOpen, setAddOpen]         = useState(false);
+  // v1.20 — clicking an item row opens a read-only details modal showing
+  // the full per-item field set (quantity, unit, category, container,
+  // dates, opened status). Sells the product's depth without forcing the
+  // visitor to sign up to see it.
+  const [detailItem, setDetailItem]   = useState(null);
 
   // Same sort + cap as the real Eat Me First.
   const ranked = items
@@ -195,9 +201,27 @@ export default function Demo() {
           const days = daysUntil(item.expiryDate);
           const badge = urgencyBadge(days);
           return (
+            // v1.20 — Whole row is clickable: tapping it opens the
+            // read-only DemoItemDetailModal so visitors can see the
+            // full per-item field set (quantity, unit, category,
+            // container, expiry date, opened status). Get-recipes
+            // button stops propagation so it keeps its existing
+            // recipe-modal behavior.
             <div
               key={item.id}
-              className="rounded-xl border border-border bg-card p-3 flex items-center gap-3"
+              onClick={() => {
+                track("demo_item_detail_opened", { name: item.name, category: item.category });
+                setDetailItem(item);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setDetailItem(item);
+                }
+              }}
+              role="button"
+              tabIndex={0}
+              className="rounded-xl border border-border bg-card p-3 flex items-center gap-3 cursor-pointer hover:border-accent/40 hover:bg-accent/[0.03] transition"
             >
               <div className="w-7 text-center text-textSoft text-xs font-bold flex-shrink-0">
                 {idx + 1}
@@ -222,7 +246,7 @@ export default function Demo() {
                   {badge.text}
                 </span>
                 <button
-                  onClick={() => openRecipesForLead(item)}
+                  onClick={(e) => { e.stopPropagation(); openRecipesForLead(item); }}
                   className="px-3 py-1.5 rounded-full bg-accent/10 text-accent text-xs font-semibold hover:bg-accent hover:text-white transition whitespace-nowrap"
                 >
                   Get recipes
@@ -350,6 +374,11 @@ export default function Demo() {
         open={addOpen}
         onClose={() => setAddOpen(false)}
         onAdd={handleAddDemoItem}
+      />
+      <DemoItemDetailModal
+        open={!!detailItem}
+        onClose={() => setDetailItem(null)}
+        item={detailItem}
       />
     </DemoLayout>
   );
