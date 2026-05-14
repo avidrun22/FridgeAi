@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase.js";
-import { rowToItem, daysUntil } from "../lib/helpers.js";
+import { rowToItem, daysUntil, formatQty } from "../lib/helpers.js";
 import { CATEGORY_EMOJI, inferEmoji } from "../lib/constants.js";
 import { track } from "../lib/analytics.js";
 import Layout from "../components/Layout.jsx";
@@ -218,7 +218,12 @@ export default function EatMeFirst({ user }) {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-text font-semibold truncate">{item.name}</p>
-                <p className="text-textSoft text-xs mt-0.5">{item.category}</p>
+                {/* v1.20 — Category + quantity on one line, e.g.
+                    "Produce · 5 oz". Skip the qty suffix when there's
+                    no unit (avoids "Produce · 1" for unitless rows). */}
+                <p className="text-textSoft text-xs mt-0.5 truncate">
+                  {item.category}{item.unit ? ` · ${formatQty(item)}` : ""}
+                </p>
               </div>
               {/* v1.20 — Stack urgency badge above the "Get recipes" button.
                   Mirrors the iOS Eat Me First row. Side-by-side ate ~180px

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { daysUntil } from "../lib/helpers.js";
+import { daysUntil, formatQty } from "../lib/helpers.js";
 import { CATEGORY_EMOJI, inferEmoji } from "../lib/constants.js";
 import { track } from "../lib/analytics.js";
 import { DEMO_ITEMS, DEMO_RECIPES_TOP5, DEMO_RECIPES_BY_LEAD } from "../lib/demoData.js";
@@ -231,7 +231,14 @@ export default function Demo() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-text font-semibold truncate">{item.name}</p>
-                <p className="text-textSoft text-xs mt-0.5">{item.category}</p>
+                {/* v1.20 — Show category + quantity on the meta line so
+                    the row reflects what they'll see in the detail
+                    modal. Matches the "Produce · 1 bunch" pattern from
+                    the homepage mockup. Skip the qty suffix when the
+                    item has no unit (avoids awkward "Produce · 1"). */}
+                <p className="text-textSoft text-xs mt-0.5 truncate">
+                  {item.category}{item.unit ? ` · ${formatQty(item)}` : ""}
+                </p>
               </div>
               {/* v1.20 — Stack urgency badge above the "Get recipes" button.
                   Mirrors the iOS Eat Me First row, which sacrifices a bit of
