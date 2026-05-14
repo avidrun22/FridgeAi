@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase.js";
 import { rowToItem, daysUntil, expiryColor, expiryLabel, formatQty } from "../lib/helpers.js";
-import { CONTAINERS, CATEGORIES, CATEGORY_EMOJI } from "../lib/constants.js";
+import { CONTAINERS, CATEGORIES, CATEGORY_EMOJI, inferEmoji } from "../lib/constants.js";
 import { track } from "../lib/analytics.js";
 import AddItemModal from "../components/AddItemModal.jsx";
 import BulkAddItemsModal from "../components/BulkAddItemsModal.jsx";
@@ -298,7 +298,7 @@ export default function Fridge({ user }) {
                 className="w-full rounded-xl border border-border bg-card p-4 flex items-center gap-3 text-left hover:border-accent/60 transition"
               >
                 <div className="w-10 h-10 rounded-lg bg-bg flex items-center justify-center text-xl flex-shrink-0">
-                  {it.emoji || CATEGORY_EMOJI[it.category] || "📦"}
+                  {inferEmoji(it.name, it.emoji || CATEGORY_EMOJI[it.category] || "📦")}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-text font-semibold truncate">{it.name}</p>

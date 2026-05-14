@@ -250,6 +250,98 @@
     transform: translateY(-2px);
   }
 
+  /* v1.19 — Android waitlist link below the iOS + web CTAs. First-pass was
+     a quiet gray text link; Greg's homepage test (5/14) showed it blended
+     into the founder note below — hard to find unless you knew where to
+     look. Now it reads as a real CTA tag: brand-green tint + bordered pill
+     + medium-bold weight, but smaller than the two primary buttons so the
+     visual hierarchy still puts iOS download first. */
+  .android-waitlist {
+    margin-top: 20px;
+    text-align: center;
+    animation: fadeUp 0.6s 0.45s ease both;
+    position: relative;
+    z-index: 1;
+  }
+  .android-waitlist-link {
+    background: rgba(62, 114, 29, 0.08);
+    border: 1px solid rgba(62, 114, 29, 0.28);
+    color: var(--green);
+    font-size: 14px;
+    font-family: 'Bricolage Grotesque', sans-serif;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 9px 18px;
+    border-radius: 100px;
+    transition: all 0.18s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .android-waitlist-link::before {
+    content: "🤖";
+    font-size: 13px;
+    line-height: 1;
+  }
+  .android-waitlist-link:hover {
+    background: rgba(62, 114, 29, 0.16);
+    border-color: var(--green);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(62, 114, 29, 0.18);
+  }
+  .android-waitlist-form {
+    display: flex;
+    gap: 8px;
+    max-width: 380px;
+    margin: 12px auto 0;
+    flex-wrap: wrap;
+    justify-content: center;
+    animation: fadeUp 0.3s ease both;
+  }
+  .android-waitlist-form input {
+    flex: 1;
+    min-width: 200px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    padding: 11px 18px;
+    font-size: 14px;
+    color: var(--text);
+    font-family: inherit;
+    outline: none;
+  }
+  .android-waitlist-form input:focus {
+    border-color: var(--green);
+  }
+  .android-waitlist-form button {
+    background: var(--text);
+    color: var(--bg);
+    border: none;
+    border-radius: 100px;
+    padding: 11px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 0.15s;
+  }
+  .android-waitlist-form button:hover:not(:disabled) {
+    background: var(--green);
+  }
+  .android-waitlist-form button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  .android-waitlist-msg {
+    margin: 10px 0 0;
+    font-size: 13px;
+    font-weight: 500;
+    min-height: 1.4em;
+    color: var(--text-soft);
+  }
+  .android-waitlist-msg.is-success { color: var(--green); }
+  .android-waitlist-msg.is-error   { color: #B23A3A; }
+
   /* Phone mockup */
   .phone-mockup {
     margin-top: 72px;
@@ -323,6 +415,57 @@
   .phone-emoji { font-size: 22px; }
 
   .phone-item-info { flex: 1; }
+
+  /* v1.19 — Eat Me First mockup: numbered rank + small "Get recipes"
+     button on the right rail. Mirrors the in-app row layout. */
+  .phone-rank {
+    font-size: 11px;
+    font-weight: 800;
+    font-family: 'DM Mono', monospace;
+    color: var(--muted);
+    width: 16px;
+    text-align: center;
+  }
+  .phone-cta-mini {
+    font-size: 9px;
+    font-weight: 700;
+    font-family: 'DM Mono', monospace;
+    color: var(--green);
+    background: rgba(62, 114, 29, 0.10);
+    border-radius: 6px;
+    padding: 4px 7px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .phone-item-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 5px;
+  }
+  /* Eat-first call-out banner (matches the green-tinted "Cook with
+     your top 5" card in the iOS UI). */
+  .phone-callout {
+    background: rgba(62, 114, 29, 0.07);
+    border: 1px solid rgba(62, 114, 29, 0.25);
+    border-radius: 12px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .phone-callout-emoji { font-size: 20px; }
+  .phone-callout-text { flex: 1; font-size: 11px; font-weight: 600; color: var(--text); line-height: 1.3; }
+  .phone-callout-cta {
+    font-size: 10px;
+    font-weight: 700;
+    color: #fff;
+    background: var(--green);
+    border-radius: 999px;
+    padding: 5px 10px;
+    font-family: 'DM Mono', monospace;
+  }
 
   .phone-item-name {
     font-size: 12px;
@@ -547,6 +690,84 @@
     font-size: 14px;
     color: var(--muted);
     line-height: 1.6;
+  }
+
+  /* v1.16 — Demo video + feature pair inside How it works.
+     v1.19 — Receipt-scan card kept as a text feature description (no longer
+     embeds a try-it landing page). Grid is balanced 1fr 1fr because the
+     two cards now carry roughly equal visual weight. */
+  .demo-videos {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 28px;
+    max-width: 980px;
+    margin: 0 auto 56px;
+    align-items: stretch;
+  }
+  .demo-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 22px;
+    padding: 24px 24px 24px;
+    display: flex;
+    flex-direction: column;
+  }
+  .demo-card-header {
+    margin-bottom: 18px;
+  }
+  .demo-card-tag {
+    display: inline-block;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .demo-card-title {
+    margin: 0 0 6px;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+    color: var(--text);
+  }
+  .demo-card-desc {
+    margin: 0;
+    font-size: 14px;
+    color: var(--text-soft);
+    line-height: 1.5;
+  }
+  .demo-card-video {
+    border-radius: 14px;
+    overflow: hidden;
+    background: #0a0a0a;
+    margin-top: auto;
+    width: 100%;
+  }
+  .demo-card-video.aspect-landscape {
+    aspect-ratio: 16 / 9;
+  }
+  .demo-card-video.aspect-portrait {
+    aspect-ratio: 9 / 16;
+    max-width: 240px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .demo-card-video iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+  }
+  @media (max-width: 720px) {
+    .demo-videos {
+      grid-template-columns: 1fr;
+      gap: 20px;
+      margin-bottom: 40px;
+    }
+    .demo-card-video.aspect-portrait {
+      max-width: 280px;
+    }
   }
 
   /* How it works */
@@ -859,7 +1080,7 @@
   "@type": "MobileApplication",
   "name": "ok2eat",
   "alternateName": "ok2eat: Eat First, Waste Less",
-  "description": "ok2eat tells you what to eat first — before it goes bad. Snap a grocery receipt and your fridge fills itself in 10 seconds. The Eat Me First tab ranks every item by urgency. Tap any item to get three recipes that use it (plus the four next-most-urgent things alongside it), respecting your dietary preferences and scaled to your household. Backed by USDA FoodKeeper data — 660 foods. Free for iOS and web.",
+  "description": "ok2eat tells you what to eat first — before it goes bad. Snap a grocery receipt and your fridge fills itself in 10 seconds. The Eat Me First tab ranks every item by urgency. Tap any item to get three recipes that use it (plus the four next-most-urgent things alongside it), respecting your dietary preferences and scaled to your household. Backed by USDA FoodKeeper data plus FDA, FSIS, and Cooperative Extension publications — 1,000+ foods. Free for iOS and web.",
   "url": "https://ok2eat.com",
   "applicationCategory": "FoodAndDrinkApplication",
   "operatingSystem": "iOS 17.0+; Web (any modern browser)",
@@ -879,7 +1100,7 @@
   ],
   "featureList": [
     "Eat Me First — fridge ranked by urgency, three recipes per item",
-    "USDA FoodKeeper expiry dates for 660+ foods (printed date + USDA window)",
+    "Per-item expiry windows for 1,000+ foods, sourced from USDA FoodKeeper plus FDA, FSIS, and Cooperative Extension publications (printed date + USDA window)",
     "Receipt scanning to bulk-add groceries with smart container defaults",
     "Dietary preferences + allergen filtering (vegetarian, vegan, gluten-free, peanut, tree nut, etc.)",
     "Household-scaled recipe portions",
@@ -897,7 +1118,7 @@
     "email": "support@ok2eat.com",
     "logo": "https://ok2eat.com/icon-512.png"
   },
-  "softwareVersion": "1.16",
+  "softwareVersion": "1.18",
   "datePublished": "2026-05-11",
   "inLanguage": "en-US"
 }
@@ -970,7 +1191,7 @@
       "name": "Is ok2eat available on Android?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Not yet. ok2eat is currently iOS-only with a companion web app at app.ok2eat.com. Android support is on the roadmap. The web app works on any modern browser, including Android phones."
+        "text": "Not yet, but Android is in active development. You can join the waitlist on the homepage at ok2eat.com to be notified when it ships. In the meantime, the web app at app.ok2eat.com works on any modern browser including Android phones."
       }
     }
   ]
@@ -1000,7 +1221,7 @@
   <ul class="nav-links">
     <li class="mobile-hide"><a href="#features">Features</a></li>
     <li class="mobile-hide"><a href="#how">How it works</a></li>
-    <li><a href="/scan/">Scan receipt</a></li>
+    <!-- /scan/ public landing retired v1.19. Receipt scan is logged-in only now. -->
     <li><a href="/shelf-life/">Shelf life</a></li>
     <li class="mobile-hide"><a href="/blog/">Blog</a></li>
     <li class="mobile-hide"><a href="#support">Support</a></li>
@@ -1013,15 +1234,38 @@
 <div class="hero">
   <div class="hero-glow"></div>
   <svg class="hero-mark"><use href="#avocado"/></svg>
-  <div class="hero-badge">v1.16 · iOS + web</div>
+  <div class="hero-badge">v1.18 · iOS + web</div>
   <h1>What to eat first — <span>before it goes bad.</span></h1>
   <p class="hero-sub">Open your fridge. There's leftover chicken, half a bag of spinach, three yogurts, and that cilantro you forgot about. Which is going bad first? Most apps make you scroll. ok2eat just tells you — in the new Eat Me First tab — plus three recipes that use whatever's closest to spoiling. Free.</p>
   <div class="hero-cta">
     <a href="https://apps.apple.com/us/app/ok2eat/id6761730687" class="btn-primary">Download on the App Store</a>
     <a href="https://app.ok2eat.com" class="btn-secondary">Open the web app →</a>
   </div>
+
+  <!-- v1.19 — Android waitlist. Click the link → expand inline form →
+       capture email to both Supabase android_waitlist + Resend audience
+       via subscribe-android-waitlist Edge Function. Wired by
+       /blog/android-waitlist.js. PostHog `android_waitlist_signup` event
+       fires on submit so we can see clickthrough rate from hero -> form. -->
+  <div class="android-waitlist" data-android-waitlist>
+    <button type="button" class="android-waitlist-link" data-android-toggle aria-expanded="false">
+      Android coming soon — get notified →
+    </button>
+    <form class="android-waitlist-form" data-android-form hidden>
+      <input type="email" name="email" placeholder="you@example.com" required autocomplete="email" aria-label="Email for Android waitlist">
+      <button type="submit">Notify me</button>
+    </form>
+    <p class="android-waitlist-msg" data-android-msg aria-live="polite"></p>
+  </div>
+
   <p style="margin-top: 20px; font-size: 13px; color: var(--muted); font-style: italic; max-width: 480px;">I built ok2eat after years of opening the fridge, staring at it, closing it, and ordering takeout. Turns out "what do we have to eat?" is the most-asked question in every household. — Greg</p>
 
+  <!-- v1.19 — Mockup refreshed to show the Eat Me First tab (the headline
+       feature since v1.16). Earlier mockup showed a generic "My Fridge"
+       inventory list — accurate to v1.0.x but stale for the current
+       product. Float cards on the sides reflect Dashboard tab metrics
+       ($-saved, items-rescued) which are still on-brand. Items match the
+       contextual emoji + urgency-ranking logic the app actually renders. -->
   <div class="phone-mockup">
     <div class="float-card float-card-left">
       <div class="label">Money saved</div>
@@ -1029,7 +1273,7 @@
       <div style="font-size:11px;color:var(--muted);margin-top:2px;">this year</div>
     </div>
     <div class="float-card float-card-right">
-      <div class="label">Items saved</div>
+      <div class="label">Items rescued</div>
       <div class="value">47</div>
       <div style="font-size:11px;color:var(--muted);margin-top:2px;">from the trash</div>
     </div>
@@ -1037,55 +1281,64 @@
       <div class="phone-notch"></div>
       <div class="phone-screen">
         <div class="phone-header">
-          <span class="phone-title">My Fridge</span>
+          <span class="phone-title">Eat me first</span>
           <span class="phone-badge">⚡ LIVE</span>
         </div>
-        <div class="phone-stat-row">
-          <div class="phone-stat">
-            <div class="phone-stat-num">12</div>
-            <div class="phone-stat-label">Items</div>
+        <div style="font-size:10px;color:var(--text-soft);margin-top:4px;margin-bottom:12px;line-height:1.4;">5 items ranked by urgency · 1 expired · 2 expiring within 3 days</div>
+
+        <div class="phone-callout">
+          <div class="phone-callout-emoji">🍳</div>
+          <div class="phone-callout-text">Cook with your top 5 expiring items</div>
+          <div class="phone-callout-cta">Suggest</div>
+        </div>
+
+        <div class="phone-item">
+          <div class="phone-rank">1</div>
+          <div class="phone-emoji">🌿</div>
+          <div class="phone-item-info">
+            <div class="phone-item-name">Cilantro</div>
+            <div class="phone-item-meta">Produce · 1 bunch</div>
           </div>
-          <div class="phone-stat">
-            <div class="phone-stat-num" style="color:var(--warn);">3</div>
-            <div class="phone-stat-label">Expiring</div>
-          </div>
-          <div class="phone-stat">
-            <div class="phone-stat-num" style="color:var(--danger);">1</div>
-            <div class="phone-stat-label">Expired</div>
+          <div class="phone-item-right">
+            <div class="expiry-dot dot-danger">Tmrw</div>
+            <div class="phone-cta-mini">Get recipes</div>
           </div>
         </div>
-        <div style="margin-top:12px;font-size:9px;font-family:'DM Mono',monospace;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">// CONTENTS</div>
         <div class="phone-item">
-          <div class="phone-emoji">🥛</div>
+          <div class="phone-rank">2</div>
+          <div class="phone-emoji">🐟</div>
           <div class="phone-item-info">
-            <div class="phone-item-name">Whole Milk</div>
-            <div class="phone-item-meta">Dairy · 1 gallon</div>
+            <div class="phone-item-name">Salmon Fillet</div>
+            <div class="phone-item-meta">Protein · 1 lb</div>
           </div>
-          <div class="expiry-dot dot-danger">1d</div>
+          <div class="phone-item-right">
+            <div class="expiry-dot dot-warn">2d</div>
+            <div class="phone-cta-mini">Get recipes</div>
+          </div>
         </div>
         <div class="phone-item">
-          <div class="phone-emoji">🥑</div>
+          <div class="phone-rank">3</div>
+          <div class="phone-emoji">🥬</div>
           <div class="phone-item-info">
-            <div class="phone-item-name">Avocado</div>
-            <div class="phone-item-meta">Produce · 3 pieces</div>
+            <div class="phone-item-name">Baby Spinach</div>
+            <div class="phone-item-meta">Produce · 5 oz</div>
           </div>
-          <div class="expiry-dot dot-warn">3d</div>
+          <div class="phone-item-right">
+            <div class="expiry-dot dot-warn">3d</div>
+            <div class="phone-cta-mini">Get recipes</div>
+          </div>
         </div>
         <div class="phone-item">
-          <div class="phone-emoji">🍗</div>
+          <div class="phone-rank">4</div>
+          <div class="phone-emoji">🥩</div>
           <div class="phone-item-info">
-            <div class="phone-item-name">Chicken Breast</div>
-            <div class="phone-item-meta">Protein · 2 lbs</div>
+            <div class="phone-item-name">Ground Beef</div>
+            <div class="phone-item-meta">Protein · 1 lb</div>
           </div>
-          <div class="expiry-dot dot-warn">2d</div>
-        </div>
-        <div class="phone-item">
-          <div class="phone-emoji">🧀</div>
-          <div class="phone-item-info">
-            <div class="phone-item-name">Cheddar</div>
-            <div class="phone-item-meta">Dairy · 8 oz</div>
+          <div class="phone-item-right">
+            <div class="expiry-dot dot-green">5d</div>
+            <div class="phone-cta-mini">Get recipes</div>
           </div>
-          <div class="expiry-dot dot-green">12d</div>
         </div>
       </div>
     </div>
@@ -1125,7 +1378,7 @@
     <div class="feature-card">
       <span class="feature-icon">⏰</span>
       <div class="feature-title">USDA-backed expiry dates</div>
-      <div class="feature-desc">Per-item shelf life from the <strong>USDA FoodKeeper</strong> dataset — 660+ foods with their own typical fridge, freezer, and pantry windows. ok2eat stores both the printed date and the USDA window, so you stop throwing out yogurt that's still good.</div>
+      <div class="feature-desc">Per-item shelf life from the <strong>USDA FoodKeeper</strong> dataset plus FDA, FSIS, and Cooperative Extension publications — 1,000+ foods with their own typical fridge, freezer, and pantry windows. ok2eat stores both the printed date and the USDA window, so you stop throwing out yogurt that's still good.</div>
     </div>
     <div class="feature-card">
       <span class="feature-icon">📸</span>
@@ -1188,7 +1441,7 @@
     <div style="position:absolute;top:-60px;right:-40px;width:220px;height:220px;background:radial-gradient(circle,rgba(62,114,29,0.18),transparent 70%);pointer-events:none;"></div>
     <div class="section-tag" style="display:inline-block;">// Free public resource</div>
     <h2 style="margin-top:14px;">How long does <span style="color:var(--green);">{anything}</span> last?</h2>
-    <p class="section-sub" style="margin-bottom:28px;">Browse shelf-life estimates for <strong>660+ foods</strong>, sourced from the <strong>USDA FoodKeeper</strong> dataset. Searchable, free, no sign-up. The same data that powers ok2eat's per-item expiry — open to anyone.</p>
+    <p class="section-sub" style="margin-bottom:28px;">Browse shelf-life estimates for <strong>1,000+ foods</strong>, sourced from the <strong>USDA FoodKeeper</strong> dataset, the <strong>FDA</strong> Refrigerator &amp; Freezer Storage Chart, <strong>USDA FSIS</strong> guidance, and <strong>Cooperative Extension Service</strong> bulletins. Searchable, free, no sign-up. The same data that powers ok2eat's per-item expiry — open to anyone.</p>
     <form action="/shelf-life/" method="get" style="display:flex;gap:8px;max-width:480px;margin:0 auto 18px;flex-wrap:wrap;justify-content:center;">
       <input name="q" type="text" placeholder="Search 'spinach', 'whole milk', 'hard cheese'…" autocomplete="off"
              style="flex:1;min-width:240px;background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:12px 18px;font-size:15px;color:var(--text);font-family:inherit;outline:none;">
@@ -1200,7 +1453,7 @@
       <a href="/shelf-life/eggs.html" style="background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:6px 14px;color:var(--text-soft);text-decoration:none;">eggs</a>
       <a href="/shelf-life/cheese.html" style="background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:6px 14px;color:var(--text-soft);text-decoration:none;">hard cheese</a>
       <a href="/shelf-life/avocados.html" style="background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:6px 14px;color:var(--text-soft);text-decoration:none;">avocados</a>
-      <a href="/shelf-life/" style="background:var(--green);border:1px solid var(--green);border-radius:100px;padding:6px 14px;color:#fff;text-decoration:none;font-weight:600;">Browse all 660 →</a>
+      <a href="/shelf-life/" style="background:var(--green);border:1px solid var(--green);border-radius:100px;padding:6px 14px;color:#fff;text-decoration:none;font-weight:600;">Browse all 1,000+ →</a>
     </div>
     <p style="margin-top:22px;font-size:12px;color:var(--muted);font-style:italic;">Data via USDA FSIS FoodKeeper. Estimates only — when in doubt, throw it out.</p>
   </div>
@@ -1214,11 +1467,53 @@
   <h2>From "what do we want?" to <span style="color:var(--green);">"what do we have?"</span></h2>
   <p class="section-sub">Four steps. Less than a minute to set up. No complicated setup, no manual data entry.</p>
 
+  <!-- v1.19 — Pair: portrait tour video + receipt-scan feature description.
+       The receipt-scan card is text-only now (no embedded video, no try-it
+       CTA) because the /scan/ public landing page was retired. Receipt scan
+       is still a core feature of both the iOS app and the web app at
+       app.ok2eat.com; visitors learn what it does here, then create an
+       account to use it. If we re-record a clean receipt-scan demo we can
+       drop the iframe back into this card (16:9, use aspect-landscape). -->
+  <div class="demo-videos">
+    <div class="demo-card">
+      <div class="demo-card-header">
+        <span class="demo-card-tag">// 40 seconds</span>
+        <h3 class="demo-card-title">The full tour</h3>
+        <p class="demo-card-desc">Add an item, open Eat Me First, tap a recipe, plan tomorrow's shop — start to finish in under a minute.</p>
+      </div>
+      <div class="demo-card-video aspect-portrait">
+        <iframe
+          src="https://www.youtube.com/embed/vmrcXnJdS3A"
+          title="ok2eat — what to eat first, before it goes bad"
+          loading="lazy"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          referrerpolicy="strict-origin-when-cross-origin"
+          allowfullscreen></iframe>
+      </div>
+    </div>
+    <div class="demo-card">
+      <div class="demo-card-header">
+        <span class="demo-card-tag">// Receipt scan</span>
+        <h3 class="demo-card-title">Photograph the receipt, skip the typing</h3>
+        <p class="demo-card-desc">After your grocery run, snap a picture of the receipt. ok2eat reads every line, categorizes each item, and sets a smart expiry date from USDA shelf-life data — so a 30-item haul lands in your fridge in seconds, not minutes. Available in the iOS app and at app.ok2eat.com once you've signed up.</p>
+      </div>
+      <div class="demo-card-video aspect-landscape">
+        <iframe
+          src="https://www.youtube.com/embed/pFgzb1ZEBGc"
+          title="ok2eat — receipt scan demo"
+          loading="lazy"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          referrerpolicy="strict-origin-when-cross-origin"
+          allowfullscreen></iframe>
+      </div>
+    </div>
+  </div>
+
   <div class="steps">
     <div class="step">
       <div class="step-num">01</div>
-      <div class="step-title">Scan your receipt</div>
-      <div class="step-desc">Photograph your grocery slip when you get home. AI vision reads every item, categorizes it, and sets smart expiry dates. (Or scan barcodes one at a time, or type items in.)</div>
+      <div class="step-title">Add what you bought</div>
+      <div class="step-desc">Scan a barcode for instant nutrition + expiry, type an item by name, or once you sign up — bulk-add by photographing your receipt. ok2eat sets smart shelf-life dates from USDA FoodKeeper data either way.</div>
     </div>
     <div class="step">
       <div class="step-num">02</div>
@@ -1356,6 +1651,7 @@
   document.getElementById("year").textContent = new Date().getFullYear();
 </script>
 <script src="/blog/newsletter.js" defer></script>
+<script src="/blog/android-waitlist.js" defer></script>
 
 </body>
 </html>

@@ -34,6 +34,11 @@ from datetime import date
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 DATA = ROOT / "data" / "foodkeeper.json"
+# v1.19 — Extended dataset from non-FoodKeeper trusted public sources
+# (FSIS, FDA, NCHFP, Cooperative Extension Services, manufacturer guidance).
+# Each row carries a `source` short-label + `source_url`. FoodKeeper still
+# wins any slug conflict — dedup is enforced at load time below.
+DATA_EXTENDED = ROOT / "data" / "shelf_life_extended.json"
 OUT_DIR = ROOT / "shelf-life"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -296,12 +301,50 @@ def render_item_page(item, slug, related):
 
     <section class="source-attribution">
       <h2>Data source</h2>
-      <p>The shelf-life ranges shown above are from the <a href="https://www.fsis.usda.gov/food-safety/safe-food-handling-and-preparation/food-safety-basics/foodkeeper-app" rel="noopener">USDA Food Safety and Inspection Service FoodKeeper database</a>, a publicly maintained reference. ok2eat republishes this data unmodified except for unit normalization (everything shown in days). Source dataset: {DATA_VERSION_TEXT}.</p>
+      {_source_html(item)}
     </section>
   </article>
 </main>
 """
     return page_head(title, description, canonical, json_ld_blocks) + body + PAGE_FOOTER
+
+
+# v1.19 — Per-item source attribution. FoodKeeper items show the existing
+# canonical FoodKeeper blurb; extended items show their specific source.
+def _source_html(item):
+    src = (item.get("source") or "USDA FoodKeeper").strip()
+    src_url = item.get("source_url")
+    if src == "USDA FoodKeeper":
+        return (
+            f'<p>The shelf-life ranges shown above are from the <a '
+            f'href="https://www.fsis.usda.gov/food-safety/safe-food-handling-and-preparation/food-safety-basics/foodkeeper-app" '
+            f'rel="noopener">USDA Food Safety and Inspection Service FoodKeeper database</a>, '
+            f'a publicly maintained US-government reference. ok2eat republishes this data '
+            f'unmodified except for unit normalization (everything shown in days). Source '
+            f'dataset: {DATA_VERSION_TEXT}.</p>'
+        )
+    # Map of short labels → full publication names + canonical URLs.
+    src_map = {
+        "FDA": ("US Food and Drug Administration — Refrigerator & Freezer Storage Chart",
+                "https://www.fda.gov/food/buy-store-serve-safe-food/refrigerator-freezer-storage-chart"),
+        "FSIS": ("USDA Food Safety and Inspection Service",
+                 "https://www.fsis.usda.gov/food-safety/safe-food-handling-and-preparation"),
+        "NCHFP": ("National Center for Home Food Preservation (University of Georgia)",
+                  "https://nchfp.uga.edu/"),
+        "Extension": ("Cooperative Extension Service food-safety bulletins",
+                      src_url or "https://extension.psu.edu/food-safety"),
+        "Manufacturer": ("Typical manufacturer best-before guidance for this product category",
+                         None),
+    }
+    full_name, default_url = src_map.get(src, (src, src_url))
+    href = src_url or default_url
+    src_link = f'<a href="{href}" rel="noopener">{html.escape(full_name)}</a>' if href else html.escape(full_name)
+    return (
+        f'<p>Storage estimates for this item are from {src_link}. '
+        f'ok2eat collates shelf-life data from multiple public, trusted sources and '
+        f'normalizes to days for comparability. '
+        f'See our <a href="/shelf-life/">directory home</a> for the full source list.</p>'
+    )
 
 
 # ─── Index page (with search) ────────────────────────────────────────────────
@@ -360,7 +403,7 @@ def render_index_page(items_with_slugs, by_category):
   <header class="index-header">
     <p class="index-eyebrow">// shelf life directory</p>
     <h1>How long does food last?</h1>
-    <p class="index-tagline">Storage times for {len(items_with_slugs)} foods, from the USDA FoodKeeper database. Search or browse below.</p>
+    <p class="index-tagline">Storage times for {len(items_with_slugs)} foods. Sourced from the USDA FoodKeeper database, FDA Refrigerator &amp; Freezer Storage Chart, USDA FSIS guidance, the National Center for Home Food Preservation, and Cooperative Extension Service publications. Search or browse below.</p>
   </header>
 
   <div class="search-wrap">
@@ -380,7 +423,7 @@ def render_index_page(items_with_slugs, by_category):
   </section>
 
   <section class="source-attribution">
-    <p>All storage times sourced from the <a href="https://www.fsis.usda.gov/food-safety/safe-food-handling-and-preparation/food-safety-basics/foodkeeper-app">USDA Food Safety and Inspection Service FoodKeeper database</a>. {DATA_VERSION_TEXT}. Updated {date.today().isoformat()}.</p>
+    <p>The bulk of these storage times come from the <a href="https://www.fsis.usda.gov/food-safety/safe-food-handling-and-preparation/food-safety-basics/foodkeeper-app">USDA FSIS FoodKeeper database</a> ({DATA_VERSION_TEXT}). FoodKeeper is the authoritative source for any item it covers. Items FoodKeeper doesn't list — many modern/specialty foods, prepared refrigerated items, plant-based alternatives, international ingredients — draw from the <a href="https://www.fda.gov/food/buy-store-serve-safe-food/refrigerator-freezer-storage-chart">FDA Refrigerator &amp; Freezer Storage Chart</a>, <a href="https://www.fsis.usda.gov/food-safety/safe-food-handling-and-preparation">USDA FSIS food-safety bulletins</a>, the <a href="https://nchfp.uga.edu/">National Center for Home Food Preservation</a> (University of Georgia), and Cooperative Extension Service publications. Per-item source attribution is shown on each detail page. Updated {date.today().isoformat()}.</p>
   </section>
 </main>
 
@@ -735,8 +778,47 @@ main {
 
 
 def main():
+    # v1.19 — load FoodKeeper first (authoritative), then merge extended
+    # items that don't collide. Dedup is by slug (post-slugify). The
+    # extended dataset has its own `source` + `source_url` fields; FoodKeeper
+    # rows get implicit `source = "USDA FoodKeeper"`.
     items = json.loads(DATA.read_text())
-    print(f"Loaded {len(items)} items")
+    fk_count = len(items)
+    print(f"Loaded {fk_count} FoodKeeper items")
+
+    # Tag FoodKeeper items with their source so per-page rendering can show
+    # provenance uniformly. Done in-place; doesn't touch the source file.
+    for it in items:
+        it.setdefault("source", "USDA FoodKeeper")
+        it.setdefault("source_url",
+                      "https://www.fsis.usda.gov/food-safety/safe-food-handling-and-preparation/food-safety-basics/foodkeeper-app")
+
+    # Merge extended items if the file exists.
+    if DATA_EXTENDED.exists():
+        ext_items = json.loads(DATA_EXTENDED.read_text())
+        print(f"Loaded {len(ext_items)} extended items")
+        # Two dedup keys, both must miss FoodKeeper for the extended item to
+        # land: (a) base-name slug ignoring subtitle (catches "miso" vs.
+        # "miso paste"); (b) name+subtitle slug (catches exact dupes with
+        # different subtitles). FoodKeeper always wins.
+        def base_slug(name):
+            return re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
+        def full_slug(it):
+            return re.sub(r"[^a-z0-9]+", "-",
+                          ((it["name"] + " " + (it.get("subtitle") or "")).lower())).strip("-")
+        fk_base_slugs = {base_slug(it["name"]) for it in items}
+        fk_full_slugs = {full_slug(it) for it in items}
+        merged = 0
+        for it in ext_items:
+            if base_slug(it["name"]) in fk_base_slugs:
+                continue
+            if full_slug(it) in fk_full_slugs:
+                continue
+            items.append(it)
+            merged += 1
+        print(f"Merged {merged} extended items (dropped {len(ext_items) - merged} as FoodKeeper dupes)")
+
+    print(f"Total items to render: {len(items)}")
 
     used_slugs: set[str] = set()
     items_with_slugs = []
@@ -765,12 +847,42 @@ def main():
     (OUT_DIR / "index.html").write_text(index_html)
     print(f"Wrote shelf-life/index.html ({(OUT_DIR / 'index.html').stat().st_size:,} bytes)")
 
-    # Write per-item pages
+    # Write per-item pages — track the slug set so we can prune orphans.
     sitemap_lines = []
+    written_slugs = set()
     for it, slug in items_with_slugs:
         page = render_item_page(it, slug, related_by_id[it["id"]])
         (OUT_DIR / f"{slug}.html").write_text(page)
+        written_slugs.add(slug)
         sitemap_lines.append(f"https://ok2eat.com/shelf-life/{slug}.html")
+
+    # v1.19 — Self-prune. Any .html file in the output directory that we
+    # didn't write this pass is an orphan from a prior build (e.g. a loose
+    # dedup or a renamed item). Delete it so the directory always reflects
+    # exactly what the current dataset produces. Files we DO keep: index,
+    # the slug-html files we just wrote, and styles.css (handled separately).
+    # Wrapped in try/except so the build doesn't fail if filesystem perms
+    # block delete (e.g. running inside a restricted sandbox); orphans will
+    # be cleaned the next time it runs in a writeable environment.
+    keep = {f"{s}.html" for s in written_slugs} | {"index.html", "styles.css"}
+    pruned = 0
+    skipped = []
+    for f in OUT_DIR.iterdir():
+        if not f.is_file():
+            continue
+        if f.name in keep:
+            continue
+        if not f.name.endswith(".html"):
+            continue
+        try:
+            f.unlink()
+            pruned += 1
+        except OSError as e:
+            skipped.append((f.name, str(e)))
+    if pruned:
+        print(f"Pruned {pruned} orphan page(s)")
+    if skipped:
+        print(f"Warning: couldn't prune {len(skipped)} file(s) — filesystem permission. Next run on a writeable host will clean them.")
 
     # Sitemap helper file
     sitemap_lines.insert(0, "https://ok2eat.com/shelf-life/")

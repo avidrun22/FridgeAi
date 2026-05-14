@@ -236,20 +236,38 @@ insights. Anchor metrics for "is the app actually growing" reviews.
 
 ---
 
-## Recurring monthly costs (current)
+## Recurring monthly costs (current — last updated 2026-05-08)
 
-| Item | Cost |
-|---|---|
-| Apple Developer Program | $99/yr ≈ **$8.25/mo** |
-| Supabase Pro | **$25/mo** |
-| Netlify Personal | **$19/mo** |
-| Google Workspace (1 user) | **$7/mo** |
-| Anthropic API | ~$5-15/mo (variable) |
-| Namecheap (ok2eat.com renewal) | ~$15/yr ≈ $1.25/mo |
-| PostHog | $0 (free tier) |
-| Resend | $0 (free tier) |
-| Expo | $0 (free tier) |
-| **Total** | **~$67-77/mo** |
+| Item | Cost | Category |
+|---|---|---|
+| Apple Developer Program | $99/yr ≈ **$8.25/mo** | Distribution |
+| Supabase Pro | **$25/mo** | Infra |
+| Netlify Personal | **$19/mo** | Hosting |
+| Typefully Pro | **$10/mo** | Marketing (new — added 2026-05-08, 14-day trial active) |
+| Google Workspace (1 user) | **$7/mo** | Email + identity |
+| Anthropic API | ~$8-25/mo (variable, post-scan launch) | AI / product |
+| Namecheap (ok2eat.com renewal) | ~$15/yr ≈ $1.25/mo | Domain |
+| PostHog | $0 (free tier, 1M events/mo) | Analytics |
+| Resend | $0 (free tier, 3K emails/mo) | Email transactional |
+| Expo | $0 (free tier) | Build pipeline |
+| Pinterest Business | $0 (free) | Marketing channel |
+| X / Meta / Reddit / TikTok | $0 (free) | Marketing channels |
+| **Fixed monthly total** | **~$70.50/mo** | |
+| **+ Anthropic variable** | **+$8-25/mo** | |
+| **= Total range** | **$78-95/mo** | |
+
+**Forward-looking notes:**
+- Anthropic API was previously $5-15/mo (recipes + iOS receipt OCR). With v1.16's `/scan` page live (anonymous IP-rate-limited at 3/day + 5/week) and the daily-report agent, expect $8-25/mo. If `/scan` goes viral, monitor Anthropic dashboard — at 5,000 scans/day, daily spend hits $50-150.
+- Typefully Pro is in 14-day free trial. First charge: ~2026-05-22. Cancel before then if auto-DM doesn't validate during the first lead-magnet test.
+- Netlify Personal at $19/mo is overkill for current traffic but supports two sites (marketing + web app) under one account. Re-evaluate if traffic stays under Netlify's free-tier (100GB bandwidth/mo).
+
+## One-time / annual costs
+
+| Item | Cost | Notes |
+|---|---|---|
+| Apple Developer Program | $99/yr | Auto-renews ~April |
+| Namecheap renewals | ~$15-30/yr | Apex domain only |
+| Typefully (if you switch annual) | $96/yr ($8/mo) | $24/yr saved vs monthly. Switch if you keep it past day 60. |
 
 ---
 

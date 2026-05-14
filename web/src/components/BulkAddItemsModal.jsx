@@ -5,6 +5,7 @@ import { track } from "../lib/analytics.js";
 import {
   CATEGORIES, CATEGORY_EMOJI, CONTAINERS,
   EXPIRY_DAYS_BY_CATEGORY, OPENED_DAYS_MAP, isPackagedCategory,
+  inferEmoji,
 } from "../lib/constants.js";
 
 // v1.16 — Bulk-add for fridge items. Mirrors the iOS BulkAddModal pattern:
@@ -56,7 +57,7 @@ export default function BulkAddItemsModal({ open, onClose, onAdded, householdId,
       const rows = names.map(name => ({
         name,
         category,
-        emoji: CATEGORY_EMOJI[category] || "📦",
+        emoji: inferEmoji(name, CATEGORY_EMOJI[category] || "📦"),
         quantity: 1,
         unit: null,
         added_date: new Date().toISOString(),

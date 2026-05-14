@@ -8,6 +8,7 @@ import { lookupShelfLife } from "../lib/shelfLife.js";
 import {
   CATEGORIES, CATEGORY_EMOJI, CONTAINERS,
   EXPIRY_DAYS_BY_CATEGORY, OPENED_DAYS_MAP, isPackagedCategory, UNIT_OPTIONS,
+  inferEmoji,
 } from "../lib/constants.js";
 
 // Mirror of the iOS AddModal: name + amount + unit + category +
@@ -63,9 +64,11 @@ export default function AddItemModal({ open, onClose, onAdded, householdId, defa
     setSearching(true);
     const t = setTimeout(async () => {
       try {
+        // v1.19 — capped at 4 to mirror iOS. Tighter list, less choice
+        // overhead, fewer false positives at the bottom of the dropdown.
         const { data, error } = await supabase.rpc("search_products", {
           query: trimmed,
-          result_limit: 5,
+          result_limit: 4,
         });
         if (cancelled) return;
         setSearchResults(error ? [] : (data || []));
@@ -170,7 +173,7 @@ export default function AddItemModal({ open, onClose, onAdded, householdId, defa
         .insert({
           name: name.trim(),
           category,
-          emoji: CATEGORY_EMOJI[category] || "📦",
+          emoji: inferEmoji(name.trim(), CATEGORY_EMOJI[category] || "📦"),
           quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
           unit: unit || null,
           added_date: new Date().toISOString(),
@@ -233,7 +236,7 @@ export default function AddItemModal({ open, onClose, onAdded, householdId, defa
                   }`}
                 >
                   <div className="w-8 h-8 rounded bg-bg flex items-center justify-center text-base flex-shrink-0">
-                    {r.emoji || CATEGORY_EMOJI[r.category] || "📦"}
+                    {inferEmoji(r.name, r.emoji || CATEGORY_EMOJI[r.category] || "📦")}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-text truncate">{r.name}</p>

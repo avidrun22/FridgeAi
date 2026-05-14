@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase.js";
 import { rowToItem, daysUntil } from "../lib/helpers.js";
-import { CATEGORY_EMOJI } from "../lib/constants.js";
+import { CATEGORY_EMOJI, inferEmoji } from "../lib/constants.js";
 import { track } from "../lib/analytics.js";
 import Layout from "../components/Layout.jsx";
 import Modal from "../components/Modal.jsx";
@@ -214,7 +214,7 @@ export default function EatMeFirst({ user }) {
                 {idx + 1}
               </div>
               <div className="w-10 h-10 rounded-lg bg-bg flex items-center justify-center text-xl flex-shrink-0">
-                {item.emoji || CATEGORY_EMOJI[item.category] || "📦"}
+                {inferEmoji(item.name, item.emoji || CATEGORY_EMOJI[item.category] || "📦")}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-text font-semibold truncate">{item.name}</p>
@@ -239,13 +239,19 @@ export default function EatMeFirst({ user }) {
 
       {/* Recipe modal */}
       {recipeModal && (
-        <Modal open={true} onClose={() => setRecipeModal(null)}>
-          <div className="p-5 max-h-[80vh] overflow-y-auto">
-            <h2 className="text-xl font-bold text-text mb-1">
-              {recipeModal.leadItem
-                ? `Recipes using ${recipeModal.leadItem.name}`
-                : "Recipes for your top expiring items"}
-            </h2>
+        // v1.16 papercut fix — pass `title` prop so Modal renders the X
+        // button in the header. Backdrop tap and Esc already dismiss
+        // (handled by the Modal component). Matches the iOS fix in
+        // App.js's EatMeFirstScreen recipe modal.
+        <Modal
+          open={true}
+          onClose={() => setRecipeModal(null)}
+          size="lg"
+          title={recipeModal.leadItem
+            ? `Recipes using ${recipeModal.leadItem.name}`
+            : "Recipes for your top expiring items"}
+        >
+          <div className="max-h-[75vh] overflow-y-auto">
             <p className="text-textSoft text-sm mb-4">
               Using: {[recipeModal.leadItem?.name, ...recipeModal.items.map(i => i.name)]
                 .filter(Boolean).join(", ")}

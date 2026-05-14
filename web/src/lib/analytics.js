@@ -24,6 +24,16 @@ import posthog from "posthog-js";
 const POSTHOG_PROJECT_KEY = "phc_szxhjw2eQmYYhNGicX3kmNXxdz47Sj7evqx5Quqw8dTY";
 const POSTHOG_HOST = "https://us.i.posthog.com"; // ingestion endpoint
 
+// App version for the web client. Surfaced via Vite at build time — set in
+// vite.config when we deploy. Falls back to "web" if the env var isn't
+// present (older deploys or local dev) so version-breakdown queries still
+// have a stable bucket to count against. iOS uses semantic versions like
+// "1.17"; web buckets are tagged "web-YYYY-MM-DD" or "web" so we can tell
+// the two surfaces apart in the same chart without complex joins.
+const APP_VERSION =
+  (typeof import.meta !== "undefined" && import.meta?.env?.VITE_APP_VERSION) ||
+  "web";
+
 let _initialized = false;
 
 export function initAnalytics() {
@@ -40,12 +50,13 @@ export function initAnalytics() {
       // don't bloat the user count until they actually sign in.
       person_profiles: "identified_only",
     });
-    // Register platform as a super-property so it attaches to EVERY event
-    // posthog-js sends — including the auto-fired $pageview, $pageleave,
-    // and $identify. Without this, only events that go through track()
-    // would carry the tag (the wrapper adds it explicitly), leaving
-    // auto-events with platform=null and breaking platform-cohort splits.
-    posthog.register({ platform: "web" });
+    // Register platform + app_version as super-properties so they attach to
+    // EVERY event posthog-js sends — including the auto-fired $pageview,
+    // $pageleave, and $identify. Without this, only events that go through
+    // track() would carry the tag (the wrapper adds it explicitly), leaving
+    // auto-events with platform=null and breaking version-distribution
+    // queries that join iOS + web.
+    posthog.register({ platform: "web", app_version: APP_VERSION });
     _initialized = true;
   } catch (e) {
     // Failures here are silent on purpose — analytics never blocks the app.
@@ -58,14 +69,30 @@ export function initAnalytics() {
 export function track(event, properties) {
   try {
     if (!_initialized) return;
-    posthog.capture(event, { ...(properties || {}), platform: "web" });
+    posthog.capture(event, { ...(properties || {}), platform: "web", app_version: APP_VERSION });
   } catch (e) { /* never crash the app on a track call */ }
 }
 
 export function identify(userId, properties) {
   try {
     if (!_initialized || !userId) return;
-    posthog.identify(userId, properties);
+    // $set pushes the latest known version onto the person profile so we
+    // can query "what version is user X on RIGHT NOW?" — different from
+    // the per-event view. $set_once preserves the first version a user
+    // ever signed in on for acquisition-cohort analysis.
+    posthog.identify(userId, {
+      ...(properties || {}),
+      $set: {
+        ...(properties?.$set || {}),
+        app_version: APP_VERSION,
+        platform: "web",
+      },
+      $set_once: {
+        ...(properties?.$set_once || {}),
+        first_seen_app_version: APP_VERSION,
+        first_seen_at: new Date().toISOString(),
+      },
+    });
   } catch (e) { /* noop */ }
 }
 

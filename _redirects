@@ -5,3 +5,13 @@
 # don't cache it.
 /open  https://apps.apple.com/us/app/ok2eat/id6761730687  302
 /open/* https://apps.apple.com/us/app/ok2eat/id6761730687  302
+
+# v1.19 — Public /scan/ landing page retired. It was a try-it-free receipt
+# scanner that ran without auth, but a failed scan (faded receipt, dark
+# photo, odd format) became a poor first impression. Receipt scan still
+# exists for logged-in users inside the iOS app + web app — we just don't
+# want anonymous visitors using it as the first taste of the product.
+# Force-redirect (the trailing ! shadows even if /scan/index.html is still
+# on disk) so we can keep the source around for quick reactivation.
+/scan      /  302!
+/scan/*    /  302!

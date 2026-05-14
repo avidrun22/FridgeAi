@@ -9,7 +9,7 @@ Read it back from anywhere with **`/backlog`** (or open the file).
 
 > Convention: `[ ]` = open, `[x]` = done. Date prefix is when the item was captured. Strike through items as you ship by moving them to **Done**.
 
-Last reviewed: 2026-05-06 (v1.15 retention sprint shipped: empty-state Fridge redesign promotes receipt scan above manual add, sample-receipt CTA pre-populates a realistic grocery list so users see the value moment without needing a real receipt, D1 retention nudge schedules a same-evening local notification referencing the soonest-expiring item, camera permission rationale rewritten + denial telemetry added, 5 new PostHog events backfilled (recipe_tapped, expiring_soon_viewed, search_used, digest_email_opened, tour_started) plus a full receipt-scan funnel of started/cancelled/no_items/failed events. PostHog audit 2026-05-06 found D1 retention at ~6% and receipt_scan adoption at ~4%, both well below benchmarks; v1.15 targets both. Web app has NO PostHog instrumentation — separate follow-up.)
+Last reviewed: 2026-05-12 (v1.16 mega-ship + v1.17 polish + full marketing-ops sprint shipped in 7 days. **v1.16 (2026-05-09 LIVE)**: Eat Me First tab as new top-level surface (priority-sorted by days-until-expiry, tap → 3 recipes), Dashboard tab ($-saved / lbs-rescued / CO₂ trends), dietary preferences + household size on user_profile, nav consolidated to Fridge/Eat Me First/Plan/Dashboard/Settings (Scan → global FAB, Reminders/Share/HowTo moved), recipe generation uses N most-expiring items together with dietary filter applied, container labels on receipt-upload rows with category-aware defaults, D1 retention push enabled, dual-date display verified, App Store listing refresh leading with "what to eat first — before it goes bad." **v1.17 (2026-05-12 submitted, in review)**: AddModal multi-add tile promoted to peer of Scan tiles, Fridge/Pantry/Freezer chip picker on manual-add (drives FoodKeeper window), recipe sheet X-button + tap-outside close, Universal Links wired with AASA hosted, Resend Confirmation button on signup + login (fixes 63%-never-confirm gap), onboarding email sequence D0/D2/D5/D10 + behavioral triggers (quick_start, try_receipt_scan) live via Edge Functions + pg_cron, auth.users trigger auto-creates user_settings. **Marketing ops**: launch reel + homepage embed + App Store Preview .mov + @ok2eat YouTube channel with 2 captioned videos, X launch announcement, Resend marketing blast, blog post "What to eat first" moved to production with tightened "we" voice, daily-digest aesthetic applied across all marketing emails, SPF added + DMARC upgraded to p=quarantine on Namecheap. **Watching now**: confirmation rate post-v1.17, D0/D2 onboarding-email open + click rates, receipt_scan adoption, Eat Me First DAU share. Web app still has NO PostHog instrumentation — outstanding follow-up.)
 
 ---
 
@@ -50,7 +50,51 @@ Last reviewed: 2026-05-06 (v1.15 retention sprint shipped: empty-state Fridge re
 
 ## 📋 Triaged
 
+> Reorganized 2026-05-12 around **improvement areas** rather than ship cadence. Each item is tagged with the funnel stage or business outcome it moves. Pick what's leakiest this week, not what looks shiniest.
+
+### 🎯 Improvement areas — where the leverage is right now
+
+**🔓 Activation** (signup → confirm → first item)
+- v1.17 just shipped the Resend-confirmation fix for the 63%-never-confirm gap. Watch the cohort that signs up post-2026-05-12 for 7 days to measure lift.
+- D0 onboarding email open + click rates → if D0 underperforms, rewrite subject lines before iterating layout.
+- Behavioral `quick_start` email is gated on signup-without-first-item; eligibility window was extended to 60d. Watch the firing volume + conversion.
+
+**🔁 Retention** (D1 → D7 → D30)
+- Eat Me First tab is the new headline retention surface. Need PostHog event for `eat_me_first_viewed` + `eat_me_first_item_tapped` so we can measure if it's actually pulling people back. *Not sure this fired in v1.16 — verify.*
+- D1 retention push is live; benchmark vs. v1.15's ~6% D1.
+- Smart Cook Night (daily 6pm "make X tonight using Y") still unshipped — single biggest unbuilt retention lever per Reddit research. Targeted at v1.18.
+
+**📈 Growth** (acquisition + viral surface)
+- **Product Hunt launch — Sat 2026-05-30 target.** Revived now that v1.16/v1.17 give us a real reposition story + a real video. 18 days to accumulate 100+ "notify me" subs on the Upcoming page. Prep doc at `docs/producthunt-launch.md` needs a refresh pass — see Soon section.
+- Blog cadence holding Tue/Thu. Next founder-series post: "How I always know what to buy when I'm not at home" (#4).
+- IG carousel + Reel cross-post of launch reel — handoff doc with Greg; un-shipped while v1.17 was the priority. Now feeds directly into PH pre-launch audience-warming.
+- Reddit launch still deferred to Greg. Strongest organic acquisition signal in our research; pull the trigger once v1.17 is approved. Pairs well with PH pre-launch window.
+- App Store screenshots refreshed with v1.16. ASO keywords also refreshed. Monitor App Store impression → install rate weekly.
+
+**💰 Monetization** (revenue, in priority order)
+- Impact affiliate reapply (Instacart + Walmart) — gated on 100+ visits/week + 100+ DAU + 5+ blog posts + direct-program approvals. Tracking below.
+- Direct-affiliate programs (Misfits Market is the strongest fit) — un-started. Misfits is the unlock for both reapply evidence and a real on-brand affiliate revenue stream.
+- AI recipes paid tier (10/mo free, unlimited paid) — not started. Gated on MAU > 500 or 50+ App Store reviews per Greg's earlier decision.
+
+**🛠 Infra hardening** (technical debt + observability)
+- Web app PostHog instrumentation — still zero events flowing. Blocks any web-app retention story.
+- Push-notif infra audit — partly addressed by v1.16 enabling D1 push; still no load-test of cold-start re-permissioning + RLS scope.
+- v1.17 confirmation-rate measurement plumbing — need a Supabase view + Telegram alert when the confirm-within-24h rate moves week-over-week.
+
+---
+
 ### 🔜 Soon — next 1–2 weeks
+
+- [ ] **Product Hunt launch — target Sat 2026-05-30** (revived 2026-05-12 now that v1.16/v1.17 collateral is in place). Prep doc lives at `docs/producthunt-launch.md` but needs a refresh pass before going live — was written pre-reposition. What's changed since the doc was drafted:
+  - **New positioning**: tagline + description should lead with v1.16's "what to eat first — before it goes bad," not the old "what do we have to eat?" framing.
+  - **Headline UX**: Eat Me First tab + Dashboard tab are the hero features now. Gallery needs screenshots of both.
+  - **Real video assets**: launch reel + App Store Preview .mov + 2 YouTube uploads already exist. The doc still tells Greg to record an iPhone screen capture — replace with: link the YouTube full demo + use the App Store Preview .mov as the gallery video.
+  - **App Store screenshots already refreshed** (v1.16 ship). Reuse the same 5 for PH gallery — no re-capture needed.
+  - **Maker comment** is mostly still good. Update one paragraph to reference Eat Me First explicitly. Drop the "SMS-based shared fridge" line (deferred to v1.19) and replace with "next: Smart Cook Night, daily 6pm dinner nudge" so we don't promise what we haven't built.
+  
+  **Why 5/30 vs. the doc's original 5/16:** v1.17 is still in Apple review on 5/12, so the earliest realistic launch is 5/23 anyway. Pushing to 5/30 buys 18 days of "Upcoming Products" subscriber accumulation (PH-internal data: 100+ pre-launch subs ≈ top-10 finish), gives time for IG/Reddit cross-post to seed audience, and lets v1.17's confirmation-rate fix have measurable lift to talk about in the maker comment. Saturday rationale (lower competing-launch volume, weekend products stay featured into Monday) still holds.
+  
+  **Pre-launch checklist** (start within the next week): account setup → schedule via Coming Soon → drop URL into X bio + next newsletter blast + DMs to early users → goal 100+ "notify me" before launch day.
 
 - [ ] **Impact affiliate (Instacart + Walmart) — DECLINED, reapply in 4–8 weeks with feedback addressed** — application 7243988 declined on 2026-04-28. Support ticket [#815632] response landed 2026-04-30 from Compliance Team / Siska Marvel with concrete feedback (good — way more actionable than the original blanket rejection):
   > "At this time the traffic on your domain, and/or your business strategies doesn't quite meet the minimum requirements just yet for Impact.com Marketplace approval. We highly recommend that you apply to some campaigns directly to increase your traffic and marketing presence and then reapply to the Impact.com Marketplace, once traffic and marketing presence have increased. Please note that approval to the Impact.com Marketplace does not automatically mean Brands will approve you on the Platform. […] Brands generally look for active, high-quality content and a growing follower base."
@@ -79,26 +123,65 @@ Last reviewed: 2026-05-06 (v1.15 retention sprint shipped: empty-state Fridge re
 
   Each direct-program approval = one more piece of evidence we're "actively building marketing presence" when we reapply to Impact for Walmart/Instacart. Captured 2026-04-30 from Impact's response email.
 - [x] 2026-04-29 — **Hosting strategy decided: Netlify Personal ($19/mo, 1,000 credits/mo)**. Upgraded after the v1.0.8 / v1.0.9 sprint kicked deploy frequency past the free tier's ~20/month limit. Roughly $0.30 per deploy at this rate; safe ceiling for the next 4–8 weeks of bug fixes + twice-weekly blog cadence + iteration. Revisit the downgrade-to-Cloudflare-Pages option when deploys settle to <20/month.
-- [ ] **X marketing — engage influencer reply targets** for 2 weeks before mentioning ok2eat (account list drafted in chat history; reminder scheduled for 2026-05-03)
-- [ ] **Demo videos — 3 short clips for website + socials** (originally captured 2026-04-27 as "Screen-record demo," expanded 2026-05-01 with concrete plan). Record once at high quality, repurpose for website hero / IG Reels / TikTok / YouTube Shorts / X. Three storyboards:
-  1. **"The save"** (~20s) — open Alerts tab, see expiring item, tap → recipe link. Closes the core value loop. Best for website hero (autoplay muted loop).
-  2. **"One list, two phones"** (~25s) — split-screen of two phones in same household. Person A adds "eggs" to shared list → appears in real time on Person B's phone → tap "Order N items" → Instacart opens with everything pre-loaded. Hero v1.1.0 collaboration feature.
-  3. **"Receipt to fridge in 10 seconds"** (~15s) — point camera at receipt → items populate. Most visually striking for cold social audiences who don't know receipt-scanning exists.
-
-  **Tools:** iOS Simulator + `xcrun simctl io booted recordVideo` for clean output (no battery indicator, perfect frame), or real iPhone screen recording for tap-feel. iMovie for website edits, CapCut for vertical/social with auto-captions. **Non-negotiables:** captions baked in (most viewers watch muted), hook in first 1.5s, real-feeling data (eggs/milk/avocados, not "Test Item"), 1 CTA at the end.
-
-  **Distribution:** website hero replaces nothing existing (adds visual proof above the fold); embed full 60s tour on `/blog/` and `/#how`; vertical 9:16 cuts to IG/TikTok/YT Shorts; native video upload to X (no YT links — algorithm penalty). High-leverage content for Impact's "growing follower base" gate. Realistic time budget: 4 hours total.
-- [ ] **Swap Walmart → Instacart in the reorder picker** (Inbox 2026-04-27). Walmart links don't earn commission anyway (Impact gated). Instacart 1st in the picker is already done; this would move Walmart out entirely or replace with another retailer.
+- [ ] **X marketing — engage influencer reply targets** for 2 weeks before mentioning ok2eat (account list drafted in chat history). Pre-launch quiet-engagement plan was partly bypassed by the v1.16 launch announcement going live 2026-05-09. Continue weekly: 5-10 thoughtful replies to food-waste / family-cooking / ADHD-cooking voices per week from @ok2eat. Tracking lift via PostHog UTM=x_organic.
+- [x] 2026-05-12 — **Demo videos shipped** (originally captured 2026-04-27). Trupeer-recorded full demo processed via ffmpeg into 4 deliverables: 60s launch reel on ok2eat.com homepage, 886×1920 App Store Preview .mov uploaded to v1.17 listing, full-length + receipt-scan demo on @ok2eat YouTube channel with SRT captions, social-format vertical cuts in the queue for IG Reel + carousel cross-post (see task #129).
+- [ ] **Swap Walmart out of the reorder picker entirely** (Inbox 2026-04-27, narrowed 2026-05-12). Instacart 1st was already done; Walmart links don't earn commission and Walmart's spot is occupying real estate. Replace with another approved retailer (Amazon Fresh? Direct-affiliate partner if any approve before reapply?) or drop to 2-tile picker. Decide once we have a Misfits affiliate approval — Misfits could slot here for the food-waste-aware audience.
 
 ### 🔜 Soon — next 1–2 weeks (continued)
 
-- [ ] **App Store Connect listing screenshots refresh** (captured 2026-05-01). Current ASC screenshots are from much earlier (pre-v1.0.8 / pre-shared-household era). With v1.13's eight features adding multi-add, past lists, recently-added chips, etc., the listing's promotional surface area is stale. Refresh: capture clean Simulator screenshots for the 5 store slots showing (1) fridge with real-feeling data, (2) AddModal with receipt-scan/barcode tiles, (3) shared shopping list with creator initials, (4) past lists with reuse CTA, (5) Order-via-retailer picker. Use the same iPhone 6.5" device family Apple wants. ~1 hr in Simulator + ASC upload. Pairs naturally with the demo videos work since both need clean staged data.
+- [x] 2026-05-09 — **App Store Connect listing screenshots refresh shipped with v1.16.** Listing now leads with "ok2eat tells you what to eat first — before it goes bad." 5 fresh screenshots staged through Simulator showing Eat Me First tab, Fridge with real data, AddModal multi-tile, Dashboard, recipe sheet. ASO keywords refreshed for the reposition.
 
-- [ ] **Push notification infrastructure audit** (captured 2026-05-01, prerequisite for v1.14 push notif feature). Before building "notify household when a list is created," verify the existing push-token flow is bulletproof: (1) confirm `Notifications.getExpoPushTokenAsync()` is being called and stored on user_settings (it was wired up for the email digest, but never load-tested for cold-start / re-permissioning); (2) confirm tokens persist across reinstalls and OS updates; (3) verify the Edge Function can read tokens with the right RLS scope; (4) test sending a push from a stub Edge Function to a TestFlight build. ~1-2 hrs investigation. If anything's broken, we'd find out before sinking time into the list-created notification feature itself.
+- [ ] **Push notification infrastructure audit** (captured 2026-05-01, partly addressed). v1.16 enabled the D1 retention push successfully, validating the push-token write path end-to-end. Still un-audited: (a) re-permissioning behavior after a user revokes + re-grants notifications, (b) token rotation on iOS reinstalls, (c) RLS scope of Edge Function reads, (d) what happens when a token goes stale (delivery silently fails). Lower priority now that D1 push has real data, but worth a half-day before building "notify household on shared-list edit" (planned for v1.18).
 
 - [ ] **Subscribe to Misfits Market + start the 3-month review post** (captured 2026-05-01). Two-track action: (1) sign up and use Misfits for a real 3-month period, tracking actual cost/waste data in a spreadsheet so the eventual blog post (Track 2 #3 in the blog rotation) has authentic numbers; (2) apply to the Misfits affiliate program in parallel — they have one independent of Impact. Misfits' food-waste-reduction angle is the strongest editorial fit on our affiliate target list, and a published 3-month review gives us a real portfolio piece for that application. This is the action item underneath the broader "Direct-affiliate programs to pursue" entry.
 
 - [ ] **Lawyer-review the privacy policy** — current policy on ok2eat.com (updated 2026-04-27) is conservative best-practice DIY: covers CCPA, GDPR, subprocessors, user rights, data retention. Friend Michael flagged that for real coverage we need an actual privacy lawyer. Priority lifts when (a) we cross ~500 users, (b) we open EU/UK distribution in App Store Connect, or (c) we begin any fundraising. Estimated cost: $500-1,500 one-time review, ongoing $0 unless major changes.
+
+- [ ] **Shelf-life directory expansion — target 5,000 items** (captured 2026-05-13 after v1.19 ship-decision). `ok2eat.com/shelf-life/` currently has 660 per-item pages built from USDA FoodKeeper (`data/foodkeeper.json` → `scripts/build_shelf_life_pages.py` → `shelf-life/{slug}.html`, same data also loaded into the Supabase `foodkeeper_shelf_life` table that the iOS + web add flows query via `lookupShelfLife()`). Every SEO post we ship grows long-tail organic traffic — 660 is the floor, not the ceiling. Goal: ~5,000 items.
+
+  **Hard constraint — NEVER contradict existing FoodKeeper data.** FoodKeeper is authoritative for everything it covers. New sources only add items FoodKeeper doesn't have. Where two new sources disagree, take the conservative (shorter shelf-life) value and cite both. Every new row needs a `sources[]` array in the data model so we can show provenance on the page + audit later.
+
+  **Candidate sources, ranked by trustworthiness:**
+
+  *Tier 1 — US federal / authoritative (use directly, will require minimal sanity-check):*
+    - **FSIS fact sheets** (fsis.usda.gov/food-safety) — meat, poultry, eggs, prepared foods. Heavily overlaps FoodKeeper but adds depth on prep-style variations.
+    - **FDA Refrigerator & Freezer Storage Chart** — covers some items FoodKeeper doesn't (e.g. specific deli prepared foods).
+    - **USDA Complete Guide to Home Canning** (nchfp.uga.edu) — shelf-stable home-canned goods. Different category entirely from FoodKeeper.
+    - **CDC food safety guidance pages** — supplementary for specific high-risk items.
+
+  *Tier 2 — Land-Grant University Cooperative Extension Services (peer-reviewed, government-funded, public bulletins):*
+    - **National Center for Home Food Preservation** (UGA, nchfp.uga.edu) — extensive preservation database.
+    - **Penn State Extension food safety** (extension.psu.edu)
+    - **Clemson HGIC food safety**
+    - **UMaine Cooperative Extension** — strong on specialty/regional items
+    - **NC State Extension** — Southern foodways
+    - **Cornell Cooperative Extension** — dairy + produce depth
+    - **UMass Extension** — produce focus
+    - **University of Nebraska–Lincoln Food Safety**
+
+  *Tier 3 — International public agencies (lower priority; useful for items absent from US sources, especially ethnic/regional ingredients):*
+    - **Government of Canada — CFIA** (canada.ca/en/health-canada/services/food-nutrition)
+    - **NHS UK food safety**
+    - **EU EFSA storage guidance**
+
+  *Skip:* StillTasty (commercial, not redistributable), EatByDate (not authoritative).
+
+  **Approach (not implementation — capture only):**
+    1. **Source-by-source extraction.** For each Tier 1+2 source, write a Python script (`scripts/ingest_<source>.py`) that pulls structured shelf-life data into a normalized intermediate JSON: `{ name, slug, category, container ("fridge"|"pantry"|"freezer"), days_unopened, days_opened, source: { name, url, fetched_at } }`. Most Tier 1+2 sources publish in HTML tables — BeautifulSoup is enough. Some publish PDFs — extract via `pdfplumber`. Tier 3 international sources may need Claude to parse non-English source pages.
+    2. **Dedup against FoodKeeper.** For every candidate `name+slug`, check the existing `foodkeeper.json`. If present → DROP the candidate (FoodKeeper wins). Maintain a normalization map so "Whole Wheat Bread" and "Bread, whole wheat" dedupe.
+    3. **Conflict resolution between new sources.** When two non-FoodKeeper sources cover the same item with different numbers, take the conservative value (shorter) and store both in `sources[]` for audit.
+    4. **Volume math.** FoodKeeper 660 → add ~150 from FSIS/FDA → ~3,000 from Extension services (heavy dedup → maybe 2,000 unique) → ~500 international/specialty. Realistic landing: 3,500–4,500. 5,000 is aspirational; if we land at 4,000 we still 6x the directory.
+    5. **Per-item page regeneration.** `build_shelf_life_pages.py` is data-driven; just point it at the expanded JSON. Sitemap autogen already handles new URLs.
+    6. **Supabase reload.** `foodkeeper_shelf_life` table needs the new rows so the iOS + web `lookupShelfLife()` lookups also benefit. Schema may need a `source_name` column added (migration). Migration must remain idempotent.
+    7. **Quality gate.** Spot-check 50 random items end-to-end (page renders, JSON-LD valid, lookupShelfLife returns the expected number). Submit refreshed sitemap to Google Search Console.
+
+  **Risks to track:**
+    - **Copyright on Extension bulletins.** Facts (shelf-life numbers) aren't copyrightable, but their prose explanations are. We'll generate original page copy from the data — never copy-paste from sources. Cite each source with a link, which Extension services typically welcome since they want their bulletins discovered.
+    - **Stale data.** Extension service bulletins go years between updates. Stamp every row with `fetched_at` so we can re-sweep in 2027 and refresh.
+    - **TOS / rate limiting.** Throttle ingestion (1 req/sec per source) + respect robots.txt. If a source rejects scraping, request a data dump directly (many Extension services will share spreadsheets on email request).
+    - **SEO dilution.** 5,000 pages is a lot — Google may not crawl them all without authority signals. Submit sitemap in batches (500 URLs/day) to avoid trigger crawl-budget penalties.
+
+  Touches: `data/foodkeeper.json` (or rename to `data/shelf_life.json`), `scripts/build_shelf_life_pages.py`, `scripts/ingest_*.py` (new, one per source), `supabase/migrations/` (add source columns + reload rows), `shelf-life/*.html` (regen), `sitemap.xml`. Estimated effort: 2–3 weeks split across ingestion-script writing + curation review. Defer until v1.19 ships and Product Hunt launch (2026-05-30) is in flight — the SEO compounding from a 5,000-item directory pays back over months, not weeks.
 
 ### 🌱 Eventually — next 1–3 months
 
@@ -118,19 +201,17 @@ Last reviewed: 2026-05-06 (v1.15 retention sprint shipped: empty-state Fridge re
 
 - [x] 2026-05-04 — **(originally v1.16) Local product catalog + AddModal type-ahead absorbed into v1.14 ship** (captured 2026-05-02). 855K-row `searchable_products` catalog populated from OFF, `pg_trgm` + tsvector indexes, `search_products(query, result_limit)` RPC, AddModal type-ahead with 300ms debounce. Phase 1 fully shipped. Phase 2/3/4 (semantic + LLM layers) still on backlog as v1.17/v1.18 below.
 
-- [ ] **v1.15 — fast follow-on: pending items + notify household + recipe favorites + keyboard fix** (captured 2026-05-04 after v1.14 launch). Three Tier 1 features from Reddit research + a user-feedback bug fix. Effort: 2-3 days total.
-  - **Pending items status** — `pending` / `active` / `used` enum on `fridge_items`. After "Order N items" or "Reorder," items go to a "Pending" tray. User taps "Mark received" when groceries arrive — that's when the expiry clock starts. Solves "I ordered milk yesterday, when does my fridge know?" gap (captured 2026-04-28).
-  - **Notify household when shared list is created/edited** — uses v1.14's hardened push infra. Push to all household members on create or edit. Activates the social-loop value of shared lists.
-  - **Recipe favorites + saving** — `user_recipes_saved` table, heart icon on cards, "Saved Recipes" section in Plan tab.
-  - **Keyboard-overlap bug fix** ✅ (already shipped — UseItemModal + CreateListModal got KeyboardAvoidingView wrapping per user feedback 2026-05-04).
+- [ ] **v1.18 candidate ship — "make weeknight dinner one tap" mega** (re-scoped 2026-05-12 from prior v1.15/v1.16/v1.17 entries; some pieces already shipped under different version banners — see Done). Three retention-leverage features that share infra:
+  - **🔥 Smart Cook Night** (killer feature #1 per Reddit research, ~2-3 days) — daily 6pm push: "Make X tonight using what you have. Need Y? Tap to order." Picks ONE recipe from current inventory + ONE missing ingredient + one-tap reorder. The moat: ok2eat is the only app with inventory + recipes + reorder in one stack. Implementation: scheduled push at user-configured time (default 6pm local), Edge Function picks recipe via Anthropic weighted by Eat-Me-First expiry, surfaces in Plan tab with "Order missing ingredient" CTA. Reuses v1.16's recipe enhancements + dietary filter. Research: `docs/reddit-research-2026-05-04.md`.
+  - **Pending items status** (~1 day) — `pending` / `active` / `used` enum on `fridge_items`. After "Order N items" or "Reorder," items go to a "Pending" tray. User taps "Mark received" when groceries arrive — that's when the expiry clock starts. Closes "I ordered milk yesterday, when does my fridge know?" gap.
+  - **Notify household on shared-list edit** (~1 day) — push to all household members when a shared list is created or edited. Uses v1.16's hardened push infra (verify push-token audit first per task above). Activates the social-loop value of shared lists.
+  - **Recipe favorites** (~half day) — `user_recipes_saved` table, heart icon on cards, "Saved Recipes" section in Plan tab. Small, easy retention win — reduces friction of "I liked that one yesterday, where did it go?"
 
-- [ ] **v1.16 — Smart Cook Night** *(killer feature #1 per Reddit research, ~2-3 days)*. Daily 6pm push notification: "Make X tonight using what you have. Need Y? Tap to order." Picks ONE recipe from current inventory + ONE missing ingredient + one-tap reorder. The moat: ok2eat is the only app that has inventory + recipes + reorder in one stack. Combines features users already get from us into a single daily action. Reddit signal: "what to make for dinner" daily decision paralysis is the #2 pain point in food-app threads. Existing apps (SuperCook, MyFridgeFood, Cooklist, Fridge AI) handle one or two pieces but never all three. **Implementation:** scheduled push at user-configured time (default 6pm local), Edge Function picks recipe via Anthropic from `fridge_items` with expiry weighting + macro filter, surfaces in Plan tab with "Order missing ingredient" CTA. Free tier shows 1 recipe/day, paid tier could later unlock multiple options. Full research notes in `docs/reddit-research-2026-05-04.md`.
+- [ ] **v1.19 candidate ship — SMS Group Fridge** *(killer feature #2 per Reddit research, ~3-5 days)*. Text the household fridge from any phone: "do we have eggs?" → reply with answer. "add 2 gallons milk" → updates. "what's expiring this week" → list. Twilio SMS + Anthropic Claude routes the NL query against `fridge_items`. **Moat:** highly shareable, works without the app, includes non-iPhone family members. **Cost:** Twilio ~$0.0079 per SMS → ~$1.20/user/month at 5 msg/day; gate behind paid tier or limit free-tier to 30 msg/month/household. Build after Smart Cook Night proves the inventory+recipe+action thesis.
 
-- [ ] **v1.17 — SMS Group Fridge** *(killer feature #2 per Reddit research, ~3-5 days)*. Text the household fridge from any phone: "do we have eggs?" → reply with answer. "add 2 gallons milk" → updates the fridge. "what's expiring this week" → list. Twilio SMS in (Edge Function), Anthropic Claude routes the natural-language query against `fridge_items`, replies in plain English. **Why it's a moat:** highly shareable ("look what my fridge does"), works without the app open, includes non-app-installed family members (grandparents, kids without iPhones). **Why it's deferred to v1.17 not v1.16:** weaker direct Reddit signal vs. Smart Cook Night, but high virality lottery ticket. Build after Smart Cook Night proves the core inventory+recipe thesis. **Cost:** Twilio ~$0.0079 per SMS in/out; assume 5 messages/user/day max → ~$1.20/user/month at scale. Could gate behind paid tier or limit free-tier to 30 messages/month/household.
+- [ ] **Semantic search layer (pgvector embeddings)** *(formerly v1.18, deferred)* (captured 2026-05-02). Adds smart search behind v1.14's keyword foundation. Pre-compute embeddings via `text-embedding-3-small` → pgvector → `search_products_semantic(query_embedding)`. Hybrid: pg_trgm first, fall through to semantic. Handles typos ("tostitoes"), abbreviations ("tj's"), brand aliases ("Coke" → "Coca-Cola"). Effort: 1-2 days. **Depends on usage data showing the keyword layer is missing real queries.** Per Reddit research, semantic search wasn't a top user pain — rebuild only if no-results telemetry justifies it.
 
-- [ ] **v1.18 — Semantic search layer (pgvector embeddings)** *(formerly v1.17, deferred)* (captured 2026-05-02, deprioritized 2026-05-04). Adds the second-tier "smart" search behind v1.14's keyword foundation. Pre-compute embeddings for every product in the catalog using OpenAI `text-embedding-3-small` (or self-hosted MiniLM). Store as 384-dim vectors via pgvector. New RPC `search_products_semantic(query_embedding)` for cosine similarity. The AddModal search becomes hybrid: pg_trgm first, fall through to semantic if no high-confidence keyword hits. Handles typos ("tostitoes"), abbreviations ("tj's"), brand aliases ("Coke" → "Coca-Cola"), and natural-language variants ("the chocolate one" → match against ingredients). Effort: 1-2 days. **Depends on v1.14 catalog being live with usage data — wait until we see enough no-results queries to justify the build.** Per Reddit research, semantic search wasn't a top user pain point; rebuild only if data shows the keyword layer is missing real queries.
-
-- [ ] **v1.19 — LLM query expansion + autocomplete polish** *(formerly v1.18, deferred)* (captured 2026-05-02). Final layer: when keyword + semantic both miss, ask Claude Haiku to expand/rewrite the query, then re-search. Plus prefix-match autocomplete in the AddModal text input (suggest "milk" while user types "mil"). Plus personal-vocabulary boosting: if a household has bought "Trader Joe's Almond Beverage" 5 times, it ranks higher in their search results for "almond milk" than someone who's never bought it. Effort: 1 day. Depends on v1.18 being live.
+- [ ] **LLM query expansion + autocomplete polish** *(formerly v1.19, deferred)*. Final layer: when keyword + semantic both miss, ask Claude Haiku to expand/rewrite the query, then re-search. Plus prefix-match autocomplete + personal-vocabulary boosting. Effort: 1 day. Depends on semantic search being live.
 
 - [ ] **(superseded) Product database — community scans + Open Food Facts integration** (captured 2026-05-01 from Greg's feedback). Today scan accuracy depends on whatever external barcode service we hit; coverage has gaps and we don't accumulate data across users. Two parallel paths, both valuable:
 
@@ -177,6 +258,29 @@ Last reviewed: 2026-05-06 (v1.15 retention sprint shipped: empty-state Fridge re
 ---
 
 ## ✅ Done
+
+- [x] 2026-05-12 — **v1.17 SUBMITTED to App Store Connect** (build #24, EAS submission `6d06c917-6464-4297-a73e-086659239445`; awaiting Apple review). Polish + activation-fix ship:
+  - **AddModal restructure** — Add a List promoted to peer of Scan Barcode / Scan Receipt (was buried lower); Fridge/Pantry/Freezer chip picker on manual-add drives FoodKeeper window per container; routes new item to the right section.
+  - **Recipe sheet UX** — X button top-right + tap-outside backdrop close. No more feeling trapped.
+  - **Universal Links** — `applinks:ok2eat.com` wired; AASA at `https://ok2eat.com/.well-known/apple-app-site-association`; ok2eat URLs from Mail/Messages/X open the app to the right screen.
+  - **Auth flow** — post-signup lands on "Check your email" screen with Resend Confirmation button (was an Alert that bounced to Sign In); login error for unconfirmed email surfaces inline Resend button. Both call `supabase.auth.resend({ type: 'signup', email })`. Targets the 63%-never-confirm gap.
+  - **Onboarding email sequence** — D0/D2/D5/D10 via Supabase Edge Function (`send-onboarding-emails`) + pg_cron at :15 hourly. Behavioral triggers: `quick_start` (signup + no first item, 60d window) and `try_receipt_scan` (manual-add user who hasn't tried receipt scan).
+  - **Auto-create user_settings** — auth.users INSERT trigger + 40-user backfill so email-digest defaults apply universally.
+  - **DNS hardening** — root SPF added, DMARC upgraded `p=none` → `p=quarantine` on Namecheap. Targets Gmail-side deliverability.
+  - **Marketing email aesthetic** — daily-digest styling (`🥑 ok2eat` Georgia header, cream `#F0EADC` background, dark `#1C261C` CTA buttons, DM Mono eyebrows) applied across all 6 onboarding + behavioral templates.
+
+- [x] 2026-05-09 — **v1.16 APPROVED + LIVE — strategic reposition mega-ship.** Six weeks of work shipped in coordinated release. Headline UX move: ok2eat answers "what should I eat first, before it goes bad?"
+  - **🔥 Eat Me First tab** — new top-level nav. Priority-sorted by days-until-expiry. Tap any item → 3 recipe suggestions using it + a few others you already have.
+  - **📊 Dashboard tab** — new top-level nav. $-saved, lbs-rescued, CO₂ avoided. Week-over-week trends. Cold-start uses aspirational framing ("avg household saves $1,866/yr — yours so far: $X").
+  - **Nav consolidation** — final tab set: Fridge / Eat Me First / Plan / Dashboard / Settings. Scan moved to global FAB on every screen. Reminders / Share / HowTo moved into Settings (HowTo → "?" icon on Fridge header).
+  - **Dietary preferences** — vegetarian / vegan / gluten-free / dairy-free / nut-free + allergens list on user_profile. `generate-recipes` Edge Function filters.
+  - **Household size + portion scaling** — `household_size` integer on user_profile; recipe ingredient quantities scale by N.
+  - **Recipe enhancements** — `generate-recipes` uses N most-expiring items together (not one at a time), dietary filter applied.
+  - **Container labels on receipt upload** — per-row fridge/pantry/freezer pill in BulkAddModal review with category-aware defaults. iOS + web parity.
+  - **D1 retention push enabled** — built in v1.15 (task #56), production-fired in v1.16.
+  - **Multi-add bug fix** — receipt-scan tile inside AddModal correctly auto-launches camera.
+  - **App Store listing refresh** — title/subtitle/screenshots/description lead with "what to eat first — before it goes bad." ASO keywords refreshed.
+  - **Marketing engine launch** — Trupeer demo processed via ffmpeg into 4 deliverables (homepage launch reel, 886×1920 App Store Preview .mov, @ok2eat YouTube channel with 2 captioned videos, social cuts queued). X launch announcement posted. Resend marketing blast to subscribers. Blog post "What to eat first" moved to production with tightened "we" voice (~250 words vs. original ~580).
 
 - [x] 2026-05-02 — **v1.13 APPROVED + LIVE.** Eight things in one ship — three bug fixes (swipe-to-delete on FridgeScreen rows, AddModal Cancel button, numeric-keyboard insets + InputAccessoryView Done button) plus five shopping-list features rolled in from the original v1.14 queue (multi-add via paste-many-lines modal, checked items collapse to "Got N items" group at bottom, recently-added chips above the input row pulled from household history, past-lists section with `cloneArchivedList()` for reuse on similar trips, "Save & start fresh" CTA when all items are checked + always-visible Archive link). All shipped via the standard `prebuild --clean → sed MARKETING_VERSION=1.13 → sed CURRENT_PROJECT_VERSION=17 → archive → upload → submit` cycle. Build 16 was skipped to leave headroom (build 17 was the actual upload).
 

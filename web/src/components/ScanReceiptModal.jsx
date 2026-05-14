@@ -5,6 +5,7 @@ import { track } from "../lib/analytics.js";
 import {
   CATEGORIES, CATEGORY_EMOJI, CONTAINERS,
   EXPIRY_DAYS_BY_CATEGORY, OPENED_DAYS_MAP, isPackagedCategory,
+  inferEmoji,
 } from "../lib/constants.js";
 
 // v1.16 — Receipt scan for the web app. Mirrors the iOS receipt-scan flow:
@@ -215,7 +216,7 @@ export default function ScanReceiptModal({ open, onClose, onAdded, householdId, 
         return {
           name: it.name,
           category: it.category,
-          emoji: CATEGORY_EMOJI[it.category] || "📦",
+          emoji: inferEmoji(it.name, CATEGORY_EMOJI[it.category] || "📦"),
           quantity: 1,
           unit: null,
           added_date: now.toISOString(),
@@ -351,7 +352,7 @@ export default function ScanReceiptModal({ open, onClose, onAdded, householdId, 
                 <div key={i} className="bg-card border border-border rounded-lg px-3 py-2">
                   {/* Line 1: emoji + name + category + expiry days + remove */}
                   <div className="flex items-center gap-2">
-                    <span className="text-lg flex-shrink-0">{CATEGORY_EMOJI[it.category] || "📦"}</span>
+                    <span className="text-lg flex-shrink-0">{inferEmoji(it.name, CATEGORY_EMOJI[it.category] || "📦")}</span>
                     <input
                       value={it.name}
                       onChange={(e) => updateItem(i, { name: e.target.value })}

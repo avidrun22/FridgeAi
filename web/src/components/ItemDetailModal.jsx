@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabase.js";
 import { track } from "../lib/analytics.js";
 import {
   CATEGORIES, CATEGORY_EMOJI, CONTAINERS, UNIT_OPTIONS, isPackagedCategory,
+  inferEmoji,
 } from "../lib/constants.js";
 import { daysUntil, expiryColor, expiryLabel, formatQty } from "../lib/helpers.js";
 
@@ -69,7 +70,8 @@ export default function ItemDetailModal({ open, onClose, item, onUpdated, onRemo
       await patch({
         name: name.trim(),
         category,
-        emoji: CATEGORY_EMOJI[category] || item.emoji,
+        // v1.19 — upgrade to inferred emoji on save (mirrors iOS App.js).
+        emoji: inferEmoji(name.trim(), CATEGORY_EMOJI[category] || item.emoji),
         quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
         unit: unit || null,
         container,
@@ -150,7 +152,7 @@ export default function ItemDetailModal({ open, onClose, item, onUpdated, onRemo
     <Modal open={open} onClose={onClose} title="Item" size="md">
       <div className="space-y-4">
         <div className="text-center">
-          <div className="text-6xl mb-2">{CATEGORY_EMOJI[item.category] || item.emoji || "📦"}</div>
+          <div className="text-6xl mb-2">{inferEmoji(editing ? name : item.name, CATEGORY_EMOJI[item.category] || item.emoji || "📦")}</div>
           {editing ? (
             <input
               value={name}

@@ -1,0 +1,55 @@
+X PINNED TWEET — SWAP REMINDER
+================================
+
+Set on: May 8, 2026 (launch of v1.16 / shelf-life directory)
+
+CURRENTLY PINNED (since May 8, 2026):
+  Tweet 1 of the v1.16 launch thread — "ok2eat exists to help people throw
+  out less food. One of the simplest ways to do that turned out to be:
+  make it easier to find real expiration dates for the stuff people buy.
+  So we shipped it."
+
+  Direct URL:
+  https://x.com/ok2eatapp/status/2052773139218874410
+
+
+TO RESTORE on/around May 14-15, 2026:
+  The original "What do we have to eat?" launch tweet.
+
+  Direct URL:
+  https://x.com/ok2eatapp/status/2051775531004375287
+
+
+HOW TO SWAP (manually, in browser):
+1. Go to x.com/ok2eatapp
+2. Scroll to the currently pinned tweet (the one with the 📌 Pinned label
+   at the top of the profile)
+3. Click the "…" menu in its top-right corner
+4. Choose "Unpin from your profile"
+5. Open the original tweet URL above
+6. Click the "…" menu on that tweet
+7. Choose "Pin to your profile"
+
+Free X accounts only allow 1 pinned post at a time. If you upgrade to
+X Premium ($8/mo) you can pin up to 5 simultaneously.
+
+
+CONTEXT:
+- The launch thread was pinned to maximize visibility during the first ~7
+  days after the v1.16 / shelf-life directory launch.
+- After the engagement window winds down, restore the longer-running
+  "What do we have to eat?" tweet which has the broader brand pitch.
+- Both tweets continue to exist forever; pinning is purely visibility.
+
+
+THREAD STRUCTURE (for reference):
+  Tweet 1 (pinned): https://x.com/ok2eatapp/status/2052773139218874410
+                    "ok2eat exists to help people throw out less food..."
+  Tweet 2:          "Every item in ok2eat now has its own shelf life..."
+                    Hard cheese isn't 14 days anymore. It's 6 months.
+  Tweet 3:          https://x.com/ok2eatapp/status/2052774251846054098
+                    "Same data is also a free public tool at
+                    ok2eat.com/shelf-life/..."
+  Tweet 4:          "The fastest way to throw out less food is to know
+                    what's actually good. Whether you use ok2eat or not,
+                    the directory is yours."

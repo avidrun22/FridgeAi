@@ -29,16 +29,74 @@ TextInput.defaultProps.maxFontSizeMultiplier = 1.3;
 // ─── Analytics ───────────────────────────────────────────────────────────────
 const posthog = new PostHog("phc_szxhjw2eQmYYhNGicX3kmNXxdz47Sj7evqx5Quqw8dTY", { host: "https://app.posthog.com" });
 
+// App version + build number — read at module load from expo-constants. Same
+// source as the in-app update modal (see APP_VERSION below). Hoisted up here
+// so analytics events can include it from event #1 of the session. If the
+// constant isn't available for any reason, fall back to "unknown" instead of
+// reporting a stale hard-coded version — that was the v1.0.10 regression.
+const _ANALYTICS_EC = (() => {
+  try { return require("expo-constants").default; } catch { return null; }
+})();
+const _ANALYTICS_APP_VERSION =
+  _ANALYTICS_EC?.expoConfig?.version ||
+  _ANALYTICS_EC?.manifest?.version ||
+  "unknown";
+const _ANALYTICS_BUILD_NUMBER =
+  _ANALYTICS_EC?.expoConfig?.ios?.buildNumber ||
+  _ANALYTICS_EC?.manifest?.ios?.buildNumber ||
+  "unknown";
+
+// Register version + platform as super-properties so they attach to EVERY
+// event automatically — including the auto-fired $identify and any future
+// auto-captured events. Without this, only events that go through track()
+// (with manually-added props) would carry version info.
+//
+// $set in identifyUser pushes version up to the person profile so we can
+// answer "what version is user X on RIGHT NOW?" (latest known) vs the
+// per-event view ("what version did this event come from?").
+try {
+  posthog.register({
+    app_version: _ANALYTICS_APP_VERSION,
+    build_number: _ANALYTICS_BUILD_NUMBER,
+    platform: "ios",
+  });
+} catch (e) { /* analytics should never crash boot */ }
+
 function track(event, properties) {
   try { posthog.capture(event, properties); } catch (e) { /* analytics should never crash the app */ }
 }
 
 function identifyUser(userId) {
-  try { posthog.identify(userId); } catch (e) { /* noop */ }
+  try {
+    // $set pushes these onto the person profile (latest-wins). $set_once on
+    // first_seen_app_version preserves the version a user first signed up on
+    // — useful for cohort analysis of "users acquired during v1.17 era."
+    posthog.identify(userId, {
+      $set: {
+        app_version: _ANALYTICS_APP_VERSION,
+        build_number: _ANALYTICS_BUILD_NUMBER,
+        platform: "ios",
+      },
+      $set_once: {
+        first_seen_app_version: _ANALYTICS_APP_VERSION,
+        first_seen_at: new Date().toISOString(),
+      },
+    });
+  } catch (e) { /* noop */ }
 }
 
 function resetAnalytics() {
-  try { posthog.reset(); } catch (e) { /* noop */ }
+  try {
+    posthog.reset();
+    // Re-register super-properties after reset — without this, the next
+    // session loses platform/app_version until the next track() call wires
+    // them back in. PostHog's reset clears everything including registers.
+    posthog.register({
+      app_version: _ANALYTICS_APP_VERSION,
+      build_number: _ANALYTICS_BUILD_NUMBER,
+      platform: "ios",
+    });
+  } catch (e) { /* noop */ }
 }
 
 // ─── Notification Setup ───────────────────────────────────────────────────────
@@ -367,6 +425,118 @@ const CATEGORY_MAP = { "beverages": "Beverages", "dairies": "Dairy", "dairy": "D
 const EMOJI_MAP = { "Dairy": "🧀", "Protein": "🍗", "Produce": "🥬", "Dry Goods": "🥣", "Beverages": "🍶", "Other": "📦" };
 const EXPIRY_MAP = { "Dairy": 14, "Protein": 3, "Produce": 5, "Dry Goods": 180, "Beverages": 7, "Other": 7 };
 
+// ─── Smart emoji inference (v1.19) ────────────────────────────────────────────
+// Items stored with category-default emojis (🍗 for any Protein, 🧀 for any
+// Dairy, 🥬 for any Produce) look generic in the Fridge list. Eat First was
+// already showing contextual emojis because many items happened to have
+// smarter values stored at create time — but older rows (especially anything
+// added via barcode/manual flow before v1.13's smart-name inference) still
+// carry the category default. Rather than backfill the DB, infer at view
+// time so the Fridge, Eat First, and Add-preview surfaces are consistent.
+//
+// Order matters: more specific tokens first (e.g. "ground beef" before
+// "beef", "greek yogurt" before "yogurt"). We test substring against a
+// lowercased name and return on first hit.
+const FOOD_EMOJI_RULES = [
+  // Proteins — fish + seafood
+  [/\b(salmon|trout|tuna|cod|halibut|tilapia|bass|snapper|mackerel|sardine|anchov)/, "🐟"],
+  [/\b(shrimp|prawn|lobster|crab|scallop|oyster|mussel|clam|calamari|squid|octopus)/, "🦐"],
+  // Proteins — red + processed meat
+  [/\b(ground beef|beef|steak|brisket|sirloin|ribeye|chuck|filet|burger patt)/, "🥩"],
+  [/\b(bacon|pancetta|prosciutto|salami|pepperoni|chorizo|jerky)/, "🥓"],
+  [/\b(sausage|hot dog|frank|brat|kielbasa|andouille)/, "🌭"],
+  [/\b(pork|ham|ribs|tenderloin)/, "🥓"],
+  [/\b(lamb|mutton|veal)/, "🥩"],
+  // Proteins — poultry + eggs
+  [/\b(chicken|turkey|duck|cornish|poultry|drumstick|thigh|breast|wing)/, "🍗"],
+  [/\b(egg)/, "🥚"],
+  // Proteins — plant-based
+  [/\b(tofu|tempeh|seitan|edamame|soybean)/, "🫛"],
+  [/\b(bean|lentil|chickpea|garbanzo|pea\b|peas\b|black bean|kidney bean|pinto|cannellini)/, "🫘"],
+  [/\b(peanut|almond|walnut|pecan|cashew|pistachio|hazelnut|nut butter|trail mix)/, "🥜"],
+  // Dairy
+  [/\b(milk|half[- ]and[- ]half|cream\b|heavy cream|buttermilk)/, "🥛"],
+  [/\b(yogurt|yoghurt|kefir|skyr)/, "🥛"],
+  [/\b(butter|ghee|margarine)/, "🧈"],
+  [/\b(ice cream|gelato|sorbet|frozen yogurt)/, "🍦"],
+  [/\b(cheese|cheddar|mozzarella|parmesan|feta|brie|gouda|provolone|ricotta|cottage|cream cheese|swiss|gruyere|gruy)/, "🧀"],
+  // Produce — leafy + herbs
+  [/\b(cilantro|coriander|parsley|basil|mint|dill|chive|rosemary|thyme|sage|oregano|tarragon|herb)/, "🌿"],
+  [/\b(spinach|kale|arugula|romaine|lettuce|salad|mesclun|spring mix|baby greens|chard|collard|bok choy|cabbage)/, "🥬"],
+  // Produce — fruits
+  [/\b(apple)/, "🍎"],
+  [/\b(banana|plantain)/, "🍌"],
+  [/\b(strawberr)/, "🍓"],
+  [/\b(blueberr|blackberr|raspberr|cranberr|berry|berries)/, "🫐"],
+  [/\b(grape|raisin)/, "🍇"],
+  [/\b(orange|tangerine|clementine|mandarin)/, "🍊"],
+  [/\b(lemon)/, "🍋"],
+  [/\b(lime)/, "🍋"],
+  [/\b(pineapple)/, "🍍"],
+  [/\b(mango)/, "🥭"],
+  [/\b(peach|nectarine|apricot|plum)/, "🍑"],
+  [/\b(pear)/, "🍐"],
+  [/\b(watermelon|melon|cantaloupe|honeydew)/, "🍉"],
+  [/\b(cherry|cherries)/, "🍒"],
+  [/\b(kiwi)/, "🥝"],
+  [/\b(coconut)/, "🥥"],
+  [/\b(avocado|guacamole)/, "🥑"],
+  // Produce — vegetables
+  [/\b(tomato|cherry tomat|grape tomat|roma)/, "🍅"],
+  [/\b(potato|yam|sweet potato)/, "🥔"],
+  [/\b(carrot)/, "🥕"],
+  [/\b(corn|maize)/, "🌽"],
+  [/\b(pepper|jalapen|jalapeño|serrano|habanero|chili|chile|chilli|cayenne|paprika)/, "🌶️"],
+  [/\b(bell pepper|capsicum)/, "🫑"],
+  [/\b(cucumber|pickle|gherkin|zucchini|courgette|squash|pumpkin|gourd)/, "🥒"],
+  [/\b(broccoli|cauliflower)/, "🥦"],
+  [/\b(onion|shallot|leek|scallion|green onion)/, "🧅"],
+  [/\b(garlic)/, "🧄"],
+  [/\b(mushroom|portobello|shiitake|cremini)/, "🍄"],
+  [/\b(eggplant|aubergine)/, "🍆"],
+  [/\b(ginger|turmeric)/, "🫚"],
+  // Dry goods — grains + bread + pasta
+  [/\b(bread|loaf|baguette|toast|bun|roll|bagel|english muffin|pita|naan|tortilla|wrap)/, "🍞"],
+  [/\b(croissant|pastry|danish|scone|biscuit\b)/, "🥐"],
+  [/\b(pasta|spaghetti|linguine|fettuccine|penne|rigatoni|macaroni|noodle|ramen|udon|soba|orzo|fusilli|farfalle|tortellini|ravioli|lasagna|gnocchi)/, "🍝"],
+  [/\b(rice|jasmine|basmati|arborio|quinoa|couscous|farro|barley|bulgur|oat|granola|cereal|muesli|porridge|oatmeal)/, "🍚"],
+  [/\b(flour|sugar|baking)/, "🥣"],
+  [/\b(cracker|chip|pretzel|popcorn|snack)/, "🥨"],
+  [/\b(cookie|brownie|cake|pie|donut|doughnut|muffin)/, "🍪"],
+  [/\b(chocolate|candy|honey|jam|jelly|syrup|maple)/, "🍯"],
+  // Pantry / condiment
+  [/\b(oil|olive oil|vinegar|sauce|ketchup|mustard|mayo|mayonnaise|dressing|salsa|hummus|tahini|pesto|hot sauce|soy sauce|sriracha|tamari|fish sauce|oyster sauce|hoisin|gochujang|miso|curry paste)/, "🫙"],
+  [/\b(salt|pepper\b|spice|seasoning|broth|stock|bouillon)/, "🧂"],
+  // Beverages
+  [/\b(water|sparkling|seltzer|la croix|topo chico)/, "💧"],
+  [/\b(coffee|espresso|latte|cappuccino|cold brew)/, "☕"],
+  [/\b(tea|matcha|chai|kombucha)/, "🍵"],
+  [/\b(juice|lemonade|smoothie|cider|nectar)/, "🧃"],
+  [/\b(soda|cola|pepsi|coke|sprite|fanta|root beer|ginger ale|tonic|gatorade|powerade)/, "🥤"],
+  [/\b(beer|ale|lager|ipa|stout|pilsner)/, "🍺"],
+  [/\b(wine|champagne|prosecco|rose\b|rosé)/, "🍷"],
+  [/\b(liquor|whiskey|whisky|bourbon|vodka|gin|rum|tequila|sake)/, "🥃"],
+  // Frozen / misc
+  [/\b(pizza)/, "🍕"],
+  [/\b(sushi|sashimi|maki|nigiri)/, "🍣"],
+  [/\b(taco|burrito|quesadilla|enchilada)/, "🌮"],
+  [/\b(soup|stew|chili|chowder)/, "🍲"],
+  [/\b(salad)/, "🥗"],
+];
+
+function inferEmoji(name, fallback) {
+  if (!name || typeof name !== "string") return fallback || "📦";
+  const n = name.toLowerCase().trim();
+  // Skip inference if the stored emoji is already non-default (anything other
+  // than the 6 category defaults). Preserve user-edited or AI-suggested emojis.
+  const defaultEmojis = ["🧀", "🍗", "🥬", "🥣", "🍶", "📦"];
+  if (fallback && !defaultEmojis.includes(fallback)) return fallback;
+  for (const [pattern, emoji] of FOOD_EMOJI_RULES) {
+    if (pattern.test(n)) return emoji;
+  }
+  return fallback || "📦";
+}
+
 // Categories where the open-vs-closed distinction matters. v1.0.9 expanded
 // this to include Protein (canned tuna, jerky, packaged deli, etc.) — Greg's
 // mental model is "fresh = Dairy + Produce; everything else gets dual
@@ -491,7 +661,11 @@ function productFromOFF(p, barcode) {
   const serving = p.serving_size || "100g";
   const nutrition = { serving, calories: n["energy-kcal_serving"] ?? n["energy-kcal_100g"] ?? null, fat: n["fat_serving"] ?? n["fat_100g"] ?? null, saturatedFat: n["saturated-fat_serving"] ?? n["saturated-fat_100g"] ?? null, carbs: n["carbohydrates_serving"] ?? n["carbohydrates_100g"] ?? null, sugars: n["sugars_serving"] ?? n["sugars_100g"] ?? null, fiber: n["fiber_serving"] ?? n["fiber_100g"] ?? null, protein: n["proteins_serving"] ?? n["proteins_100g"] ?? null, salt: n["salt_serving"] ?? n["salt_100g"] ?? null };
   const hasNutrition = Object.values(nutrition).some((v, i) => i > 0 && v !== null);
-  return { name: fullName.trim(), category, emoji: EMOJI_MAP[category], defaultExpiry: EXPIRY_MAP[category], code: barcode || p.code || null, nutritionGrade: p.nutrition_grades || null, nutrition: hasNutrition ? nutrition : null, ingredients: p.ingredients_text_en || p.ingredients_text || null };
+  // v1.19 — upgrade emoji at OFF-import time so barcode-scanned items
+  // arrive with a contextual emoji (🥩 for "Ground Beef 90/10") rather
+  // than the category default (🍗 for all Protein).
+  const trimmedName = fullName.trim();
+  return { name: trimmedName, category, emoji: inferEmoji(trimmedName, EMOJI_MAP[category]), defaultExpiry: EXPIRY_MAP[category], code: barcode || p.code || null, nutritionGrade: p.nutrition_grades || null, nutrition: hasNutrition ? nutrition : null, ingredients: p.ingredients_text_en || p.ingredients_text || null };
 }
 
 // v1.14 — Open Food Facts lookups now route through lib/openFoodFacts.js,
@@ -838,7 +1012,11 @@ function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse
     // quantity is an integer column — coerce, default to 1 if blank/garbage
     const parsedQty = parseInt(String(quantity || "").trim(), 10);
     const safeQty = Number.isFinite(parsedQty) && parsedQty > 0 ? parsedQty : 1;
-    const updates = { name: name.trim(), category, emoji: emojiMap[category] || item.emoji, quantity: safeQty, unit: (unit || "").trim() || null, expiry_date: expiryDate ? new Date(expiryDate).toISOString() : item.expiryDate };
+    // v1.19 — persist the inferred (contextual) emoji on save. Older items
+    // stored a category default; once the user edits anything, we upgrade
+    // them to the smart emoji so the DB row matches what the UI shows.
+    const trimmedName = name.trim();
+    const updates = { name: trimmedName, category, emoji: inferEmoji(trimmedName, emojiMap[category] || item.emoji), quantity: safeQty, unit: (unit || "").trim() || null, expiry_date: expiryDate ? new Date(expiryDate).toISOString() : item.expiryDate };
     await onUpdate(item.id, updates); setEditing(false);
   }
 
@@ -860,7 +1038,7 @@ function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse
         </View>
         <ScrollView showsVerticalScrollIndicator={false}>
           <View style={{ alignItems: "center", padding: 24, paddingBottom: 16 }}>
-            <Text style={{ fontSize: 72 }}>{emojiMap[category] || item.emoji}</Text>
+            <Text style={{ fontSize: 72 }}>{inferEmoji(name || item.name, emojiMap[category] || item.emoji)}</Text>
             {editing ? <TextInput style={[s.input, { textAlign: "center", fontSize: 18, fontWeight: "700", marginTop: 12, marginBottom: 0, width: "100%" }]} value={name} onChangeText={setName} /> : <Text style={[s.pageTitle, { textAlign: "center", marginTop: 12, fontSize: 22 }]}>{item.name}</Text>}
             <View style={[s.expiryBadge, { backgroundColor: color + "22", borderColor: color + "55", marginTop: 10 }]}>
               <Text style={[s.expiryText, { color, fontSize: 13 }]}>{days <= 0 ? "Expired" : days === 1 ? "Expires tomorrow" : `Expires in ${days} days`}</Text>
@@ -1598,7 +1776,7 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
                         <Ionicons name={isSelected ? "checkmark-circle" : "ellipse-outline"} size={26} color={isSelected ? T.accent : T.muted} />
                       </View>
                     ) : (
-                      <Text style={{ fontSize: 32, width: 44, textAlign: "center" }}>{item.emoji}</Text>
+                      <Text style={{ fontSize: 32, width: 44, textAlign: "center" }}>{inferEmoji(item.name, item.emoji)}</Text>
                     )}
                     <View style={{ flex: 1, marginLeft: 12 }}>
                       <Text style={s.itemName} numberOfLines={1}>{item.name}</Text>
@@ -2243,8 +2421,80 @@ function urgencyBadgeIOS(days) {
   return            { text: `${days} days left`, color: T.accent, bg: "rgba(22,163,74,0.12)" };
 }
 
-function EatMeFirstScreen({ items }) {
+// v1.19 — Local ingredient matcher used by Eat First's recipe detail view.
+// Eat First recipes are AI-generated on the fly with no stable id, so the
+// server-side match-recipe-inventory function (which keys on recipe_id)
+// can't help. This local matcher does substring + token-overlap matching
+// between the recipe ingredient string and the user's fridge item names —
+// good enough for the "do I have this?" decision the user is making.
+//
+// Returns the matched fridge item or null. Order of strategies:
+//   1. Direct substring (either way) — "salmon" ↔ "Salmon fillet"
+//   2. Token overlap on words ≥ 3 chars — "ground beef" → tokens [ground, beef]
+//      then any item whose name contains either token wins.
+function _normalizeForMatch(s) {
+  return String(s || "")
+    .toLowerCase()
+    .trim()
+    // Strip parens content ("(fresh)", "(optional)")
+    .replace(/\([^)]*\)/g, " ")
+    // Strip common quantity prefixes if they slipped through
+    .replace(/^\d+(\.\d+)?\s*(oz|lb|cup|cups|tsp|tbsp|g|kg|ml|l)\b/, "")
+    // Collapse to alphanumeric+space
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    // Strip trailing 's' (cheap pluralization)
+    .replace(/\b(\w+?)(s|es)\b/g, "$1");
+}
+const _MATCH_STOPWORDS = new Set([
+  "and", "or", "of", "the", "for", "with", "to", "a", "an", "in", "on", "at",
+  "fresh", "frozen", "dried", "chopped", "diced", "sliced", "minced", "grated",
+  "shredded", "ground", "whole", "raw", "cooked", "large", "small", "medium",
+  "extra", "virgin", "olive", "salt", "pepper", "taste", "optional",
+]);
+function localMatchIngredient(ingredientText, fridgeItems) {
+  const ing = _normalizeForMatch(ingredientText);
+  if (!ing) return null;
+  // Pass 1: full-string substring either direction.
+  for (const fi of fridgeItems || []) {
+    const n = _normalizeForMatch(fi.name);
+    if (!n) continue;
+    if (n.includes(ing) || ing.includes(n)) return fi;
+  }
+  // Pass 2: meaningful-token overlap (skip 1-2 char + stopwords).
+  const tokens = ing
+    .split(/\s+/)
+    .filter(t => t.length >= 3 && !_MATCH_STOPWORDS.has(t));
+  if (tokens.length === 0) return null;
+  for (const fi of fridgeItems || []) {
+    const n = _normalizeForMatch(fi.name);
+    if (!n) continue;
+    if (tokens.some(t => n.includes(t))) return fi;
+  }
+  return null;
+}
+
+function EatMeFirstScreen({ items, householdId }) {
   const [recipeModal, setRecipeModal] = useState(null); // { leadItem, items, recipes, loading, error }
+  // v1.19 — when the user taps into a recipe card the modal switches to a
+  // detail view. selectedRecipeIdx = null → list view (cards). Integer →
+  // show that recipe's full detail (instructions + inline match + add-to-
+  // list). Cleared on modal-close, recipe re-load, or back-tap.
+  const [selectedRecipeIdx, setSelectedRecipeIdx] = useState(null);
+  // Per-ingredient toggle state for the detail view. Keys are "{recipeIdx}:{ingIdx}".
+  // Value === true means "queue this for the shopping list."
+  // Matched (in-stock) ingredients default to false (user has them).
+  // Missing ingredients also default to false (opt-in via tap), mirroring
+  // the v1.19 UX-pass-2 decision in Plan tab.
+  const [ingToggles, setIngToggles] = useState({});
+  // Shopping list picker state — loaded when entering detail view.
+  const [userLists, setUserLists] = useState([]);
+  const [targetListId, setTargetListId] = useState(null);
+  const [newListName, setNewListName] = useState("");
+  const [addingToList, setAddingToList] = useState(false);
+  const [addToListError, setAddToListError] = useState(null);
+  const [addToListSuccess, setAddToListSuccess] = useState(false);
 
   const ranked = (items || [])
     .filter(i => daysUntil(i.expiryDate) <= 14)
@@ -2271,6 +2521,12 @@ function EatMeFirstScreen({ items }) {
   }, [items, expiredCount, soonCount]);
 
   async function fetchRecipes({ leadItem, contextItems }) {
+    // v1.19 — reset detail mode whenever a fresh fetch kicks off, so a stale
+    // selectedRecipeIdx from a previous modal opening can't point at nothing.
+    setSelectedRecipeIdx(null);
+    setIngToggles({});
+    setAddToListError(null);
+    setAddToListSuccess(false);
     setRecipeModal({ leadItem, items: contextItems, recipes: [], loading: true, error: null });
     track("eat_me_first_recipes_requested", {
       lead_item: leadItem?.name || null,
@@ -2303,6 +2559,127 @@ function EatMeFirstScreen({ items }) {
   }
   function onUseTop5() {
     fetchRecipes({ leadItem: null, contextItems: ranked.slice(0, 5) });
+  }
+
+  // v1.19 — when a list-view card is tapped, switch the modal into detail
+  // mode for that recipe. Loads the household's shopping lists in parallel
+  // so the add-to-list picker has options ready. Default-selects the most
+  // recently created list to match the Plan tab's behavior.
+  async function openRecipeDetail(idx) {
+    const recipe = recipeModal?.recipes?.[idx];
+    if (!recipe) return;
+    setSelectedRecipeIdx(idx);
+    setIngToggles({});
+    setNewListName(recipe.name || "");
+    setAddToListError(null);
+    setAddToListSuccess(false);
+    track("eat_me_first_recipe_opened", {
+      recipe_name: recipe.name,
+      ingredient_count: Array.isArray(recipe.ingredients) ? recipe.ingredients.length : 0,
+    });
+    if (!householdId) { setUserLists([]); setTargetListId(null); return; }
+    try {
+      const { data, error } = await supabase
+        .from("shopping_lists")
+        .select("id, name")
+        .eq("household_id", householdId)
+        .is("archived_at", null)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      const lists = data || [];
+      setUserLists(lists);
+      setTargetListId(lists.length > 0 ? lists[0].id : null);
+    } catch (e) {
+      console.warn("[eat-first] list load failed:", e?.message || e);
+      setUserLists([]);
+      setTargetListId(null);
+    }
+  }
+
+  function closeRecipeDetail() {
+    setSelectedRecipeIdx(null);
+    setIngToggles({});
+    setAddToListError(null);
+    setAddToListSuccess(false);
+  }
+
+  // Bulk-tick every missing ingredient. Matched (in-stock) ones stay false.
+  function checkAllMissing(matches) {
+    const next = { ...ingToggles };
+    matches.forEach((m, j) => {
+      if (!m.matched) next[`${selectedRecipeIdx}:${j}`] = true;
+    });
+    setIngToggles(next);
+  }
+
+  async function addQueuedToList(recipe, matches) {
+    if (addingToList) return;
+    setAddingToList(true);
+    setAddToListError(null);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Please sign in to add to a shopping list.");
+      if (!householdId) throw new Error("No household — pull to refresh and try again.");
+      // Resolve target list: existing or create-new.
+      let listId = targetListId;
+      if (!listId) {
+        const name = (newListName || recipe.name || "Shopping list").trim() || "Shopping list";
+        const { data: created, error: cErr } = await supabase
+          .from("shopping_lists")
+          .insert({ household_id: householdId, name, created_by: user.id })
+          .select("id")
+          .single();
+        if (cErr) throw cErr;
+        listId = created.id;
+      }
+      // Build rows for every queued ingredient. Ingredients are ephemeral —
+      // there's no fridge_item_id to link, so we pass the name + amount
+      // through as the row's display text. Position increments after the
+      // current max so we append rather than reorder.
+      const queued = matches
+        .map((m, j) => ({ m, j }))
+        .filter(({ j }) => ingToggles[`${selectedRecipeIdx}:${j}`]);
+      if (queued.length === 0) {
+        setAddingToList(false);
+        setAddToListError("Tap an ingredient to queue it first.");
+        return;
+      }
+      // Find next position in the list (use length + 1 as a simple
+      // starting point — accurate enough for append semantics).
+      const { count } = await supabase
+        .from("shopping_list_items")
+        .select("id", { count: "exact", head: true })
+        .eq("list_id", listId);
+      const startPos = (count || 0) + 1;
+      const rows = queued.map(({ m, j }, k) => {
+        const ing = recipe.ingredients[j];
+        const itemName = typeof ing === "object" ? (ing.item || "Ingredient") : String(ing);
+        const amount = typeof ing === "object" ? (ing.amount || null) : null;
+        return {
+          list_id: listId,
+          name: amount ? `${itemName} — ${amount}` : itemName,
+          quantity: 1,
+          position: startPos + k,
+          added_by: user.id,
+          checked: false,
+        };
+      });
+      const { error: insErr } = await supabase.from("shopping_list_items").insert(rows);
+      if (insErr) throw insErr;
+      track("eat_me_first_added_to_list", {
+        recipe_name: recipe.name,
+        item_count: rows.length,
+        list_was_new: !targetListId,
+      });
+      setAddToListSuccess(true);
+      // Auto-close detail view after a brief beat so the user sees the
+      // confirmation, then lands back on the recipe list.
+      setTimeout(() => { closeRecipeDetail(); }, 1200);
+    } catch (e) {
+      setAddToListError(e?.message || "Couldn't add to list.");
+    } finally {
+      setAddingToList(false);
+    }
   }
 
   return (
@@ -2351,29 +2728,43 @@ function EatMeFirstScreen({ items }) {
           <View key={item.id} style={[s.fridgeItem, { marginHorizontal: 16, marginBottom: 8 }]}>
             <Text style={{ width: 22, textAlign: "center", color: T.textSoft, fontSize: 12, fontWeight: "700" }}>{idx + 1}</Text>
             <View style={[s.reminderIcon, { backgroundColor: "rgba(22,163,74,0.08)", marginLeft: 6 }]}>
-              <Text style={{ fontSize: 20 }}>{item.emoji || "📦"}</Text>
+              <Text style={{ fontSize: 20 }}>{inferEmoji(item.name, item.emoji)}</Text>
             </View>
-            <View style={{ flex: 1, marginLeft: 10 }}>
+            <View style={{ flex: 1, marginLeft: 10, marginRight: 8 }}>
               <Text style={s.bold} numberOfLines={1}>{item.name}</Text>
               <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>{item.category}</Text>
             </View>
-            <View style={{ backgroundColor: badge.bg, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4, marginRight: 8 }}>
-              <Text style={{ color: badge.color, fontSize: 10, fontWeight: "700" }}>{badge.text}</Text>
+            {/* v1.18 — stack urgency pill above "Get recipes" so longer item
+                names like "Baby spinach" or "Plain Greek yogurt" don't get
+                truncated. Both controls right-aligned in a small column. */}
+            <View style={{ alignItems: "flex-end", justifyContent: "center" }}>
+              <View style={{ backgroundColor: badge.bg, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4, marginBottom: 6 }}>
+                <Text style={{ color: badge.color, fontSize: 10, fontWeight: "700" }}>{badge.text}</Text>
+              </View>
+              <TouchableOpacity onPress={() => onUseLeading(item)} style={{ backgroundColor: "rgba(22,163,74,0.1)", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999 }}>
+                <Text style={{ color: T.accent, fontSize: 11, fontWeight: "700" }}>Get recipes</Text>
+              </TouchableOpacity>
             </View>
-            <TouchableOpacity onPress={() => onUseLeading(item)} style={{ backgroundColor: "rgba(22,163,74,0.1)", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999 }}>
-              <Text style={{ color: T.accent, fontSize: 11, fontWeight: "700" }}>Get recipes</Text>
-            </TouchableOpacity>
           </View>
         );
       })}
 
       <View style={{ height: 32 }} />
 
-      {/* Recipe modal.
-          v1.16 papercut fix: backdrop-tap dismisses AND there's an explicit
-          X in the header. Previously users had to scroll through every
-          recipe to find the Close button at the bottom — testers (and the
-          demo recording) made the modal feel "stuck". */}
+      {/* Recipe modal — v1.19 two-mode redesign:
+          • List mode (selectedRecipeIdx === null): collapsed cards showing
+            emoji + name + time/difficulty + description + ingredient list
+            only. No instructions on this screen so all 3 recipes fit and
+            don't get clipped by the modal height. Cards are tappable.
+          • Detail mode: full recipe with inline match (have/queued) +
+            instructions + tip + "Add ingredients to shopping list" flow
+            (mirrors Plan tab's InventoryMatchSheet, but uses a local
+            matcher since these recipes are ephemeral with no recipe_id).
+
+          The outer sheet wrapper uses { flex: 1, justifyContent: flex-end }
+          backdrop + height-capped inner. Inner uses height (not maxHeight)
+          via flexShrink + flexGrow on the ScrollView so content scrolls
+          reliably even when 3 full recipes push past the 85% cap. */}
       <Modal visible={!!recipeModal} transparent animationType="slide" onRequestClose={() => setRecipeModal(null)}>
         <TouchableOpacity
           activeOpacity={1}
@@ -2383,18 +2774,43 @@ function EatMeFirstScreen({ items }) {
           <TouchableOpacity
             activeOpacity={1}
             onPress={() => { /* swallow taps inside the sheet so they don't dismiss */ }}
-            style={{ backgroundColor: T.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "85%" }}
+            style={{ backgroundColor: T.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, height: "85%", overflow: "hidden" }}
           >
             <View style={{ flexDirection: "row", alignItems: "flex-start", paddingTop: 20, paddingHorizontal: 20, paddingBottom: 6 }}>
+              {/* Back button when in detail mode. Replaces nothing in list
+                  mode (no spacer needed — title flex-1's). */}
+              {selectedRecipeIdx !== null && (
+                <TouchableOpacity
+                  onPress={closeRecipeDetail}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  accessibilityLabel="Back to recipes"
+                  style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: T.bg, alignItems: "center", justifyContent: "center", marginRight: 10 }}
+                >
+                  <Ionicons name="chevron-back" size={20} color={T.text} />
+                </TouchableOpacity>
+              )}
               <View style={{ flex: 1 }}>
                 <Text style={[s.pageTitle, { fontSize: 18, paddingHorizontal: 0, paddingTop: 0 }]}>
-                  {recipeModal?.leadItem
-                    ? `Recipes using ${recipeModal.leadItem.name}`
-                    : "Recipes for your top expiring items"}
+                  {selectedRecipeIdx !== null
+                    ? (recipeModal?.recipes?.[selectedRecipeIdx]?.name || "Recipe")
+                    : recipeModal?.leadItem
+                      ? `Recipes using ${recipeModal.leadItem.name}`
+                      : "Recipes for your top expiring items"}
                 </Text>
-                <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 4 }}>
-                  Using: {[recipeModal?.leadItem?.name, ...(recipeModal?.items || []).map(i => i.name)].filter(Boolean).join(", ")}
-                </Text>
+                {selectedRecipeIdx === null && (
+                  <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 4 }}>
+                    Using: {[recipeModal?.leadItem?.name, ...(recipeModal?.items || []).map(i => i.name)].filter(Boolean).join(", ")}
+                  </Text>
+                )}
+                {selectedRecipeIdx !== null && (() => {
+                  const r = recipeModal?.recipes?.[selectedRecipeIdx];
+                  if (!r) return null;
+                  return (
+                    <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 4 }}>
+                      {[r.time, r.difficulty].filter(Boolean).join(" · ")}
+                    </Text>
+                  );
+                })()}
               </View>
               <TouchableOpacity
                 onPress={() => setRecipeModal(null)}
@@ -2405,7 +2821,17 @@ function EatMeFirstScreen({ items }) {
                 <Ionicons name="close" size={20} color={T.text} />
               </TouchableOpacity>
             </View>
-            <ScrollView style={{ paddingHorizontal: 20, paddingBottom: 20 }}>
+
+            {/* flexShrink: 1 + flexGrow: 1 lets the ScrollView consume the
+                remaining height inside the 85% sheet and scroll its content
+                instead of expanding the parent. Greg's screenshot showed
+                the 2nd/3rd recipes getting clipped — that was a missing
+                flex bound on this ScrollView. */}
+            <ScrollView
+              style={{ flexShrink: 1, flexGrow: 1 }}
+              contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24 }}
+              showsVerticalScrollIndicator={true}
+            >
               <View style={{ height: 8 }} />
 
               {recipeModal?.loading && (
@@ -2420,8 +2846,15 @@ function EatMeFirstScreen({ items }) {
                 </View>
               )}
 
-              {(recipeModal?.recipes || []).map((r, i) => (
-                <View key={i} style={[s.card, { padding: 14, marginBottom: 10 }]}>
+              {/* LIST VIEW — collapsed cards. Each is a TouchableOpacity that
+                  opens the detail view. No instructions on this screen. */}
+              {selectedRecipeIdx === null && (recipeModal?.recipes || []).map((r, i) => (
+                <TouchableOpacity
+                  key={i}
+                  activeOpacity={0.7}
+                  onPress={() => openRecipeDetail(i)}
+                  style={[s.card, { padding: 14, marginBottom: 10 }]}
+                >
                   <View style={{ flexDirection: "row", gap: 10, marginBottom: 8 }}>
                     <Text style={{ fontSize: 26 }}>{r.emoji || "🍽️"}</Text>
                     <View style={{ flex: 1 }}>
@@ -2430,33 +2863,166 @@ function EatMeFirstScreen({ items }) {
                         {[r.time, r.difficulty].filter(Boolean).join(" · ")}
                       </Text>
                     </View>
+                    <Text style={{ color: T.muted, fontSize: 18, lineHeight: 22 }}>›</Text>
                   </View>
                   {r.description && <Text style={{ color: T.textSoft, fontSize: 13, lineHeight: 19, marginBottom: 8 }}>{r.description}</Text>}
                   {Array.isArray(r.ingredients) && r.ingredients.length > 0 && (
-                    <View style={{ marginBottom: 8 }}>
+                    <View>
                       <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 4, paddingHorizontal: 0, fontSize: 10 }]}>INGREDIENTS</Text>
                       {r.ingredients.map((ing, j) => (
-                        <Text key={j} style={{ color: T.text, fontSize: 13, lineHeight: 20 }}>
-                          • {typeof ing === "object" ? ing.item : ing}{ing?.amount ? ` — ${ing.amount}` : ""}
+                        <Text key={j} style={{ color: T.text, fontSize: 13, lineHeight: 20 }} numberOfLines={1}>
+                          • {typeof ing === "object" ? ing.item : ing}{(typeof ing === "object" && ing?.amount) ? ` — ${ing.amount}` : ""}
                         </Text>
                       ))}
                     </View>
                   )}
-                  {Array.isArray(r.instructions) && r.instructions.length > 0 && (
-                    <View>
-                      <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 4, paddingHorizontal: 0, fontSize: 10 }]}>INSTRUCTIONS</Text>
-                      {r.instructions.map((step, j) => (
-                        <Text key={j} style={{ color: T.text, fontSize: 13, lineHeight: 20 }}>{j + 1}. {step}</Text>
-                      ))}
-                    </View>
-                  )}
-                  {r.tip && <Text style={{ color: T.accent, fontSize: 12, marginTop: 8, fontStyle: "italic" }}>💡 {r.tip}</Text>}
-                </View>
+                </TouchableOpacity>
               ))}
 
-              <TouchableOpacity onPress={() => setRecipeModal(null)} style={[s.btnPrimary, { marginTop: 4, marginBottom: 16 }]}>
-                <Text style={s.btnPrimaryText}>Close</Text>
-              </TouchableOpacity>
+              {/* DETAIL VIEW — full recipe with inline match + add-to-list. */}
+              {selectedRecipeIdx !== null && (() => {
+                const r = recipeModal?.recipes?.[selectedRecipeIdx];
+                if (!r) return null;
+                const ingredients = Array.isArray(r.ingredients) ? r.ingredients : [];
+                // Build per-ingredient match against the user's fridge.
+                const matches = ingredients.map(ing => {
+                  const text = typeof ing === "object" ? (ing.item || "") : String(ing);
+                  const matched = localMatchIngredient(text, items || []);
+                  return { text, amount: typeof ing === "object" ? (ing.amount || null) : null, matched };
+                });
+                const queuedCount = matches.filter((m, j) => ingToggles[`${selectedRecipeIdx}:${j}`]).length;
+                const missingCount = matches.filter(m => !m.matched).length;
+                return (
+                  <View>
+                    {r.description && (
+                      <Text style={{ color: T.textSoft, fontSize: 14, lineHeight: 20, marginBottom: 14 }}>{r.description}</Text>
+                    )}
+
+                    {/* INGREDIENTS section with inline match + tap-to-queue */}
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                      <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 0, paddingHorizontal: 0, fontSize: 11 }]}>INGREDIENTS</Text>
+                      {missingCount > 0 && (
+                        <TouchableOpacity onPress={() => checkAllMissing(matches)}>
+                          <Text style={{ color: T.accent, fontSize: 12, fontWeight: "700" }}>
+                            + ADD ALL {missingCount} MISSING
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                    {matches.map((m, j) => {
+                      const key = `${selectedRecipeIdx}:${j}`;
+                      const queued = !!ingToggles[key];
+                      const isHave = !!m.matched;
+                      // Visual states:
+                      //   have:   green-tinted card + checkmark, "In stock"
+                      //   queued: green-tinted card + plus icon, "Queued"
+                      //   skip:   neutral card, "Add to list" hint
+                      const bgColor = isHave
+                        ? "rgba(22,163,74,0.08)"
+                        : queued
+                          ? "rgba(22,163,74,0.08)"
+                          : T.bg;
+                      const borderColor = (isHave || queued) ? "rgba(22,163,74,0.35)" : T.border;
+                      const onTap = () => {
+                        if (isHave) return; // matched items are non-interactive
+                        setIngToggles(prev => ({ ...prev, [key]: !prev[key] }));
+                      };
+                      return (
+                        <TouchableOpacity
+                          key={j}
+                          activeOpacity={isHave ? 1 : 0.7}
+                          onPress={onTap}
+                          style={{ backgroundColor: bgColor, borderWidth: 1, borderColor, borderRadius: 10, padding: 10, marginBottom: 6, flexDirection: "row", alignItems: "center", gap: 10 }}
+                        >
+                          <View style={{ width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: isHave ? T.accent : queued ? T.accent : "transparent", borderWidth: isHave || queued ? 0 : 1.5, borderColor: T.muted }}>
+                            {isHave ? <Ionicons name="checkmark" size={16} color="#FFFFFF" /> : queued ? <Ionicons name="add" size={16} color="#FFFFFF" /> : null}
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: T.text, fontSize: 13, fontWeight: "600" }}>
+                              {m.text}{m.amount ? ` — ${m.amount}` : ""}
+                            </Text>
+                            <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 2 }}>
+                              {isHave
+                                ? `In stock — you have ${m.matched.name}`
+                                : queued
+                                  ? "Queued for shopping list"
+                                  : "Tap to add to shopping list"}
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+
+                    {/* Add-to-list controls — only if there's anything queued
+                        or the user could queue (any missing). */}
+                    {missingCount > 0 && (
+                      <View style={{ marginTop: 10, marginBottom: 12 }}>
+                        <Text style={[s.sectionLabel, { marginTop: 4, marginBottom: 8, paddingHorizontal: 0, fontSize: 11 }]}>ADD TO</Text>
+                        {/* List picker chips. */}
+                        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                          {userLists.map(l => {
+                            const sel = targetListId === l.id;
+                            return (
+                              <TouchableOpacity
+                                key={l.id}
+                                onPress={() => setTargetListId(l.id)}
+                                style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: sel ? T.accent : T.bg, borderWidth: 1, borderColor: sel ? T.accent : T.border }}
+                              >
+                                <Text style={{ color: sel ? "#FFFFFF" : T.text, fontSize: 12, fontWeight: "600" }}>{l.name}</Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                          <TouchableOpacity
+                            onPress={() => setTargetListId(null)}
+                            style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: targetListId === null ? T.accent : T.bg, borderWidth: 1, borderColor: targetListId === null ? T.accent : T.border }}
+                          >
+                            <Text style={{ color: targetListId === null ? "#FFFFFF" : T.text, fontSize: 12, fontWeight: "600" }}>+ New list</Text>
+                          </TouchableOpacity>
+                        </View>
+                        {targetListId === null && (
+                          <TextInput
+                            value={newListName}
+                            onChangeText={setNewListName}
+                            placeholder="List name"
+                            placeholderTextColor={T.muted}
+                            style={[s.input, { marginBottom: 8 }]}
+                          />
+                        )}
+                        <TouchableOpacity
+                          disabled={addingToList || queuedCount === 0}
+                          onPress={() => addQueuedToList(r, matches)}
+                          style={[s.btnPrimary, { opacity: (addingToList || queuedCount === 0) ? 0.5 : 1 }]}
+                        >
+                          <Text style={s.btnPrimaryText}>
+                            {addingToList ? "Adding…" : queuedCount > 0 ? `Add ${queuedCount} to ${targetListId === null ? "new list" : "list"}` : "Tap an ingredient to queue"}
+                          </Text>
+                        </TouchableOpacity>
+                        {addToListError && (
+                          <Text style={{ color: T.danger, fontSize: 12, marginTop: 8 }}>{addToListError}</Text>
+                        )}
+                        {addToListSuccess && (
+                          <Text style={{ color: T.accent, fontSize: 12, marginTop: 8, fontWeight: "700" }}>✓ Added to your shopping list</Text>
+                        )}
+                      </View>
+                    )}
+
+                    {/* INSTRUCTIONS */}
+                    {Array.isArray(r.instructions) && r.instructions.length > 0 && (
+                      <View style={{ marginTop: 6 }}>
+                        <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 6, paddingHorizontal: 0, fontSize: 11 }]}>INSTRUCTIONS</Text>
+                        {r.instructions.map((step, j) => (
+                          <Text key={j} style={{ color: T.text, fontSize: 14, lineHeight: 22, marginBottom: 4 }}>{j + 1}. {step}</Text>
+                        ))}
+                      </View>
+                    )}
+                    {r.tip && (
+                      <View style={{ marginTop: 10, backgroundColor: "rgba(22,163,74,0.06)", borderRadius: 10, padding: 10 }}>
+                        <Text style={{ color: T.accent, fontSize: 13, fontStyle: "italic" }}>💡 {r.tip}</Text>
+                      </View>
+                    )}
+                  </View>
+                );
+              })()}
             </ScrollView>
           </TouchableOpacity>
         </TouchableOpacity>
@@ -2668,6 +3234,128 @@ const _ALLERGEN_OPTIONS = [
   { id: "sesame",    label: "Sesame" },
 ];
 
+// v1.18 — Smart Cook Night setting row. Self-contained (reads + writes
+// its own state from user_settings) so it doesn't change SettingsScreen's
+// prop signature. Two controls: an on/off Switch and an hour picker that
+// only shows when enabled. Hour picker uses the existing UnitPicker
+// pattern (chips for the common hours, "Other..." for anything else).
+function CookNightSettingRow() {
+  const [enabled, setEnabled] = useState(true);
+  const [hour, setHour] = useState(18);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+        const { data } = await supabase
+          .from("user_settings")
+          .select("cook_night_enabled, cook_night_hour")
+          .eq("user_id", session.user.id)
+          .maybeSingle();
+        if (cancelled) return;
+        if (data) {
+          setEnabled(data.cook_night_enabled !== false);
+          setHour(Number.isFinite(Number(data.cook_night_hour)) ? Number(data.cook_night_hour) : 18);
+        }
+      } catch (e) {
+        // user_settings might not have the columns yet on older deploys —
+        // surface as defaults rather than blocking the settings screen.
+        console.warn("cook night settings load:", e?.message);
+      } finally {
+        if (!cancelled) setLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  async function saveEnabled(next) {
+    setEnabled(next);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      await supabase
+        .from("user_settings")
+        .update({ cook_night_enabled: next, updated_at: new Date().toISOString() })
+        .eq("user_id", session.user.id);
+      track("cook_night_toggled", { enabled: next });
+    } catch (e) {
+      console.warn("cook night save:", e?.message);
+    }
+  }
+
+  async function saveHour(next) {
+    const clamped = Math.max(0, Math.min(23, next));
+    setHour(clamped);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      await supabase
+        .from("user_settings")
+        .update({ cook_night_hour: clamped, updated_at: new Date().toISOString() })
+        .eq("user_id", session.user.id);
+      track("cook_night_hour_set", { hour: clamped });
+    } catch (e) {
+      console.warn("cook night hour save:", e?.message);
+    }
+  }
+
+  const hourLabel = (h) => {
+    const period = h >= 12 ? "PM" : "AM";
+    const display = h === 0 ? 12 : (h > 12 ? h - 12 : h);
+    return `${display} ${period}`;
+  };
+
+  // Hour quick-pick chips — the realistic dinner window for most US households.
+  const hourOptions = [16, 17, 18, 19, 20];
+
+  if (!loaded) return null;
+
+  return (
+    <View style={{ paddingTop: 12, marginTop: 4, borderTopWidth: 1, borderTopColor: T.border }}>
+      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: enabled ? 12 : 0 }}>
+        <View style={[s.reminderIcon, { backgroundColor: "rgba(22,163,74,0.1)" }]}><Text style={{ fontSize: 20 }}>🍳</Text></View>
+        <View style={{ flex: 1, marginLeft: 12 }}>
+          <Text style={s.bold}>Smart Cook Night</Text>
+          <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>
+            A dinner-time push: "Make X tonight using what you have."
+          </Text>
+        </View>
+        <Switch value={enabled} onValueChange={saveEnabled} trackColor={{ false: T.border, true: T.accent }} />
+      </View>
+      {enabled && (
+        <View>
+          <Text style={{ fontSize: 12, color: T.textSoft, marginBottom: 6 }}>
+            Sends at <Text style={{ color: T.text, fontWeight: "700" }}>{hourLabel(hour)}</Text> local time.
+          </Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+            {hourOptions.map(h => {
+              const active = h === hour;
+              return (
+                <TouchableOpacity
+                  key={h}
+                  onPress={() => saveHour(h)}
+                  style={{
+                    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999,
+                    backgroundColor: active ? T.accent : T.bg,
+                    borderWidth: 1, borderColor: active ? T.accent : T.border,
+                  }}
+                >
+                  <Text style={{ color: active ? "#fff" : T.text, fontSize: 12, fontWeight: "700" }}>
+                    {hourLabel(h)}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
 function SettingsScreen({ notificationsEnabled, onToggleNotifications, emailDigestEnabled, onToggleEmailDigest, onOpenShare, userEmail }) {
   const [dietary, setDietary]             = useState([]);
   const [allergens, setAllergens]         = useState([]);
@@ -2855,7 +3543,7 @@ function SettingsScreen({ notificationsEnabled, onToggleNotifications, emailDige
           </View>
           <Switch value={notificationsEnabled} onValueChange={onToggleNotifications} trackColor={{ false: T.border, true: T.accent }} />
         </View>
-        <View style={{ flexDirection: "row", alignItems: "center" }}>
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
           <View style={[s.reminderIcon, { backgroundColor: "rgba(22,163,74,0.1)" }]}><Text style={{ fontSize: 20 }}>✉️</Text></View>
           <View style={{ flex: 1, marginLeft: 12 }}>
             <Text style={s.bold}>Daily email digest</Text>
@@ -2863,6 +3551,7 @@ function SettingsScreen({ notificationsEnabled, onToggleNotifications, emailDige
           </View>
           <Switch value={emailDigestEnabled} onValueChange={onToggleEmailDigest} trackColor={{ false: T.border, true: T.accent }} />
         </View>
+        <CookNightSettingRow />
       </View>
 
       {/* Account */}
@@ -3219,10 +3908,11 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
       const expiryUsdaDate = (typeof r.usdaDays === "number" && r.usdaDays > 0)
         ? new Date(Date.now() + r.usdaDays * 86400000).toISOString().slice(0, 10)
         : null;
+      const itemName = r.name.trim();
       return {
-        name: r.name.trim(),
+        name: itemName,
         category: cat,
-        emoji: EMOJI_MAP[cat],
+        emoji: inferEmoji(itemName, EMOJI_MAP[cat]),
         quantity,
         unit: (r.unit || "").trim() || null,
         expiryDate: expiry,
@@ -3296,7 +3986,7 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
                 <View key={row.id} style={[s.card, { padding: 14, marginBottom: 10 }]}>
                   <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                      <Text style={{ fontSize: 20 }}>{cat ? EMOJI_MAP[cat] : "📝"}</Text>
+                      <Text style={{ fontSize: 20 }}>{cat ? inferEmoji(row.name, EMOJI_MAP[cat]) : "📝"}</Text>
                       <Text style={{ color: T.textSoft, fontSize: 12, fontWeight: "600" }}>ITEM {index + 1}</Text>
                       {cat && <View style={s.pill}><Text style={s.pillText}>{cat}</Text></View>}
                     </View>
@@ -4230,9 +4920,12 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
     setSearching(true);
     const t = setTimeout(async () => {
       try {
+        // v1.19 — cap at 4 results. More than that overruns the visible card,
+        // pushes the rest of the form below the keyboard, and adds choice
+        // overhead. 4 is enough to find the right brand 95% of the time.
         const { data, error } = await supabase.rpc("search_products", {
           query: trimmed,
-          result_limit: 5,
+          result_limit: 4,
         });
         if (cancelled) return;
         setSearchResults(error ? [] : (data || []));
@@ -4806,15 +5499,15 @@ function ShareScreen({ householdName, memberCount, onOpenInvite, onBack }) {
   );
 }
 
-// ─── Plan Screen (v1.0.8) ─────────────────────────────────────────────────────
-// Replaces the AI Recipes screen. Two sections:
-//   1. Recipe ideas — search-link cards (AllRecipes / NYT Cooking / Epicurious)
-//      seeded from the user's top fridge ingredients. No AI calls; this saves
-//      tokens AND avoids per-user Anthropic costs.
-//   2. Shopping list — local-only for v1.0.8, persisted via AsyncStorage.
-//      Manual add + check-off. Auto-suggest from low inventory is on the
-//      v1.0.9 roadmap.
-function PlanScreen({ items, householdId }) {
+// ─── Plan Screen (v1.0.8, revised v1.18) ─────────────────────────────────────
+// Two sections now (the external-link Recipe Ideas was removed in v1.18 —
+// recipe generation is native via Eat Me First + daily digest):
+//   1. Shopping lists — household-shared, supports multiple named lists,
+//      member-initial badges, recently-added quick-add chips, past-lists
+//      revival. Order-N-items retailer picker at the bottom.
+//   2. Saved Recipes — v1.18. User_recipes_saved rows the user heart-toggled
+//      from the deep-link recipe sheet. Tap a card to re-open the recipe.
+function PlanScreen({ items, householdId, onOpenRecipeId, onOpenSavedRecipe, listsRefreshKey, targetListId, onTargetListConsumed }) {
   // v1.1.0 — multiple named shopping lists per household. The shopping_lists
   // table is the new canonical source. Each item has a list_id FK. Existing
   // households were backfilled by the migration to a single "Shopping list"
@@ -4849,6 +5542,55 @@ function PlanScreen({ items, householdId }) {
   // RPC. Used to render a small initial badge next to items so household
   // members can see who added what.
   const [memberInitials, setMemberInitials] = useState({});
+
+  // v1.18 — Saved Recipes section. Pulls user_recipes_saved rows (the user's
+  // own heart-toggled recipes from the deep-link recipe sheet) and surfaces
+  // them under Past Lists in the list-picker view. Tapping a saved-recipe
+  // card opens a detail sheet identical in shape to the deep-link modal.
+  const [savedRecipes, setSavedRecipes] = useState([]);           // [{id, recipe_data, saved_at}]
+  const [loadingSaved, setLoadingSaved] = useState(false);
+  const [savedExpanded, setSavedExpanded] = useState(true);       // open-by-default; users actively saved these
+  const [openSavedRecipe, setOpenSavedRecipe] = useState(null);   // the recipe object currently shown in detail sheet
+
+  // v1.19 — Recipes section. NEW primary surface for recipe discovery in the
+  // Plan tab. Three sub-tabs backed by the recipe-browse Edge Function:
+  //   • tonight — personalized picks ranked by user's fridge overlap;
+  //               prepends today's morning-digest picks if present.
+  //   • browse  — full bank catalog, optionally filtered by meal_type.
+  //   • search  — full-text search against bank (name + description).
+  // Each card taps through to the existing deep-link RecipeSheet modal,
+  // which now handles both bank-slug and daily-cache id shapes.
+  const [recipesTab, setRecipesTab] = useState("tonight");        // "tonight" | "browse" | "search"
+  const [tonightRecipes, setTonightRecipes] = useState([]);       // [RecipeCard, ...]
+  const [browseRecipes, setBrowseRecipes] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [loadingRecipes, setLoadingRecipes] = useState(false);
+  // Filter chip for the Browse tab. Single-select for v1.19; dietary tags
+  // come in a follow-up if users ask. null = no filter.
+  const [browseMealType, setBrowseMealType] = useState(null);     // null | "breakfast" | "lunch" | "dinner" | "snack" | "dessert"
+  // v1.19 — cuisine-first flow per Greg's UX feedback. Tonight + All-Recipes
+  // ask "what are you craving" first, then filter results to that cuisine.
+  // Reduces the "30 recipes scrolling" feel and turns the experience into
+  // a guided pick. null = haven't chosen yet (show the picker).
+  const [tonightCuisine, setTonightCuisine] = useState(null);
+  const [browseCuisine, setBrowseCuisine] = useState(null);
+  // List of cuisines to surface in pickers. Ordered roughly by bank size
+  // (largest cuisines first) so the most varied options are most visible.
+  const CUISINE_PICKER_OPTIONS = [
+    { key: "italian",        emoji: "🍝", label: "Italian" },
+    { key: "mexican",        emoji: "🌮", label: "Mexican" },
+    { key: "chinese",        emoji: "🥡", label: "Chinese" },
+    { key: "japanese",       emoji: "🍣", label: "Japanese" },
+    { key: "thai",           emoji: "🌶️", label: "Thai" },
+    { key: "indian",         emoji: "🍛", label: "Indian" },
+    { key: "korean",         emoji: "🍱", label: "Korean" },
+    { key: "vietnamese",     emoji: "🍜", label: "Vietnamese" },
+    { key: "mediterranean",  emoji: "🫒", label: "Mediterranean" },
+    { key: "middle_eastern", emoji: "🧆", label: "Middle Eastern" },
+    { key: "french",         emoji: "🥐", label: "French" },
+    { key: "american",       emoji: "🍔", label: "American" },
+  ];
 
   // Load household lists + members in parallel.
   async function loadLists() {
@@ -5023,8 +5765,114 @@ function PlanScreen({ items, householdId }) {
     }
   }
 
-  useEffect(() => { loadLists(); loadMembers(); loadRecentShoppingNames(); loadArchivedLists(); /* eslint-disable-line */ }, [householdId]);
+  // v1.18 — saved recipes loader. RLS scopes to auth.uid() automatically.
+  // Newest saves first, capped at 50 — anyone with 50+ saved recipes is in
+  // power-user territory and a future "search saved" UI can be added later.
+  async function loadSavedRecipes() {
+    setLoadingSaved(true);
+    try {
+      const { data, error } = await supabase
+        .from("user_recipes_saved")
+        .select("id, recipe_data, saved_at, source_recipe_id")
+        .order("saved_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      setSavedRecipes(data || []);
+    } catch (e) {
+      console.warn("[plan] loadSavedRecipes failed:", e?.message || e);
+      setSavedRecipes([]);
+    } finally {
+      setLoadingSaved(false);
+    }
+  }
+
+  async function removeSavedRecipe(id) {
+    try {
+      const { error } = await supabase.from("user_recipes_saved").delete().eq("id", id);
+      if (error) throw error;
+      setSavedRecipes(prev => prev.filter(r => r.id !== id));
+      track("recipe_unsaved", { source: "plan_tab" });
+    } catch (e) {
+      console.warn("[plan] removeSavedRecipe failed:", e?.message || e);
+    }
+  }
+
+  // v1.19 — recipe-browse Edge Function call. Pulls cards for the current
+  // Recipes sub-tab. We use supabase.functions.invoke so the auth header is
+  // attached automatically (the Tonight tab needs JWT to score the user's
+  // fridge; Browse + Search work anon but invoke handles auth consistently).
+  //
+  // Returns nothing — sets state directly. Silent-fails on error: the section
+  // shows an empty state and tap-to-retry, rather than blocking the rest of
+  // the Plan tab.
+  async function loadRecipesForTab(tab, opts = {}) {
+    // The "saved" tab is purely client-side — no Edge Function call.
+    if (tab === "saved") return;
+
+    setLoadingRecipes(true);
+    try {
+      // "all" tab maps to either the search or browse Edge Function path.
+      // Search if there's a non-empty query, else browse with optional
+      // meal_type filter. Limit 50 (max) so client-side cuisine filter
+      // has enough candidates after the server-side ranking.
+      let body = { limit: 50 };
+      if (tab === "tonight") {
+        body.tab = "tonight";
+      } else if (tab === "all") {
+        const q = (opts.q ?? searchQuery ?? "").trim();
+        if (q) {
+          body.tab = "search";
+          body.q = q;
+          body.meal_type = opts.meal_type ?? browseMealType ?? undefined;
+        } else {
+          body.tab = "browse";
+          body.meal_type = opts.meal_type ?? browseMealType ?? undefined;
+        }
+      }
+      const { data, error } = await supabase.functions.invoke("recipe-browse", { body });
+      if (error) throw error;
+      const recipes = Array.isArray(data?.recipes) ? data.recipes : [];
+      if (tab === "tonight") setTonightRecipes(recipes);
+      else if (tab === "all") setBrowseRecipes(recipes);
+      track("recipe_browse_tab_view", {
+        tab,
+        result_count: recipes.length,
+        meal_type: body.meal_type || null,
+        q_present: !!body.q,
+      });
+    } catch (e) {
+      console.warn(`[plan] loadRecipesForTab(${tab}) failed:`, e?.message || e);
+    } finally {
+      setLoadingRecipes(false);
+    }
+  }
+
+  useEffect(() => { loadLists(); loadMembers(); loadRecentShoppingNames(); loadArchivedLists(); loadSavedRecipes(); /* eslint-disable-line */ }, [householdId, listsRefreshKey]);
+
+  // v1.19 — when App signals a target list (e.g. after the recipe → new-list
+  // flow), switch our active view to it so the user lands on the items they
+  // just added. The signal is consumed (parent clears it) so we don't loop.
+  useEffect(() => {
+    if (targetListId) {
+      setActiveListId(targetListId);
+      if (onTargetListConsumed) onTargetListConsumed();
+    }
+  }, [targetListId]);  // eslint-disable-line
   useEffect(() => { if (activeListId) loadItems(activeListId); else setList([]); /* eslint-disable-line */ }, [activeListId]);
+
+  // v1.19 — Recipes section auto-load. Tonight loads once when the user lands
+  // on the Plan tab (and again if the user reopens the picker after household
+  // changes, hence the householdId dependency). Browse + Search load on tab
+  // switch / filter change / query change — handled in separate effects below.
+  useEffect(() => { loadRecipesForTab("tonight"); /* eslint-disable-line */ }, [householdId]);
+  // "all" tab: combined browse + search behavior. Fires on tab switch, on
+  // meal-type filter change, and on debounced query change (300ms).
+  useEffect(() => {
+    if (recipesTab !== "all") return;
+    const t = setTimeout(() => loadRecipesForTab("all"), 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line
+  }, [recipesTab, browseMealType, searchQuery]);
 
   async function createList() {
     const trimmed = (newListName || "").trim();
@@ -5063,6 +5911,33 @@ function PlanScreen({ items, householdId }) {
     }
   }
 
+  // v1.18 — notify other household members when this user edits a shared
+  // list. Fires the send-shopping-list-notify Edge Function. Fire-and-forget:
+  // we don't await + we swallow errors. The notification is non-critical;
+  // missing one is fine. The function itself short-circuits when there are
+  // no other members or no push tokens.
+  async function notifyHousehold(action, opts = {}) {
+    if (!activeListId) return;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      // Use the global fetch — keep this off the critical path. ~50ms.
+      fetch(`${SUPABASE_URL}/functions/v1/send-shopping-list-notify`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          list_id: activeListId,
+          action,
+          item_name: opts.item_name,
+          item_count: opts.item_count,
+        }),
+      }).catch(() => { /* swallow */ });
+    } catch (e) { /* never block the user on a notification */ }
+  }
+
   async function addItem() {
     const trimmed = (adding || "").trim();
     if (!trimmed || !householdId || !activeListId) return;
@@ -5091,6 +5966,8 @@ function PlanScreen({ items, householdId }) {
         const filtered = prev.filter(n => n.toLowerCase() !== k);
         return [trimmed, ...filtered].slice(0, 6);
       });
+      // v1.18 — push other household members.
+      notifyHousehold("added", { item_name: trimmed });
     } catch (e) {
       console.warn("[plan] add failed:", e?.message || e);
       setList(prev => prev.filter(i => i.id !== tempId));
@@ -5152,6 +6029,10 @@ function PlanScreen({ items, householdId }) {
         }
         return merged;
       });
+      // v1.18 — push other household members. One notification per bulk-add
+      // batch (not per item) so we don't spam the household with 12 pushes
+      // when someone pastes a Costco list.
+      notifyHousehold("bulk_added", { item_count: cleaned.length });
     } catch (e) {
       console.warn("[plan] bulkAdd failed:", e?.message || e);
       // Pessimistic rollback: drop the temp rows and refetch authoritative state.
@@ -5217,20 +6098,12 @@ function PlanScreen({ items, householdId }) {
     setShowOrderSheet(false);
   }
 
-  // Pull top 3 ingredients from the fridge (most recently added, fresh ones)
-  const ingredients = (items || [])
-    .filter(i => daysUntil(i.expiryDate) > 0)
-    .slice(0, 3)
-    .map(i => i.name)
-    .filter(Boolean);
-  const seedQuery = ingredients.join(" ").trim();
-  const recipeSources = seedQuery
-    ? [
-        { label: "AllRecipes",  url: `https://www.allrecipes.com/search?q=${encodeURIComponent(seedQuery)}` },
-        { label: "NYT Cooking", url: `https://cooking.nytimes.com/search?q=${encodeURIComponent(seedQuery)}` },
-        { label: "Epicurious",  url: `https://www.epicurious.com/search/${encodeURIComponent(seedQuery)}` },
-      ]
-    : [];
+  // v1.18 — removed the external-link RECIPE IDEAS section (AllRecipes /
+  // NYT Cooking / Epicurious search cards). Recipes are now generated
+  // natively via the v1.16 Eat Me First tab + v1.18 daily-digest flow, so
+  // sending users out of the app to ad-heavy recipe sites was a regression.
+  // The Plan tab is now purely shopping-list-focused, plus the v1.18
+  // Saved Recipes section further down.
 
   return (
     // v1.0.11 — keyboardShouldPersistTaps + automaticallyAdjustKeyboardInsets
@@ -5248,39 +6121,292 @@ function PlanScreen({ items, householdId }) {
       <View style={s.headerRow}>
         <View>
           <Text style={s.pageTitle}>Plan</Text>
-          <Text style={s.pageSubtitle}>Recipes from your fridge · shopping list</Text>
+          <Text style={s.pageSubtitle}>Recipes · shopping lists · saved</Text>
         </View>
       </View>
 
-      <Text style={s.sectionLabel}>// RECIPE IDEAS</Text>
-      {recipeSources.length > 0 ? (
+      {/* v1.19 — Recipes section. Primary surface for recipe discovery.
+          Three sub-tabs: Tonight (personalized via fridge), Browse (full
+          bank by meal type), Search (text query against name+description).
+          Each card opens the existing deep-link RecipeSheet modal. Shown
+          at the TOP of Plan, above shopping lists, regardless of whether
+          the user is in picker or in-list mode — recipes are the headline. */}
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginBottom: 8, marginTop: 8 }}>
+        <Text style={[s.sectionLabel, { paddingHorizontal: 0, marginBottom: 0 }]}>// RECIPES</Text>
+      </View>
+      {/* Sub-tab pills — v1.19 final tab structure:
+            Tonight  → personalized by fridge overlap
+            All      → catalog with search input + meal-type filter chips
+            Saved    → user_recipes_saved (was a standalone section before)
+          (Browse and Search merged into "All" because they're really one
+           surface — type to filter, leave empty to browse everything.) */}
+      <View style={{ flexDirection: "row", paddingHorizontal: 16, marginBottom: 10, gap: 8 }}>
+        {[
+          { key: "tonight", label: "Tonight" },
+          { key: "all",     label: "All Recipes" },
+          { key: "saved",   label: "Saved" },
+        ].map(t => {
+          const active = recipesTab === t.key;
+          return (
+            <TouchableOpacity
+              key={t.key}
+              onPress={() => setRecipesTab(t.key)}
+              style={{
+                paddingHorizontal: 14, paddingVertical: 7, borderRadius: 16,
+                backgroundColor: active ? T.accent : "rgba(0,0,0,0.04)",
+              }}
+            >
+              <Text style={{ fontSize: 12, fontWeight: "700", color: active ? "#fff" : T.text }}>
+                {t.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* "All Recipes" tab gets both a search input AND meal-type filter chips. */}
+      {recipesTab === "all" && (
         <>
-          <Text style={{ fontSize: 11, color: T.textSoft, marginHorizontal: 16, marginBottom: 8 }}>
-            Based on {ingredients.join(", ")}
+          <View style={{ paddingHorizontal: 16, marginBottom: 8 }}>
+            <TextInput
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Search by name — try 'lasagna' or 'thai'"
+              placeholderTextColor={T.muted}
+              returnKeyType="search"
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={{
+                borderWidth: 1, borderColor: "rgba(0,0,0,0.10)",
+                borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
+                fontSize: 14, color: T.text, backgroundColor: T.surface,
+              }}
+            />
+          </View>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", paddingHorizontal: 16, marginBottom: 10, gap: 6 }}>
+            {[null, "breakfast", "lunch", "dinner", "snack", "dessert"].map(mt => {
+              const active = browseMealType === mt;
+              const label = mt === null ? "All" : mt.charAt(0).toUpperCase() + mt.slice(1);
+              return (
+                <TouchableOpacity
+                  key={mt || "all"}
+                  onPress={() => setBrowseMealType(mt)}
+                  style={{
+                    paddingHorizontal: 11, paddingVertical: 5, borderRadius: 12,
+                    borderWidth: 1, borderColor: active ? T.accent : "rgba(0,0,0,0.10)",
+                    backgroundColor: active ? "rgba(22,163,74,0.10)" : "transparent",
+                  }}
+                >
+                  <Text style={{ fontSize: 11, fontWeight: "600", color: active ? T.accent : T.textSoft }}>
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </>
+      )}
+
+      {/* v1.19 — cuisine-first gate. Both Tonight and All Recipes start with
+          a "what are you craving?" picker. Once a cuisine is selected, we
+          filter the loaded recipes client-side and show the cards. Saved
+          tab bypasses this entirely. */}
+      {recipesTab === "tonight" && !tonightCuisine && (
+        <View style={{ paddingHorizontal: 16, marginBottom: 18 }}>
+          <Text style={{ fontSize: 15, fontWeight: "600", color: T.text, marginBottom: 12 }}>
+            What are you craving?
           </Text>
-          <View style={{ marginHorizontal: 16, marginBottom: 16 }}>
-            {recipeSources.map((src, i) => (
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            {CUISINE_PICKER_OPTIONS.map(c => (
               <TouchableOpacity
-                key={src.label}
-                style={[s.card, { padding: 14, marginBottom: 8, flexDirection: "row", alignItems: "center" }]}
-                onPress={() => { track("plan_recipe_link_tapped", { source: src.label }); Linking.openURL(src.url); }}
+                key={c.key}
+                onPress={() => setTonightCuisine(c.key)}
+                style={[s.card, { padding: 12, flexDirection: "row", alignItems: "center", gap: 8, flexBasis: "47%", flexGrow: 1 }]}
               >
-                <View style={{ flex: 1 }}>
-                  <Text style={[s.bold, { fontSize: 14 }]}>{src.label}</Text>
-                  <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Search results for your fridge</Text>
-                </View>
-                <Ionicons name="open-outline" size={18} color={T.accent} />
+                <Text style={{ fontSize: 22 }}>{c.emoji}</Text>
+                <Text style={[s.bold, { fontSize: 14, color: T.text }]}>{c.label}</Text>
               </TouchableOpacity>
             ))}
           </View>
-        </>
-      ) : (
-        <View style={[s.card, { marginHorizontal: 16, marginBottom: 16, padding: 16 }]}>
-          <Text style={{ fontSize: 13, color: T.textSoft }}>
-            Add some items to your fridge and we'll suggest recipes based on what you have.
+          <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 12, textAlign: "center" }}>
+            Pick a cuisine to see recipes that use what's in your fridge.
           </Text>
         </View>
       )}
+
+      {recipesTab === "all" && !browseCuisine && (
+        <View style={{ paddingHorizontal: 16, marginBottom: 18 }}>
+          <Text style={{ fontSize: 15, fontWeight: "600", color: T.text, marginBottom: 12 }}>
+            Pick a cuisine
+          </Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            {CUISINE_PICKER_OPTIONS.map(c => (
+              <TouchableOpacity
+                key={c.key}
+                onPress={() => setBrowseCuisine(c.key)}
+                style={[s.card, { padding: 12, flexDirection: "row", alignItems: "center", gap: 8, flexBasis: "47%", flexGrow: 1 }]}
+              >
+                <Text style={{ fontSize: 22 }}>{c.emoji}</Text>
+                <Text style={[s.bold, { fontSize: 14, color: T.text }]}>{c.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {/* "Change cuisine" pill when a cuisine is locked in */}
+      {((recipesTab === "tonight" && tonightCuisine) || (recipesTab === "all" && browseCuisine)) && (
+        <View style={{ paddingHorizontal: 16, marginBottom: 10, flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <TouchableOpacity
+            onPress={() => {
+              if (recipesTab === "tonight") setTonightCuisine(null);
+              else setBrowseCuisine(null);
+            }}
+            style={{
+              flexDirection: "row", alignItems: "center", gap: 6,
+              paddingHorizontal: 11, paddingVertical: 6, borderRadius: 14,
+              backgroundColor: "rgba(22,163,74,0.10)",
+            }}
+          >
+            <Ionicons name="arrow-back" size={14} color={T.accent} />
+            <Text style={{ fontSize: 12, fontWeight: "700", color: T.accent }}>
+              {CUISINE_PICKER_OPTIONS.find(c => c.key === (recipesTab === "tonight" ? tonightCuisine : browseCuisine))?.emoji} {CUISINE_PICKER_OPTIONS.find(c => c.key === (recipesTab === "tonight" ? tonightCuisine : browseCuisine))?.label}
+            </Text>
+          </TouchableOpacity>
+          <Text style={{ color: T.textSoft, fontSize: 11 }}>· tap to change</Text>
+        </View>
+      )}
+
+      {/* Recipe cards. "saved" tab renders user_recipes_saved rows directly;
+          other tabs render results from recipe-browse. Tonight and All only
+          render when a cuisine has been selected. */}
+      {recipesTab === "saved" ? (
+        <View style={{ paddingHorizontal: 16, marginBottom: 18 }}>
+          {loadingSaved && savedRecipes.length === 0 ? (
+            <View style={[s.card, { padding: 14 }]}>
+              <Text style={{ fontSize: 13, color: T.textSoft }}>Loading saved recipes…</Text>
+            </View>
+          ) : savedRecipes.length === 0 ? (
+            <View style={[s.card, { padding: 14, alignItems: "center" }]}>
+              <Text style={{ fontSize: 13, color: T.textSoft, textAlign: "center" }}>
+                No saved recipes yet. Tap the heart on any recipe to save it here.
+              </Text>
+            </View>
+          ) : (
+            savedRecipes.map(sr => {
+              const r = sr.recipe_data || {};
+              const meta = [r.time, r.difficulty].filter(Boolean).join(" · ");
+              return (
+                <TouchableOpacity
+                  key={sr.id}
+                  onPress={() => {
+                    track("saved_recipe_opened", { name: r.name, source: "saved_tab" });
+                    // Open in the unified deepLinkRecipe sheet via the
+                    // App-level setter (PlanScreen doesn't have direct
+                    // access to deepLinkRecipe state).
+                    if (onOpenSavedRecipe) onOpenSavedRecipe(r, sr.id);
+                  }}
+                  style={[s.card, { padding: 12, marginBottom: 8, flexDirection: "row", alignItems: "center", gap: 10 }]}
+                >
+                  <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: "rgba(22,163,74,0.08)", alignItems: "center", justifyContent: "center" }}>
+                    <Text style={{ fontSize: 24 }}>{r.emoji || "🍽️"}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[s.bold, { fontSize: 14, color: T.text }]} numberOfLines={1}>{r.name || "Untitled recipe"}</Text>
+                    <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 2 }} numberOfLines={1}>
+                      {meta || "Saved recipe"}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => Alert.alert(
+                      "Remove this recipe?",
+                      `"${r.name || "Untitled recipe"}" will be removed from your saved recipes.`,
+                      [
+                        { text: "Cancel", style: "cancel" },
+                        { text: "Remove", style: "destructive", onPress: () => removeSavedRecipe(sr.id) },
+                      ]
+                    )}
+                    hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+                    style={{ paddingHorizontal: 6 }}
+                  >
+                    <Ionicons name="heart" size={20} color={T.danger} />
+                  </TouchableOpacity>
+                </TouchableOpacity>
+              );
+            })
+          )}
+        </View>
+      ) : ((recipesTab === "tonight" && !tonightCuisine) || (recipesTab === "all" && !browseCuisine)) ? null : (() => {
+        // Filter the loaded list by the locked-in cuisine. Tonight already
+        // ranks by fridge overlap; we just keep the cuisine matches.
+        const activeCuisine = recipesTab === "tonight" ? tonightCuisine : browseCuisine;
+        const baseList = recipesTab === "tonight" ? tonightRecipes : browseRecipes;
+        const currentList = activeCuisine
+          ? baseList.filter(rc => rc.cuisine === activeCuisine)
+          : baseList;
+        if (loadingRecipes && currentList.length === 0) {
+          return (
+            <View style={{ paddingHorizontal: 16, marginBottom: 18 }}>
+              <View style={[s.card, { padding: 14 }]}>
+                <Text style={{ fontSize: 13, color: T.textSoft }}>Loading recipes…</Text>
+              </View>
+            </View>
+          );
+        }
+        if (currentList.length === 0) {
+          const emptyMsg =
+            recipesTab === "tonight" ? "Add items to your fridge to get personalized picks." :
+            (searchQuery.trim() ? `No matches for "${searchQuery.trim()}"` :
+             browseMealType ? "No recipes match this filter." : "No recipes found.");
+          return (
+            <View style={{ paddingHorizontal: 16, marginBottom: 18 }}>
+              <View style={[s.card, { padding: 14, alignItems: "center" }]}>
+                <Text style={{ fontSize: 13, color: T.textSoft, textAlign: "center" }}>{emptyMsg}</Text>
+              </View>
+            </View>
+          );
+        }
+        return (
+          <View style={{ paddingHorizontal: 16, marginBottom: 18 }}>
+            {currentList.map(rc => {
+              const overlap = typeof rc.fridge_overlap_count === "number" ? rc.fridge_overlap_count : null;
+              const timeLabel = rc.time_minutes != null ? `${rc.time_minutes} min` : "";
+              const meta = [timeLabel, rc.difficulty].filter(Boolean).join(" · ");
+              return (
+                <TouchableOpacity
+                  key={`${rc.source}-${rc.id}`}
+                  onPress={() => {
+                    track("recipe_pick", { source: rc.source, recipe_id: rc.id, tab: recipesTab, position: currentList.indexOf(rc) });
+                    if (onOpenRecipeId) onOpenRecipeId(rc.id);
+                  }}
+                  style={[s.card, { padding: 12, marginBottom: 8, flexDirection: "row", alignItems: "center", gap: 10 }]}
+                >
+                  <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: "rgba(22,163,74,0.08)", alignItems: "center", justifyContent: "center" }}>
+                    <Text style={{ fontSize: 24 }}>{rc.emoji || "🍽️"}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[s.bold, { fontSize: 14, color: T.text }]} numberOfLines={1}>{rc.name}</Text>
+                    <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 2 }} numberOfLines={1}>
+                      {meta || rc.cuisine || "Recipe"}
+                    </Text>
+                  </View>
+                  {overlap != null && overlap > 0 && (
+                    <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, backgroundColor: "rgba(22,163,74,0.12)" }}>
+                      <Text style={{ fontSize: 10, fontWeight: "700", color: T.accent }}>
+                        USES {overlap}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        );
+      })()}
+
+      {/* v1.19 — Saved Recipes are now rendered inside the Recipes section
+          as a sub-tab (Tonight / All Recipes / Saved), so no standalone
+          section needed here. */}
 
       {/* v1.1.0 — Shopping list section: list-picker view OR in-list view. */}
       {showPicker ? (
@@ -5372,7 +6498,101 @@ function PlanScreen({ items, householdId }) {
                 )}
               </View>
             )}
+
+            {/* v1.18 Saved Recipes moved out of picker view — see below. */}
           </View>
+
+          {/* v1.18 — Saved-recipe detail sheet. Same visual language as the
+              deep-link recipe modal at the App root: full ingredients + numbered
+              instructions + chef tip. Opens when the user taps a saved-recipe
+              card above. */}
+          <Modal
+            visible={!!openSavedRecipe}
+            transparent
+            animationType="slide"
+            onRequestClose={() => setOpenSavedRecipe(null)}
+          >
+            <TouchableOpacity
+              activeOpacity={1}
+              onPress={() => setOpenSavedRecipe(null)}
+              style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" }}
+            >
+              <TouchableOpacity
+                activeOpacity={1}
+                onPress={() => { /* swallow */ }}
+                style={{ backgroundColor: T.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "85%" }}
+              >
+                <View style={{ flexDirection: "row", alignItems: "flex-start", paddingTop: 20, paddingHorizontal: 20, paddingBottom: 6 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[s.pageTitle, { fontSize: 18, paddingHorizontal: 0, paddingTop: 0 }]}>
+                      {openSavedRecipe?.name || "Saved recipe"}
+                    </Text>
+                    {openSavedRecipe && (
+                      <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 4 }}>
+                        {[openSavedRecipe.time, openSavedRecipe.difficulty].filter(Boolean).join(" · ")}
+                      </Text>
+                    )}
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => setOpenSavedRecipe(null)}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    accessibilityLabel="Close recipe"
+                    style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: T.bg, alignItems: "center", justifyContent: "center", marginLeft: 12 }}
+                  >
+                    <Ionicons name="close" size={20} color={T.text} />
+                  </TouchableOpacity>
+                </View>
+                <ScrollView style={{ paddingHorizontal: 20, paddingBottom: 20 }}>
+                  <View style={{ height: 8 }} />
+                  {openSavedRecipe && (
+                    <View style={[s.card, { padding: 14, marginBottom: 10 }]}>
+                      <View style={{ flexDirection: "row", gap: 10, marginBottom: 8 }}>
+                        <Text style={{ fontSize: 28 }}>{openSavedRecipe.emoji || "🍽️"}</Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[s.bold, { fontSize: 16 }]}>{openSavedRecipe.name}</Text>
+                          {!!(openSavedRecipe.uses_items?.length) && (
+                            <Text style={{ color: T.accent, fontSize: 12, marginTop: 4 }}>
+                              Uses: {openSavedRecipe.uses_items.slice(0, 6).join(", ")}
+                            </Text>
+                          )}
+                        </View>
+                      </View>
+                      {openSavedRecipe.description && (
+                        <Text style={{ color: T.textSoft, fontSize: 13, lineHeight: 19, marginBottom: 10 }}>{openSavedRecipe.description}</Text>
+                      )}
+                      {Array.isArray(openSavedRecipe.ingredients) && openSavedRecipe.ingredients.length > 0 && (
+                        <View style={{ marginBottom: 10 }}>
+                          <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 4, paddingHorizontal: 0, fontSize: 10 }]}>INGREDIENTS</Text>
+                          {openSavedRecipe.ingredients.map((ing, j) => (
+                            <Text key={j} style={{ color: T.text, fontSize: 13, lineHeight: 20 }}>
+                              • {typeof ing === "object" ? ing.item : ing}{ing?.amount ? ` — ${ing.amount}` : ""}
+                            </Text>
+                          ))}
+                        </View>
+                      )}
+                      {Array.isArray(openSavedRecipe.instructions) && openSavedRecipe.instructions.length > 0 && (
+                        <View style={{ marginBottom: 10 }}>
+                          <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 4, paddingHorizontal: 0, fontSize: 10 }]}>INSTRUCTIONS</Text>
+                          {openSavedRecipe.instructions.map((step, j) => (
+                            <Text key={j} style={{ color: T.text, fontSize: 13, lineHeight: 20 }}>{j + 1}. {step}</Text>
+                          ))}
+                        </View>
+                      )}
+                      {openSavedRecipe.tip && (
+                        <Text style={{ color: T.accent, fontSize: 12, marginTop: 4, fontStyle: "italic" }}>💡 {openSavedRecipe.tip}</Text>
+                      )}
+                    </View>
+                  )}
+                  <TouchableOpacity
+                    onPress={() => setOpenSavedRecipe(null)}
+                    style={[s.btnPrimary, { marginTop: 4, marginBottom: 16 }]}
+                  >
+                    <Text style={s.btnPrimaryText}>Close</Text>
+                  </TouchableOpacity>
+                </ScrollView>
+              </TouchableOpacity>
+            </TouchableOpacity>
+          </Modal>
         </>
       ) : (
         <>
@@ -6060,6 +7280,53 @@ export default function App() {
   // v1.0.10 — first-run tour. We check AsyncStorage on mount and after
   // onboarding completion to decide whether to show.
   const [showTour, setShowTour] = useState(false);
+
+  // v1.18 — deep-linked recipe state. Set by the Universal Link handler
+  // when a /recipes/:id URL arrives. The fetch effect below pulls the
+  // recipe object from daily_recipe_cache and stashes it in
+  // `deepLinkRecipe` (or `deepLinkRecipeError` if not found / RLS denied).
+  // The top-level modal renders whenever `deepLinkRecipe` is non-null.
+  const [pendingRecipeId, setPendingRecipeId] = useState(null);
+  const [deepLinkRecipe, setDeepLinkRecipe] = useState(null);
+  const [deepLinkRecipeError, setDeepLinkRecipeError] = useState(null);
+  const [deepLinkRecipeLoading, setDeepLinkRecipeLoading] = useState(false);
+  // v1.18 — heart-toggle state for the deep-link recipe sheet. We refresh
+  // savedId whenever a new recipe is opened so the icon reflects the
+  // user_recipes_saved row id (or null when unsaved).
+  const [deepLinkRecipeSavedId, setDeepLinkRecipeSavedId] = useState(null);
+  const [deepLinkRecipeSaving, setDeepLinkRecipeSaving] = useState(false);
+
+  // v1.19 — InventoryMatchSheet state. Opens when the user taps "Make this"
+  // on a recipe. Calls match-recipe-inventory (Claude-judged), shows a
+  // confirmation sheet with matched + missing ingredients, lets the user
+  // toggle rows, picks a target shopping list, and bulk-inserts missing
+  // items on confirm. See §3d–§3e of docs/v1_19_recipe_browser_spec.md.
+  const [matchSheetRecipe, setMatchSheetRecipe] = useState(null);          // { id, name, ... }
+  const [matchSheetResult, setMatchSheetResult] = useState(null);          // server response
+  const [matchSheetLoading, setMatchSheetLoading] = useState(false);
+  const [matchSheetError, setMatchSheetError] = useState(null);
+  // Per-row checkbox state. Keys: `matched-{i}` (default true, uncheck if user
+  // says "I actually don't have it" → moves to missing), `missing-{i}` (default
+  // true, uncheck to skip adding that item to the list).
+  const [matchSheetToggles, setMatchSheetToggles] = useState({});
+  // Target shopping list. Default to most-recent-active list; user can pick a
+  // different one OR create a new one named after the recipe.
+  const [matchSheetTargetListId, setMatchSheetTargetListId] = useState(null);
+  const [matchSheetUserLists, setMatchSheetUserLists] = useState([]);      // [{id, name}, ...]
+  const [matchSheetAdding, setMatchSheetAdding] = useState(false);
+  // v1.19 UX pass 4 — editable new-list name. When the user picks "+ New"
+  // we pre-fill this with the recipe name and show an inline TextInput so
+  // they can rename before committing. Used only when matchSheetTargetListId
+  // is null (= "create new list").
+  const [matchSheetNewListName, setMatchSheetNewListName] = useState("");
+  // v1.19 — bump to trigger PlanScreen's loadLists/loadSavedRecipes refetch
+  // after App-level mutations (creating a new shopping list, saving a
+  // recipe, etc.). Increment-only; PlanScreen useEffect deps on this.
+  const [planListsRefreshKey, setPlanListsRefreshKey] = useState(0);
+  // v1.19 — when set to a non-null value, tells PlanScreen to switch its
+  // active list view to that id (used after the recipe → new-list flow
+  // so the user lands on the list they just created with their items).
+  const [planTargetListId, setPlanTargetListId] = useState(null);
   const toastOpacity = useRef(new Animated.Value(0)).current;
   const appState = useRef(AppState.currentState);
 
@@ -6182,6 +7449,18 @@ export default function App() {
           setTab(tab);
         } else if (path === "/add" || path === "/add-item") {
           setShowAdd(true);
+        } else if (path.startsWith("/recipes/")) {
+          // v1.18 — /recipes/{cache_id} surfaces the daily-recipe-cache row
+          // for the tapped recipe (the morning email's "Open in ok2eat →"
+          // links land here). The fetch effect below pulls the recipe and
+          // pops the top-level deep-link recipe modal. Land them on Eat Me
+          // First so the tab context behind the modal makes sense if they
+          // dismiss it.
+          const recipeId = decodeURIComponent(path.slice("/recipes/".length));
+          if (recipeId && recipeId.length > 0 && recipeId.length < 100) {
+            setTab("eatMeFirst");
+            setPendingRecipeId(recipeId);
+          }
         }
 
         // UTM telemetry — kept identical to v1.15 behaviour.
@@ -6222,6 +7501,320 @@ export default function App() {
     const sub = Linking.addEventListener("url", (event) => handleUrl(event?.url));
     return () => sub.remove();
   }, []);
+
+  // v1.18 — fetch the deep-linked recipe from daily_recipe_cache.
+  //
+  // The cache row primary key is (user_id, for_date), and each row contains
+  // a recipes JSONB array of up to 3 entries with stable ids. The recipe id
+  // is shaped "YYYYMMDD-{userid12}-{position}" — we extract the for_date
+  // and position from the id, query the row, and pluck the matching entry.
+  //
+  // RLS protects against cross-user reads, so even if a link is shared,
+  // only the original recipient sees the recipe content. A non-owner just
+  // sees deepLinkRecipeError set and a friendly "couldn't load" message.
+  useEffect(() => {
+    if (!pendingRecipeId) return;
+    if (!user) {
+      // Not signed in yet — wait for auth to resolve, then retry by leaving
+      // pendingRecipeId set. Auth listener above triggers a re-render once
+      // user is populated.
+      return;
+    }
+    let cancelled = false;
+    const idToFetch = pendingRecipeId;
+
+    (async () => {
+      setDeepLinkRecipeLoading(true);
+      setDeepLinkRecipeError(null);
+      setDeepLinkRecipe(null);
+      try {
+        // Two id shapes:
+        //   - Daily-cache: "YYYYMMDD-{userid12}-{position}" — generated server-side
+        //     by the morning digest; per-user, expires when the cache rolls.
+        //   - Bank slug:   "chicken-parmesan" etc. — v1.19 recipe_bank rows. Public-
+        //     read, persistent. Universal Link to ok2eat.com/recipes/<slug>.
+        //
+        // We detect by trying the date-prefixed shape first; anything that doesn't
+        // match falls through to a bank-slug lookup.
+        let recipe = null;
+        let source = null;          // "daily_cache" | "bank" — for analytics
+        let forDateForAnalytics = null;
+        let positionForAnalytics = null;
+
+        const dateMatch = idToFetch.match(/^(\d{8})-([a-f0-9]{12})-(\d+)$/i);
+        if (dateMatch) {
+          // Daily-cache shape. Parse + verify position bounds.
+          const dateRaw = dateMatch[1];
+          const position = parseInt(dateMatch[3], 10);
+          if (!Number.isFinite(position) || position < 0 || position > 9) {
+            throw new Error("Invalid recipe link.");
+          }
+          const forDate = `${dateRaw.slice(0, 4)}-${dateRaw.slice(4, 6)}-${dateRaw.slice(6, 8)}`;
+
+          const { data, error } = await supabase
+            .from("daily_recipe_cache")
+            .select("recipes")
+            .eq("user_id", user.id)
+            .eq("for_date", forDate)
+            .maybeSingle();
+
+          if (cancelled) return;
+          if (error) throw error;
+          if (!data || !Array.isArray(data.recipes)) {
+            throw new Error("This recipe isn't available anymore.");
+          }
+          const hit = data.recipes[position];
+          if (!hit) {
+            throw new Error("This recipe isn't available anymore.");
+          }
+          recipe = hit;
+          source = "daily_cache";
+          forDateForAnalytics = forDate;
+          positionForAnalytics = position;
+        } else {
+          // Bank-slug shape. recipe_bank RLS is public-read so any signed-in
+          // user can fetch any slug. We normalize to the same DailyRecipe-ish
+          // shape the modal expects: { id, name, emoji, time, difficulty,
+          // description, ingredients, instructions, tip, uses_items }.
+          const { data, error } = await supabase
+            .from("recipe_bank")
+            .select("slug, name, emoji, time_minutes, difficulty, description, ingredients, instructions, tip, meal_type, cuisine, dietary_tags")
+            .eq("slug", idToFetch)
+            .maybeSingle();
+
+          if (cancelled) return;
+          if (error) throw error;
+          if (!data) {
+            throw new Error("This recipe isn't available anymore.");
+          }
+          recipe = {
+            id: data.slug,
+            name: data.name,
+            emoji: data.emoji || "🍳",
+            time: data.time_minutes != null ? `${data.time_minutes} min` : "",
+            difficulty: data.difficulty || "",
+            description: data.description || "",
+            ingredients: Array.isArray(data.ingredients) ? data.ingredients : [],
+            instructions: Array.isArray(data.instructions) ? data.instructions : [],
+            tip: data.tip || "",
+            uses_items: [],                 // bank rows aren't tied to a fridge; populated by match flow when present
+            meal_type: data.meal_type,
+            cuisine: data.cuisine,
+            dietary_tags: data.dietary_tags || [],
+          };
+          source = "bank";
+        }
+
+        setDeepLinkRecipe(recipe);
+        track("deep_link_recipe_opened", {
+          recipe_id: idToFetch,
+          source,
+          for_date: forDateForAnalytics,
+          position: positionForAnalytics,
+        });
+
+        // v1.18 — check whether this recipe is already saved so the
+        // heart icon reflects state correctly when the modal opens.
+        // Cheap query: scoped to this user + this recipe name. Profile
+        // match by lowered name (mirror of the SQL expression index).
+        try {
+          const { data: existing } = await supabase
+            .from("user_recipes_saved")
+            .select("id")
+            .eq("user_id", user.id)
+            .filter("recipe_data->>name", "ilike", recipe.name)
+            .maybeSingle();
+          if (!cancelled) setDeepLinkRecipeSavedId(existing?.id || null);
+        } catch (e) {
+          // Non-fatal — heart just defaults to "not saved".
+          if (!cancelled) setDeepLinkRecipeSavedId(null);
+        }
+      } catch (e) {
+        if (cancelled) return;
+        setDeepLinkRecipeError(e?.message || "Couldn't load that recipe.");
+        track("deep_link_recipe_failed", {
+          recipe_id: idToFetch,
+          reason: String(e?.message || e).slice(0, 100),
+        });
+      } finally {
+        if (!cancelled) {
+          setDeepLinkRecipeLoading(false);
+          setPendingRecipeId(null);
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [pendingRecipeId, user]);
+
+  // v1.19 — auto-fire the match-recipe-inventory call whenever the recipe
+  // sheet shows a recipe with ingredients. Renders match status inline in
+  // the ingredient list (✓ have / + add). Clearing the sheet clears the
+  // match state too.
+  useEffect(() => {
+    if (deepLinkRecipe && Array.isArray(deepLinkRecipe.ingredients) && deepLinkRecipe.ingredients.length > 0) {
+      openMatchSheet(deepLinkRecipe);
+    } else {
+      // Sheet closed or no ingredients — wipe state so a re-open is fresh.
+      setMatchSheetRecipe(null);
+      setMatchSheetResult(null);
+      setMatchSheetToggles({});
+      setMatchSheetError(null);
+    }
+    // eslint-disable-next-line
+  }, [deepLinkRecipe]);
+
+  // v1.19 — InventoryMatchSheet helpers. openMatchSheet kicks off the
+  // match-recipe-inventory call + loads the user's shopping lists for the
+  // target picker. addMissingToList commits the user's selections into
+  // shopping_list_items.
+
+  async function openMatchSheet(recipe) {
+    if (!recipe || !recipe.id) return;
+    setMatchSheetRecipe(recipe);
+    setMatchSheetResult(null);
+    setMatchSheetError(null);
+    setMatchSheetToggles({});
+    setMatchSheetTargetListId(null);
+    // Default the new-list name to the recipe name. User can edit before
+    // tapping Add. If they pick an existing list (sets targetListId !== null),
+    // this state is ignored.
+    setMatchSheetNewListName(recipe.name || "");
+    setMatchSheetLoading(true);
+    track("recipe_make_tapped", { recipe_id: recipe.id, name: recipe.name });
+
+    // Kick off both in parallel: lists (for the picker) + match (for the rows).
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("shopping_lists")
+          .select("id, name")
+          .eq("household_id", householdId)
+          .is("archived_at", null)
+          .order("created_at", { ascending: false });
+        if (error) throw error;
+        const lists = data || [];
+        setMatchSheetUserLists(lists);
+        // Default the target to the newest active list (matches the user's
+        // last-modified mental model). If they have none, picker stays empty
+        // and the "Add" button will use the "+ New list" affordance.
+        if (lists.length > 0) setMatchSheetTargetListId(lists[0].id);
+      } catch (e) {
+        console.warn("[match] list load failed:", e?.message || e);
+        setMatchSheetUserLists([]);
+      }
+    })();
+
+    try {
+      const { data, error } = await supabase.functions.invoke("match-recipe-inventory", {
+        body: { recipe_id: recipe.id },
+      });
+      if (error) throw error;
+      setMatchSheetResult(data);
+      // Default toggles: matched rows checked (user "has" them — uncheck to
+      // flip to "actually I don't have it"). Missing rows DEFAULT UNCHECKED —
+      // user explicitly opts each one in via tap, or hits "Add all" to bulk
+      // queue them. Positive-action default keeps the user in the driver's
+      // seat rather than auto-loading their cart.
+      const toggles = {};
+      (data?.matched || []).forEach((_, i) => { toggles[`matched-${i}`] = true; });
+      // Intentionally NOT pre-checking missing rows.
+      setMatchSheetToggles(toggles);
+      track("inventory_match_result", {
+        recipe_id: recipe.id,
+        matched_count: data?.matched?.length || 0,
+        missing_count: data?.missing?.length || 0,
+        cached: !!data?.cached,
+      });
+    } catch (e) {
+      setMatchSheetError(e?.message || "Couldn't run the match. Try again in a moment.");
+    } finally {
+      setMatchSheetLoading(false);
+    }
+  }
+
+  async function addMissingToList() {
+    if (!matchSheetResult || !matchSheetRecipe) return;
+    setMatchSheetAdding(true);
+    try {
+      // Determine target list — either the user's pick, or freshly created.
+      let listId = matchSheetTargetListId;
+      const { data: { user: u } } = await supabase.auth.getUser();
+      let createdNewList = false;
+      if (!listId) {
+        // Create a new list using the (possibly user-edited) name. Trim
+        // and fall back if blank.
+        const newName = (matchSheetNewListName || matchSheetRecipe.name || "Shopping list").trim() || "Shopping list";
+        const { data: newList, error: createErr } = await supabase
+          .from("shopping_lists")
+          .insert({ household_id: householdId, name: newName, created_by: u?.id || null })
+          .select("id")
+          .single();
+        if (createErr) throw createErr;
+        listId = newList.id;
+        createdNewList = true;
+      }
+
+      // Build the items to add: checked missing rows + UNchecked matched rows
+      // (an unchecked match means the user said "I actually don't have it").
+      const itemsToAdd = [];
+      (matchSheetResult.missing || []).forEach((m, i) => {
+        if (matchSheetToggles[`missing-${i}`]) {
+          itemsToAdd.push({ name: m.ingredient });
+        }
+      });
+      (matchSheetResult.matched || []).forEach((m, i) => {
+        if (!matchSheetToggles[`matched-${i}`]) {
+          itemsToAdd.push({ name: m.ingredient });
+        }
+      });
+
+      if (itemsToAdd.length === 0) {
+        Alert.alert("Nothing to add", "Check at least one item to add to your shopping list.");
+        return;
+      }
+
+      const rows = itemsToAdd.map(it => ({
+        household_id: householdId,
+        list_id: listId,
+        name: it.name,
+        created_by: u?.id || null,
+      }));
+      const { error: insertErr } = await supabase.from("shopping_list_items").insert(rows);
+      if (insertErr) throw insertErr;
+
+      track("shopping_list_generated", {
+        recipe_id: matchSheetRecipe.id,
+        target_list_id: listId,
+        item_count: rows.length,
+        had_target_list: !!matchSheetTargetListId,
+      });
+
+      // Bump the refresh key so PlanScreen reloads its shopping_lists
+      // (otherwise a newly created list won't show up in the picker).
+      setPlanListsRefreshKey(k => k + 1);
+
+      // Navigate PlanScreen to the target list so the user sees the items
+      // they just added. Critical UX: without this, single-list users would
+      // stay on their previous list view and not see the new one with the
+      // ingredients they just queued — leading to "list not created" confusion.
+      setPlanTargetListId(listId);
+
+      // Close the recipe sheet and toast.
+      const targetName =
+        (matchSheetUserLists.find(l => l.id === listId) || {}).name ||
+        (createdNewList ? (matchSheetNewListName || matchSheetRecipe.name || "new list").trim() : "your list");
+      setDeepLinkRecipe(null);
+      setDeepLinkRecipeError(null);
+      setDeepLinkRecipeSavedId(null);
+      showToast(`✓ Added ${rows.length} ${rows.length === 1 ? "item" : "items"} to ${targetName}`);
+    } catch (e) {
+      console.warn("[match] add failed:", e?.message || e);
+      Alert.alert("Couldn't add items", e?.message || "Try again in a moment.");
+    } finally {
+      setMatchSheetAdding(false);
+    }
+  }
 
   // Check for App Store update once per session, deferred slightly so it
   // doesn't compete with auth/load on cold start. Soft prompt: user can
@@ -6688,9 +8281,22 @@ export default function App() {
           onTrySample={() => { track("sample_receipt_tapped"); setBulkAddPresetMode("sample"); setShowBulkAdd(true); }}
         />}
         {tab === "scan" && <ScanScreen onScanned={handleScanned} />}
-        {tab === "plan" && <PlanScreen items={items} householdId={householdId} />}
+        {tab === "plan" && (
+          <PlanScreen
+            items={items}
+            householdId={householdId}
+            onOpenRecipeId={setPendingRecipeId}
+            onOpenSavedRecipe={(recipeData, savedId) => {
+              setDeepLinkRecipe(recipeData);
+              setDeepLinkRecipeSavedId(savedId);
+            }}
+            listsRefreshKey={planListsRefreshKey}
+            targetListId={planTargetListId}
+            onTargetListConsumed={() => setPlanTargetListId(null)}
+          />
+        )}
         {/* v1.16 Tier 3 — new headline tabs. */}
-        {tab === "eatMeFirst" && <EatMeFirstScreen items={items} />}
+        {tab === "eatMeFirst" && <EatMeFirstScreen items={items} householdId={householdId} />}
         {tab === "dashboard"  && <DashboardScreen  items={items} />}
         {tab === "settings"   && (
           <SettingsScreen
@@ -6752,6 +8358,380 @@ export default function App() {
         }}
       />
       <TourModal visible={showTour} onClose={() => setShowTour(false)} />
+
+      {/* v1.18 — deep-linked recipe sheet. Opens when a user taps an
+          "Open in ok2eat →" link from the daily digest email. Pulls the
+          recipe from daily_recipe_cache (RLS-protected to their own row)
+          and renders it in the same visual language as the in-app
+          Eat Me First recipe modal. */}
+      <Modal
+        visible={!!deepLinkRecipe || deepLinkRecipeLoading || !!deepLinkRecipeError}
+        transparent
+        animationType="slide"
+        onRequestClose={() => { setDeepLinkRecipe(null); setDeepLinkRecipeError(null); }}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => { setDeepLinkRecipe(null); setDeepLinkRecipeError(null); }}
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" }}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={() => { /* swallow taps inside the sheet */ }}
+            style={{ backgroundColor: T.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "85%" }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "flex-start", paddingTop: 20, paddingHorizontal: 20, paddingBottom: 6 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={[s.pageTitle, { fontSize: 18, paddingHorizontal: 0, paddingTop: 0 }]}>
+                  {deepLinkRecipe?.name || (deepLinkRecipeLoading ? "Loading recipe…" : "Recipe")}
+                </Text>
+                {deepLinkRecipe && (
+                  <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 4 }}>
+                    {[deepLinkRecipe.time, deepLinkRecipe.difficulty].filter(Boolean).join(" · ")}
+                  </Text>
+                )}
+              </View>
+              {/* v1.18 — heart toggle. Hidden until the recipe loads. */}
+              {deepLinkRecipe && (
+                <TouchableOpacity
+                  onPress={async () => {
+                    if (deepLinkRecipeSaving || !user) return;
+                    setDeepLinkRecipeSaving(true);
+                    try {
+                      if (deepLinkRecipeSavedId) {
+                        // Unsave
+                        await supabase
+                          .from("user_recipes_saved")
+                          .delete()
+                          .eq("id", deepLinkRecipeSavedId);
+                        setDeepLinkRecipeSavedId(null);
+                        track("recipe_unsaved", { name: deepLinkRecipe.name });
+                      } else {
+                        // Save
+                        const { data } = await supabase
+                          .from("user_recipes_saved")
+                          .insert({
+                            user_id: user.id,
+                            source_recipe_id: deepLinkRecipe.id || null,
+                            recipe_data: deepLinkRecipe,
+                          })
+                          .select("id")
+                          .single();
+                        if (data?.id) setDeepLinkRecipeSavedId(data.id);
+                        track("recipe_saved", { name: deepLinkRecipe.name, source: "deep_link" });
+                      }
+                    } catch (e) {
+                      console.warn("toggle save recipe:", e?.message);
+                    } finally {
+                      setDeepLinkRecipeSaving(false);
+                    }
+                  }}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  accessibilityLabel={deepLinkRecipeSavedId ? "Remove from saved" : "Save recipe"}
+                  style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: T.bg, alignItems: "center", justifyContent: "center", marginLeft: 12 }}
+                >
+                  <Ionicons
+                    name={deepLinkRecipeSavedId ? "heart" : "heart-outline"}
+                    size={20}
+                    color={deepLinkRecipeSavedId ? T.danger : T.text}
+                  />
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                onPress={() => { setDeepLinkRecipe(null); setDeepLinkRecipeError(null); setDeepLinkRecipeSavedId(null); }}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                accessibilityLabel="Close recipe"
+                style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: T.bg, alignItems: "center", justifyContent: "center", marginLeft: 8 }}
+              >
+                <Ionicons name="close" size={20} color={T.text} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ paddingHorizontal: 20, paddingBottom: 20 }}>
+              <View style={{ height: 8 }} />
+
+              {deepLinkRecipeLoading && (
+                <View style={{ paddingVertical: 30, alignItems: "center" }}>
+                  <ActivityIndicator color={T.accent} />
+                  <Text style={{ color: T.textSoft, fontSize: 13, marginTop: 10 }}>Pulling today's recipe…</Text>
+                </View>
+              )}
+
+              {deepLinkRecipeError && (
+                <View style={{ backgroundColor: "rgba(220,38,38,0.08)", borderColor: "rgba(220,38,38,0.3)", borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 12 }}>
+                  <Text style={{ color: T.danger, fontSize: 13 }}>{deepLinkRecipeError}</Text>
+                  <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 6 }}>
+                    The link is only valid for the day the email was sent. Open the Eat Me First tab to see today's suggestions.
+                  </Text>
+                </View>
+              )}
+
+              {deepLinkRecipe && (
+                <View style={[s.card, { padding: 14, marginBottom: 10 }]}>
+                  <View style={{ flexDirection: "row", gap: 10, marginBottom: 8 }}>
+                    <Text style={{ fontSize: 28 }}>{deepLinkRecipe.emoji || "🍽️"}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[s.bold, { fontSize: 16 }]}>{deepLinkRecipe.name}</Text>
+                      {!!(deepLinkRecipe.uses_items?.length) && (
+                        <Text style={{ color: T.accent, fontSize: 12, marginTop: 4 }}>
+                          Uses: {deepLinkRecipe.uses_items.slice(0, 6).join(", ")}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                  {deepLinkRecipe.description && (
+                    <Text style={{ color: T.textSoft, fontSize: 13, lineHeight: 19, marginBottom: 10 }}>
+                      {deepLinkRecipe.description}
+                    </Text>
+                  )}
+                  {Array.isArray(deepLinkRecipe.ingredients) && deepLinkRecipe.ingredients.length > 0 && (
+                    <View style={{ marginBottom: 10 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6 }}>
+                        <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 0, paddingHorizontal: 0, fontSize: 10, flex: 1 }]}>INGREDIENTS</Text>
+                        {/* v1.19 — "Add all missing" bulk action. Only shown
+                            when match has loaded and there's at least one
+                            row still in the "skip" (default unchecked) state. */}
+                        {(() => {
+                          if (!matchSheetResult) return null;
+                          const unqueued = (matchSheetResult.missing || []).filter((_, i) => !matchSheetToggles[`missing-${i}`]).length;
+                          if (unqueued === 0) return null;
+                          return (
+                            <TouchableOpacity
+                              onPress={() => setMatchSheetToggles(prev => {
+                                const next = { ...prev };
+                                (matchSheetResult.missing || []).forEach((_, i) => { next[`missing-${i}`] = true; });
+                                return next;
+                              })}
+                              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                            >
+                              <Text style={{ fontSize: 11, fontWeight: "700", color: T.accent }}>
+                                + ADD ALL {unqueued} MISSING
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })()}
+                      </View>
+                      {/* v1.19 — inline match status. Each ingredient renders
+                          in one of four states (computed below): "have" (in
+                          fridge — green tinted card), "queued" (added to list
+                          — green tinted card with + icon), "skip" (default for
+                          missing — neutral, taps queue it), or "unknown"
+                          (match still loading). */}
+                      {(() => {
+                        // Build a lookup: ingredient name (verbatim) → match info
+                        const matchedByIng = new Map();
+                        const missingByIng = new Map();
+                        if (matchSheetResult) {
+                          (matchSheetResult.matched || []).forEach((m, idx) => {
+                            matchedByIng.set(m.ingredient, { idx, fridge_item: m.fridge_item });
+                          });
+                          (matchSheetResult.missing || []).forEach((m, idx) => {
+                            missingByIng.set(m.ingredient, { idx });
+                          });
+                        }
+                        return deepLinkRecipe.ingredients.map((ing, j) => {
+                          const item = typeof ing === "object" ? ing.item : ing;
+                          const amount = typeof ing === "object" ? ing.amount : "";
+                          const matched = matchedByIng.get(item);
+                          const missing = missingByIng.get(item);
+
+                          // Display states (mutually exclusive):
+                          //   "have"    — matched + check toggle ON. Green tinted card. "In stock in fridge".
+                          //   "queued"  — missing + check toggle ON, OR matched + toggle OFF. Green tinted card with + icon. "Added to list".
+                          //   "skip"    — missing + toggle OFF (default). Neutral row. "Tap to add to list".
+                          //   "unknown" — match results not yet loaded (or this ingredient doesn't appear in match results).
+                          let displayState = "unknown";
+                          let rowKey = null;
+                          if (matched) {
+                            rowKey = `matched-${matched.idx}`;
+                            const checked = !!matchSheetToggles[rowKey];
+                            displayState = checked ? "have" : "queued";
+                          } else if (missing) {
+                            rowKey = `missing-${missing.idx}`;
+                            const checked = !!matchSheetToggles[rowKey];
+                            displayState = checked ? "queued" : "skip";
+                          }
+
+                          const onToggle = () => {
+                            if (!rowKey) return;
+                            setMatchSheetToggles(prev => ({ ...prev, [rowKey]: !prev[rowKey] }));
+                          };
+
+                          // Per-state styling
+                          let iconName, iconColor, hintText, bgColor, hintColor;
+                          if (displayState === "have") {
+                            iconName = "checkmark-circle";
+                            iconColor = T.accent;
+                            bgColor = "rgba(22,163,74,0.08)";
+                            hintColor = T.accent;
+                            hintText = matched?.fridge_item ? `In stock — you have ${matched.fridge_item}` : "In stock in fridge";
+                          } else if (displayState === "queued") {
+                            iconName = "add-circle";
+                            iconColor = T.accent;
+                            bgColor = "rgba(22,163,74,0.08)";
+                            hintColor = T.accent;
+                            hintText = "Added to shopping list · tap to remove";
+                          } else if (displayState === "skip") {
+                            iconName = "add-circle-outline";
+                            iconColor = T.muted;
+                            bgColor = "transparent";
+                            hintColor = T.textSoft;
+                            hintText = "Tap to add to shopping list";
+                          } else {
+                            iconName = "ellipse-outline";
+                            iconColor = T.muted;
+                            bgColor = "transparent";
+                            hintColor = T.textSoft;
+                            hintText = matchSheetLoading ? "Checking your fridge…" : "";
+                          }
+
+                          return (
+                            <TouchableOpacity
+                              key={j}
+                              onPress={onToggle}
+                              disabled={!rowKey}
+                              activeOpacity={rowKey ? 0.6 : 1}
+                              style={{
+                                flexDirection: "row", alignItems: "flex-start",
+                                paddingVertical: 8, paddingHorizontal: 8,
+                                marginBottom: 4, borderRadius: 8,
+                                backgroundColor: bgColor,
+                                gap: 8,
+                              }}
+                            >
+                              <Ionicons name={iconName} size={20} color={iconColor} style={{ marginTop: 1 }} />
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ color: T.text, fontSize: 13, lineHeight: 18, fontWeight: displayState === "have" ? "600" : "400" }}>
+                                  {item}{amount ? ` — ${amount}` : ""}
+                                </Text>
+                                {!!hintText && (
+                                  <Text style={{ color: hintColor, fontSize: 11, marginTop: 2, fontWeight: displayState === "have" || displayState === "queued" ? "600" : "400" }} numberOfLines={1}>
+                                    {hintText}
+                                  </Text>
+                                )}
+                              </View>
+                            </TouchableOpacity>
+                          );
+                        });
+                      })()}
+                    </View>
+                  )}
+                  {Array.isArray(deepLinkRecipe.instructions) && deepLinkRecipe.instructions.length > 0 && (
+                    <View style={{ marginBottom: 10 }}>
+                      <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 4, paddingHorizontal: 0, fontSize: 10 }]}>INSTRUCTIONS</Text>
+                      {deepLinkRecipe.instructions.map((step, j) => (
+                        <Text key={j} style={{ color: T.text, fontSize: 13, lineHeight: 20 }}>{j + 1}. {step}</Text>
+                      ))}
+                    </View>
+                  )}
+                  {deepLinkRecipe.tip && (
+                    <Text style={{ color: T.accent, fontSize: 12, marginTop: 4, fontStyle: "italic" }}>💡 {deepLinkRecipe.tip}</Text>
+                  )}
+                </View>
+              )}
+
+              {/* v1.19 — Add-to-shopping-list CTA. Shows when there's at
+                  least one ingredient queued for addition (either originally
+                  missing + checked, or originally matched + UN-checked). The
+                  user picks a target list with chips below. */}
+              {(() => {
+                if (!deepLinkRecipe || !matchSheetResult) return null;
+                const willAdd =
+                  (matchSheetResult.missing || []).filter((_, i) => matchSheetToggles[`missing-${i}`]).length +
+                  (matchSheetResult.matched || []).filter((_, i) => !matchSheetToggles[`matched-${i}`]).length;
+                if (willAdd === 0) return null;
+                return (
+                  <View style={{ marginTop: 6, marginBottom: 4 }}>
+                    <Text style={[s.sectionLabel, { paddingHorizontal: 0, marginBottom: 6, fontSize: 10 }]}>
+                      ADD TO LIST
+                    </Text>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+                      {matchSheetUserLists.map(l => {
+                        const active = matchSheetTargetListId === l.id;
+                        return (
+                          <TouchableOpacity
+                            key={l.id}
+                            onPress={() => setMatchSheetTargetListId(l.id)}
+                            style={{
+                              paddingHorizontal: 11, paddingVertical: 6, borderRadius: 12,
+                              borderWidth: 1, borderColor: active ? T.accent : "rgba(0,0,0,0.10)",
+                              backgroundColor: active ? "rgba(22,163,74,0.10)" : "transparent",
+                            }}
+                          >
+                            <Text style={{ fontSize: 12, fontWeight: "600", color: active ? T.accent : T.textSoft }}>
+                              {l.name}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                      <TouchableOpacity
+                        onPress={() => {
+                          setMatchSheetTargetListId(null);
+                          // Re-default the editable name in case user nuked it
+                          if (!matchSheetNewListName) setMatchSheetNewListName(deepLinkRecipe.name || "");
+                        }}
+                        style={{
+                          paddingHorizontal: 11, paddingVertical: 6, borderRadius: 12,
+                          borderWidth: 1, borderColor: matchSheetTargetListId === null ? T.accent : "rgba(0,0,0,0.10)",
+                          backgroundColor: matchSheetTargetListId === null ? "rgba(22,163,74,0.10)" : "transparent",
+                          borderStyle: "dashed",
+                        }}
+                      >
+                        <Text style={{ fontSize: 12, fontWeight: "600", color: matchSheetTargetListId === null ? T.accent : T.textSoft }}>
+                          + New list
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                    {/* When the user picks "+ New", reveal an editable name
+                        field. Pre-filled with the recipe name; they can
+                        rename before hitting Add. */}
+                    {matchSheetTargetListId === null && (
+                      <View style={{ marginBottom: 10 }}>
+                        <Text style={{ fontSize: 11, color: T.textSoft, marginBottom: 4 }}>
+                          Name this list:
+                        </Text>
+                        <TextInput
+                          value={matchSheetNewListName}
+                          onChangeText={setMatchSheetNewListName}
+                          placeholder={deepLinkRecipe?.name || "Shopping list"}
+                          placeholderTextColor={T.muted}
+                          autoCapitalize="words"
+                          returnKeyType="done"
+                          style={{
+                            borderWidth: 1, borderColor: "rgba(22,163,74,0.4)",
+                            borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
+                            fontSize: 14, color: T.text, backgroundColor: "rgba(22,163,74,0.04)",
+                          }}
+                        />
+                      </View>
+                    )}
+                    <TouchableOpacity
+                      onPress={addMissingToList}
+                      disabled={matchSheetAdding}
+                      style={[s.btnPrimary, { marginBottom: 10, opacity: matchSheetAdding ? 0.5 : 1 }]}
+                    >
+                      <Text style={s.btnPrimaryText}>
+                        {matchSheetAdding ? "Adding…" : `Add ${willAdd} ${willAdd === 1 ? "item" : "items"} to shopping list`}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })()}
+
+              <TouchableOpacity
+                onPress={() => { setDeepLinkRecipe(null); setDeepLinkRecipeError(null); }}
+                style={[s.btnPrimary, { marginTop: 0, marginBottom: 16, backgroundColor: "rgba(0,0,0,0.04)" }]}
+              >
+                <Text style={[s.btnPrimaryText, { color: T.text }]}>Close</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+      {/* v1.19 — InventoryMatchSheet removed. The match flow now lives
+          inline inside the deepLinkRecipe modal: ingredients are decorated
+          with ✓/+ icons, the persistent CTA at the bottom adds queued items
+          to the chosen shopping list. */}
+
       <ManageInventoryModal
         visible={showManageInventory}
         items={items}
