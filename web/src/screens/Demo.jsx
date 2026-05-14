@@ -6,6 +6,7 @@ import { DEMO_ITEMS, DEMO_RECIPES_TOP5, DEMO_RECIPES_BY_LEAD } from "../lib/demo
 import DemoLayout from "../components/DemoLayout.jsx";
 import Modal from "../components/Modal.jsx";
 import SignupPromptModal from "../components/SignupPromptModal.jsx";
+import AddDemoItemModal from "../components/AddDemoItemModal.jsx";
 
 // Demo screen — v1.20 no-auth onboarding.
 //
@@ -46,14 +47,17 @@ function urgencyBadge(days) {
 }
 
 export default function Demo() {
+  // v1.20 — items live in state so "Add by hand" can prepend new rows
+  // and the urgency ranking re-sorts in real time. Initial value is
+  // the 5 hard-coded demo items.
+  const [items, setItems]             = useState(DEMO_ITEMS);
   const [recipeModal, setRecipeModal] = useState(null); // {leadItem, items, recipes}
   const [promptOpen, setPromptOpen]   = useState(false);
   const [promptReason, setPromptReason] = useState("default");
+  const [addOpen, setAddOpen]         = useState(false);
 
-  // Same sort + cap as the real Eat Me First — demo items are already
-  // all within 14 days so .filter() is a no-op, but keep the logic to
-  // signal that this is the same algorithm.
-  const ranked = DEMO_ITEMS
+  // Same sort + cap as the real Eat Me First.
+  const ranked = items
     .filter(i => daysUntil(i.expiryDate) <= 14)
     .sort((a, b) => urgencyScore(a) - urgencyScore(b));
 
@@ -105,6 +109,14 @@ export default function Demo() {
     setPromptOpen(true);
   }
 
+  // v1.20 — Real add. No API call, no Supabase write. The new row goes
+  // straight into local state and re-sorts the ranking — so visitors
+  // see their item slot in by urgency. Refresh drops it (we tell them).
+  function handleAddDemoItem(newItem) {
+    track("demo_item_added", { name: newItem.name, category: newItem.category });
+    setItems(prev => [newItem, ...prev]);
+  }
+
   return (
     <DemoLayout>
       {/* Hero — frames the demo so visitors don't think this is a sample
@@ -120,37 +132,37 @@ export default function Demo() {
         </p>
       </div>
 
-      {/* v1.20 — "How would you add your own?" tiles. The demo's most
-          powerful conversion moments live here, NOT in the recipe sheet:
-          scan-receipt is the differentiating feature, and "add by hand"
-          is the lowest-friction way for a new user to imagine using the
-          product on their real fridge. Tapping either fires the signup
-          prompt rather than triggering a real scan — receipt scanning
-          costs Anthropic tokens per call and can fail, which would tank
-          conversion. */}
+      {/* v1.20 — "Add your own items" tiles. ORDER MATTERS: Add-by-hand
+          on the LEFT because it's the no-auth-wall option — visitors
+          who tap it get an immediate hit ("I added kale, it slotted
+          into the ranking") with zero friction. Scan-receipt on the
+          right gates on signup because real receipt scans cost Anthropic
+          tokens per call and can fail, which tanks conversion. Putting
+          the friction-free option first means a visitor's first tap
+          gives them a win, not a wall. */}
       <div className="mb-5">
         <p className="text-textSoft text-xs mb-2 uppercase tracking-wide font-semibold">
-          Want to add your own items?
+          Add your own items
         </p>
         <div className="grid grid-cols-2 gap-2">
           <button
-            onClick={() => triggerSignupPrompt("scan_receipt")}
+            onClick={() => { track("demo_add_by_hand_opened"); setAddOpen(true); }}
             className="rounded-xl border-2 border-dashed border-accent/40 bg-accent/5 hover:bg-accent/10 hover:border-accent transition p-4 text-left"
+          >
+            <div className="text-2xl mb-1">✏️</div>
+            <p className="text-text font-semibold text-sm">Add by hand</p>
+            <p className="text-textSoft text-xs mt-0.5">
+              Type an item — see it slot into the urgency ranking.
+            </p>
+          </button>
+          <button
+            onClick={() => triggerSignupPrompt("scan_receipt")}
+            className="rounded-xl border-2 border-dashed border-border bg-card hover:bg-bg hover:border-accent/40 transition p-4 text-left"
           >
             <div className="text-2xl mb-1">📸</div>
             <p className="text-text font-semibold text-sm">Scan a receipt</p>
             <p className="text-textSoft text-xs mt-0.5">
               Snap your grocery slip — we fill your fridge in seconds.
-            </p>
-          </button>
-          <button
-            onClick={() => triggerSignupPrompt("add_item")}
-            className="rounded-xl border-2 border-dashed border-border bg-card hover:bg-bg hover:border-accent/40 transition p-4 text-left"
-          >
-            <div className="text-2xl mb-1">✏️</div>
-            <p className="text-text font-semibold text-sm">Add by hand</p>
-            <p className="text-textSoft text-xs mt-0.5">
-              Type an item — we pull its shelf life from USDA data.
             </p>
           </button>
         </div>
@@ -214,14 +226,16 @@ export default function Demo() {
         })}
       </div>
 
-      {/* Bottom CTA — second exit ramp after the user has scrolled all the
-          way through the demo. Gives the conversion moment a "you've seen
-          how it works, now bring your real fridge" framing. */}
+      {/* Bottom CTA — second exit ramp after the user has scrolled all
+          the way through the demo. Greg's brand voice: benefit-led, not
+          feature-led. "Ready to start saving" hits the wallet-pain that
+          drives most signups. Receipt-scan mentioned only — no barcode
+          (web app doesn't support it). */}
       <div className="mt-8 rounded-xl border border-accent/30 bg-accent/5 p-6 text-center">
-        <p className="text-text font-bold text-base mb-1">Ready for your real fridge?</p>
+        <p className="text-text font-bold text-base mb-1">Ready to start saving?</p>
         <p className="text-textSoft text-sm mb-4">
-          Snap a receipt or scan a barcode and we'll rank what's actually in your kitchen
-          — and tell you what to cook tonight before it spoils.
+          Snap a receipt and we'll rank what's actually in your kitchen —
+          and tell you what to cook tonight before it spoils.
         </p>
         <a
           href="/"
@@ -324,6 +338,11 @@ export default function Demo() {
         open={promptOpen}
         onClose={() => setPromptOpen(false)}
         reason={promptReason}
+      />
+      <AddDemoItemModal
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        onAdd={handleAddDemoItem}
       />
     </DemoLayout>
   );

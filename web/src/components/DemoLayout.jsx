@@ -27,7 +27,7 @@ export default function DemoLayout({ children }) {
             to="/"
             className="px-3 py-1.5 rounded-full bg-accent text-white text-xs font-semibold hover:opacity-90 transition"
           >
-            Sign up to save your fridge
+            Sign up to start cooking
           </Link>
         </div>
       </header>
