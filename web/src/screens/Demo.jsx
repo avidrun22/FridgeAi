@@ -209,18 +209,25 @@ export default function Demo() {
                 <p className="text-text font-semibold truncate">{item.name}</p>
                 <p className="text-textSoft text-xs mt-0.5">{item.category}</p>
               </div>
-              <span
-                className="text-[10px] font-bold px-2 py-1 rounded-full whitespace-nowrap"
-                style={{ color: badge.color, backgroundColor: badge.bg }}
-              >
-                {badge.text}
-              </span>
-              <button
-                onClick={() => openRecipesForLead(item)}
-                className="px-3 py-1.5 rounded-full bg-accent/10 text-accent text-xs font-semibold hover:bg-accent hover:text-white transition whitespace-nowrap flex-shrink-0"
-              >
-                Get recipes
-              </button>
+              {/* v1.20 — Stack urgency badge above the "Get recipes" button.
+                  Mirrors the iOS Eat Me First row, which sacrifices a bit of
+                  horizontal density to keep item names from truncating to
+                  "Who..." on narrow viewports. Right column now sizes to
+                  max(badge, button) instead of badge + button. */}
+              <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                <span
+                  className="text-[10px] font-bold px-2 py-1 rounded-full whitespace-nowrap"
+                  style={{ color: badge.color, backgroundColor: badge.bg }}
+                >
+                  {badge.text}
+                </span>
+                <button
+                  onClick={() => openRecipesForLead(item)}
+                  className="px-3 py-1.5 rounded-full bg-accent/10 text-accent text-xs font-semibold hover:bg-accent hover:text-white transition whitespace-nowrap"
+                >
+                  Get recipes
+                </button>
+              </div>
             </div>
           );
         })}

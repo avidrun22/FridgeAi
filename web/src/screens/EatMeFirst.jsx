@@ -220,18 +220,26 @@ export default function EatMeFirst({ user }) {
                 <p className="text-text font-semibold truncate">{item.name}</p>
                 <p className="text-textSoft text-xs mt-0.5">{item.category}</p>
               </div>
-              <span
-                className="text-[10px] font-bold px-2 py-1 rounded-full whitespace-nowrap"
-                style={{ color: badge.color, backgroundColor: badge.bg }}
-              >
-                {badge.text}
-              </span>
-              <button
-                onClick={() => onUseLeading(item)}
-                className="px-3 py-1.5 rounded-full bg-accent/10 text-accent text-xs font-semibold hover:bg-accent hover:text-white transition whitespace-nowrap flex-shrink-0"
-              >
-                Get recipes
-              </button>
+              {/* v1.20 — Stack urgency badge above the "Get recipes" button.
+                  Mirrors the iOS Eat Me First row. Side-by-side ate ~180px
+                  on the right, leaving real item names ("Whole milk",
+                  "Baby spinach", "Ground beef") truncating to "Who...",
+                  "Bab...", "Gro..." on narrow viewports. Stacking shrinks
+                  the right column to max(badge, button) ≈ 95px. */}
+              <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                <span
+                  className="text-[10px] font-bold px-2 py-1 rounded-full whitespace-nowrap"
+                  style={{ color: badge.color, backgroundColor: badge.bg }}
+                >
+                  {badge.text}
+                </span>
+                <button
+                  onClick={() => onUseLeading(item)}
+                  className="px-3 py-1.5 rounded-full bg-accent/10 text-accent text-xs font-semibold hover:bg-accent hover:text-white transition whitespace-nowrap"
+                >
+                  Get recipes
+                </button>
+              </div>
             </div>
           );
         })}
