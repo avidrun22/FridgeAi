@@ -250,44 +250,50 @@
     transform: translateY(-2px);
   }
 
-  /* v1.19 — Android waitlist link below the iOS + web CTAs. First-pass was
-     a quiet gray text link; Greg's homepage test (5/14) showed it blended
-     into the founder note below — hard to find unless you knew where to
-     look. Now it reads as a real CTA tag: brand-green tint + bordered pill
-     + medium-bold weight, but smaller than the two primary buttons so the
-     visual hierarchy still puts iOS download first. */
+  /* v1.19 — Android waitlist CTA. Promoted from a small pill to a full
+     button equal in visual weight to "Download on the App Store" and
+     "Open the web app" — ClankerView AI UX review (5/14) flagged the pill
+     as reading like a footnote and missing Android-first users entirely.
+     The button lives INSIDE .hero-cta now (same flex row as the other two)
+     so all three CTAs are siblings. Tap → form expands below (existing JS
+     behavior unchanged; we just bumped the trigger element's visual rank).
+     Color: matches .btn-secondary (outline) but with brand-green border +
+     text to distinguish it as the "not yet shipped" option. */
+  .btn-android {
+    background: rgba(62, 114, 29, 0.06);
+    color: var(--green);
+    padding: 16px 28px;
+    border-radius: 100px;
+    font-size: 16px;
+    font-weight: 600;
+    border: 1.5px solid var(--green);
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: 'Bricolage Grotesque', sans-serif;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .btn-android::before {
+    content: "🤖";
+    font-size: 15px;
+    line-height: 1;
+  }
+  .btn-android:hover {
+    background: rgba(62, 114, 29, 0.14);
+    transform: translateY(-2px);
+    box-shadow: 0 12px 32px rgba(62, 114, 29, 0.22);
+  }
+
+  /* Waitlist form (revealed below the CTAs once the Android button is
+     tapped). The container sits outside .hero-cta so the form expands
+     below all three buttons in its own block. */
   .android-waitlist {
-    margin-top: 20px;
+    margin-top: 16px;
     text-align: center;
     animation: fadeUp 0.6s 0.45s ease both;
     position: relative;
     z-index: 1;
-  }
-  .android-waitlist-link {
-    background: rgba(62, 114, 29, 0.08);
-    border: 1px solid rgba(62, 114, 29, 0.28);
-    color: var(--green);
-    font-size: 14px;
-    font-family: 'Bricolage Grotesque', sans-serif;
-    font-weight: 600;
-    cursor: pointer;
-    padding: 9px 18px;
-    border-radius: 100px;
-    transition: all 0.18s;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .android-waitlist-link::before {
-    content: "🤖";
-    font-size: 13px;
-    line-height: 1;
-  }
-  .android-waitlist-link:hover {
-    background: rgba(62, 114, 29, 0.16);
-    border-color: var(--green);
-    transform: translateY(-1px);
-    box-shadow: 0 6px 16px rgba(62, 114, 29, 0.18);
   }
   .android-waitlist-form {
     display: flex;
@@ -465,6 +471,86 @@
     border-radius: 999px;
     padding: 5px 10px;
     font-family: 'DM Mono', monospace;
+  }
+
+  /* v1.20 — Demo CTA card + clickable phone wrapper. Sits between the
+     founder quote and the phone mockup so visitors who scroll past the
+     hero buttons get a second, mockup-anchored prompt to try /demo. The
+     entire phone is also wrapped in an <a> so the mockup itself becomes
+     a tap target — the floating "Try this live" sticker tells visitors
+     the picture is interactive. */
+  .demo-cta-card {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    margin-top: 36px;
+    padding: 14px 24px;
+    background: rgba(62, 114, 29, 0.08);
+    border: 1px solid rgba(62, 114, 29, 0.3);
+    border-radius: 16px;
+    text-decoration: none;
+    transition: transform 0.15s ease, background 0.15s ease;
+    max-width: 460px;
+    text-align: center;
+  }
+  .demo-cta-card:hover {
+    background: rgba(62, 114, 29, 0.14);
+    transform: translateY(-2px);
+  }
+  .demo-cta-card .demo-cta-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--green);
+    letter-spacing: -0.01em;
+  }
+  .demo-cta-card .demo-cta-sub {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+
+  .phone-link-wrap {
+    display: inline-block;
+    position: relative;
+    text-decoration: none;
+    color: inherit;
+    cursor: pointer;
+  }
+  .phone-demo-sticker {
+    position: absolute;
+    top: -14px;
+    right: -14px;
+    z-index: 3;
+    background: var(--green);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 8px 14px;
+    border-radius: 999px;
+    box-shadow: 0 8px 18px rgba(62, 114, 29, 0.35);
+    font-family: 'DM Mono', monospace;
+    transform: rotate(6deg);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .phone-link-wrap:hover .phone-demo-sticker {
+    transform: rotate(6deg) translateY(-2px) scale(1.04);
+    box-shadow: 0 12px 24px rgba(62, 114, 29, 0.45);
+  }
+  /* Subtle lift on the phone frame when the wrapper is hovered, to
+     reinforce the affordance. */
+  .phone-link-wrap:hover .phone-frame {
+    box-shadow: 0 50px 96px rgba(28, 38, 28, 0.22), 0 0 0 1px rgba(255,255,255,0.6);
+  }
+  @media (max-width: 600px) {
+    .phone-demo-sticker {
+      top: -10px;
+      right: -6px;
+      font-size: 10px;
+      padding: 6px 11px;
+    }
   }
 
   .phone-item-name {
@@ -1080,7 +1166,7 @@
   "@type": "MobileApplication",
   "name": "ok2eat",
   "alternateName": "ok2eat: Eat First, Waste Less",
-  "description": "ok2eat tells you what to eat first — before it goes bad. Snap a grocery receipt and your fridge fills itself in 10 seconds. The Eat Me First tab ranks every item by urgency. Tap any item to get three recipes that use it (plus the four next-most-urgent things alongside it), respecting your dietary preferences and scaled to your household. Backed by USDA FoodKeeper data plus FDA, FSIS, and Cooperative Extension publications — 1,000+ foods. Free for iOS and web.",
+  "description": "ok2eat tells you what to eat first — before it goes bad. Snap a grocery receipt and your fridge fills itself in 10 seconds. The Eat Me First tab ranks every item by urgency. Tap any item to get three recipes that use it (plus the four next-most-urgent things alongside it), respecting your dietary preferences and scaled to your household. Backed by USDA FoodKeeper data plus FDA, FSIS, and Cooperative Extension publications — 950+ foods. Free for iOS and web.",
   "url": "https://ok2eat.com",
   "applicationCategory": "FoodAndDrinkApplication",
   "operatingSystem": "iOS 17.0+; Web (any modern browser)",
@@ -1100,7 +1186,7 @@
   ],
   "featureList": [
     "Eat Me First — fridge ranked by urgency, three recipes per item",
-    "Per-item expiry windows for 1,000+ foods, sourced from USDA FoodKeeper plus FDA, FSIS, and Cooperative Extension publications (printed date + USDA window)",
+    "Per-item expiry windows for 950+ foods, sourced from USDA FoodKeeper plus FDA, FSIS, and Cooperative Extension publications (printed date + USDA window)",
     "Receipt scanning to bulk-add groceries with smart container defaults",
     "Dietary preferences + allergen filtering (vegetarian, vegan, gluten-free, peanut, tree nut, etc.)",
     "Household-scaled recipe portions",
@@ -1237,35 +1323,59 @@
   <div class="hero-badge">v1.18 · iOS + web</div>
   <h1>What to eat first — <span>before it goes bad.</span></h1>
   <p class="hero-sub">Open your fridge. There's leftover chicken, half a bag of spinach, three yogurts, and that cilantro you forgot about. Which is going bad first? Most apps make you scroll. ok2eat just tells you — in the new Eat Me First tab — plus three recipes that use whatever's closest to spoiling. Free.</p>
-  <div class="hero-cta">
-    <a href="https://apps.apple.com/us/app/ok2eat/id6761730687" class="btn-primary">Download on the App Store</a>
-    <a href="https://app.ok2eat.com" class="btn-secondary">Open the web app →</a>
-  </div>
-
-  <!-- v1.19 — Android waitlist. Click the link → expand inline form →
-       capture email to both Supabase android_waitlist + Resend audience
-       via subscribe-android-waitlist Edge Function. Wired by
-       /blog/android-waitlist.js. PostHog `android_waitlist_signup` event
-       fires on submit so we can see clickthrough rate from hero -> form. -->
-  <div class="android-waitlist" data-android-waitlist>
-    <button type="button" class="android-waitlist-link" data-android-toggle aria-expanded="false">
-      Android coming soon — get notified →
-    </button>
-    <form class="android-waitlist-form" data-android-form hidden>
-      <input type="email" name="email" placeholder="you@example.com" required autocomplete="email" aria-label="Email for Android waitlist">
-      <button type="submit">Notify me</button>
-    </form>
-    <p class="android-waitlist-msg" data-android-msg aria-live="polite"></p>
+  <!-- v1.19 — Hero CTAs wrapped in a single data-android-waitlist root
+       so the JS in /blog/android-waitlist.js can find both the toggle
+       button (inside .hero-cta) AND the form (inside .android-waitlist)
+       under one querySelector scope.
+       Three CTA buttons, visually equal weight:
+       iOS (primary, filled dark), Web (secondary, outlined neutral),
+       Android (waitlist, outlined green). Order intentional: iOS first
+       (most-converting today), Web second, Android third (aspirational).
+       The Android button toggles the inline waitlist form below. -->
+  <div data-android-waitlist>
+    <div class="hero-cta">
+      <a href="https://apps.apple.com/us/app/ok2eat/id6761730687" class="btn-primary">Download on the App Store</a>
+      <!-- v1.20 — Web CTA points at /demo so cold visitors land in the
+           no-auth tour instead of the sign-in wall. Existing users still
+           hit /demo for the first click, then sign in from there
+           (header CTA on the demo screen takes them straight to /). -->
+      <a href="https://app.ok2eat.com/demo" class="btn-secondary">Try the demo — no signup →</a>
+      <button type="button" class="btn-android" data-android-toggle aria-expanded="false">
+        Android — join waitlist
+      </button>
+    </div>
+    <div class="android-waitlist">
+      <form class="android-waitlist-form" data-android-form hidden>
+        <input type="email" name="email" placeholder="you@example.com" required autocomplete="email" aria-label="Email for Android waitlist">
+        <button type="submit">Notify me</button>
+      </form>
+      <p class="android-waitlist-msg" data-android-msg aria-live="polite"></p>
+    </div>
   </div>
 
   <p style="margin-top: 20px; font-size: 13px; color: var(--muted); font-style: italic; max-width: 480px;">I built ok2eat after years of opening the fridge, staring at it, closing it, and ordering takeout. Turns out "what do we have to eat?" is the most-asked question in every household. — Greg</p>
+
+  <!-- v1.20 — Inline demo CTA card. Visitors who skip the three hero
+       buttons get a second prompt anchored to the mockup. Links to the
+       no-auth /demo route on app.ok2eat.com so they can play with a
+       fake fridge before signing up. -->
+  <a href="https://app.ok2eat.com/demo" class="demo-cta-card" data-event="hero_demo_card_clicked">
+    <span class="demo-cta-title">Click the phone for a free demo →</span>
+    <span class="demo-cta-sub">5 items pre-loaded. Tap any one to see what to cook before it spoils — no signup needed.</span>
+  </a>
 
   <!-- v1.19 — Mockup refreshed to show the Eat Me First tab (the headline
        feature since v1.16). Earlier mockup showed a generic "My Fridge"
        inventory list — accurate to v1.0.x but stale for the current
        product. Float cards on the sides reflect Dashboard tab metrics
        ($-saved, items-rescued) which are still on-brand. Items match the
-       contextual emoji + urgency-ranking logic the app actually renders. -->
+       contextual emoji + urgency-ranking logic the app actually renders.
+       v1.20 — Phone mockup is now wrapped in <a href="/demo"> so the
+       picture itself is interactive. A floating "Try this live" sticker
+       sells the affordance — picture-as-CTA without a giant button
+       laid over the screen. -->
+  <a href="https://app.ok2eat.com/demo" class="phone-link-wrap" data-event="hero_phone_clicked" aria-label="Click for a free ok2eat demo">
+    <span class="phone-demo-sticker">Try the demo →</span>
   <div class="phone-mockup">
     <div class="float-card float-card-left">
       <div class="label">Money saved</div>
@@ -1343,6 +1453,7 @@
       </div>
     </div>
   </div>
+  </a><!-- /phone-link-wrap (v1.20) -->
 </div>
 
 <!-- Stats bar -->
@@ -1378,7 +1489,7 @@
     <div class="feature-card">
       <span class="feature-icon">⏰</span>
       <div class="feature-title">USDA-backed expiry dates</div>
-      <div class="feature-desc">Per-item shelf life from the <strong>USDA FoodKeeper</strong> dataset plus FDA, FSIS, and Cooperative Extension publications — 1,000+ foods with their own typical fridge, freezer, and pantry windows. ok2eat stores both the printed date and the USDA window, so you stop throwing out yogurt that's still good.</div>
+      <div class="feature-desc">Per-item shelf life from the <strong>USDA FoodKeeper</strong> dataset plus FDA, FSIS, and Cooperative Extension publications — 950+ foods with their own typical fridge, freezer, and pantry windows. ok2eat stores both the printed date and the USDA window, so you stop throwing out yogurt that's still good.</div>
     </div>
     <div class="feature-card">
       <span class="feature-icon">📸</span>
@@ -1441,7 +1552,7 @@
     <div style="position:absolute;top:-60px;right:-40px;width:220px;height:220px;background:radial-gradient(circle,rgba(62,114,29,0.18),transparent 70%);pointer-events:none;"></div>
     <div class="section-tag" style="display:inline-block;">// Free public resource</div>
     <h2 style="margin-top:14px;">How long does <span style="color:var(--green);">{anything}</span> last?</h2>
-    <p class="section-sub" style="margin-bottom:28px;">Browse shelf-life estimates for <strong>1,000+ foods</strong>, sourced from the <strong>USDA FoodKeeper</strong> dataset, the <strong>FDA</strong> Refrigerator &amp; Freezer Storage Chart, <strong>USDA FSIS</strong> guidance, and <strong>Cooperative Extension Service</strong> bulletins. Searchable, free, no sign-up. The same data that powers ok2eat's per-item expiry — open to anyone.</p>
+    <p class="section-sub" style="margin-bottom:28px;">Browse shelf-life estimates for <strong>950+ foods</strong>, sourced from the <strong>USDA FoodKeeper</strong> dataset, the <strong>FDA</strong> Refrigerator &amp; Freezer Storage Chart, <strong>USDA FSIS</strong> guidance, and <strong>Cooperative Extension Service</strong> bulletins. Searchable, free, no signup. The same data that powers ok2eat's per-item expiry — open to anyone.</p>
     <form action="/shelf-life/" method="get" style="display:flex;gap:8px;max-width:480px;margin:0 auto 18px;flex-wrap:wrap;justify-content:center;">
       <input name="q" type="text" placeholder="Search 'spinach', 'whole milk', 'hard cheese'…" autocomplete="off"
              style="flex:1;min-width:240px;background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:12px 18px;font-size:15px;color:var(--text);font-family:inherit;outline:none;">
@@ -1453,7 +1564,7 @@
       <a href="/shelf-life/eggs.html" style="background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:6px 14px;color:var(--text-soft);text-decoration:none;">eggs</a>
       <a href="/shelf-life/cheese.html" style="background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:6px 14px;color:var(--text-soft);text-decoration:none;">hard cheese</a>
       <a href="/shelf-life/avocados.html" style="background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:6px 14px;color:var(--text-soft);text-decoration:none;">avocados</a>
-      <a href="/shelf-life/" style="background:var(--green);border:1px solid var(--green);border-radius:100px;padding:6px 14px;color:#fff;text-decoration:none;font-weight:600;">Browse all 1,000+ →</a>
+      <a href="/shelf-life/" style="background:var(--green);border:1px solid var(--green);border-radius:100px;padding:6px 14px;color:#fff;text-decoration:none;font-weight:600;">Browse all 950+ →</a>
     </div>
     <p style="margin-top:22px;font-size:12px;color:var(--muted);font-style:italic;">Data via USDA FSIS FoodKeeper. Estimates only — when in doubt, throw it out.</p>
   </div>
@@ -1570,7 +1681,7 @@
   <p class="cta-sub">Free to download. No subscription. Just an answer to "what do we have to eat?" — every night.</p>
   <a href="https://apps.apple.com/us/app/ok2eat/id6761730687" class="btn-primary" style="font-size:18px;padding:20px 48px;position:relative;z-index:1;">Download on the App Store</a>
   <p style="margin-top:14px;font-size:14px;position:relative;z-index:1;">
-    or <a href="https://app.ok2eat.com" style="color:var(--green);font-weight:600;">use it from any browser →</a>
+    or <a href="https://app.ok2eat.com/demo" style="color:var(--green);font-weight:600;">try the demo in your browser →</a>
   </p>
   <p style="margin-top:20px;font-size:12px;color:var(--muted);font-family:'DM Mono',monospace;position:relative;z-index:1;">iOS 15+ required · Free · No ads</p>
 </div>

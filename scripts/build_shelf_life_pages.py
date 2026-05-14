@@ -292,7 +292,7 @@ def render_item_page(item, slug, related):
 
     <section class="cta-card">
       <h2>Stop guessing — let ok2eat track this for you</h2>
-      <p>Add an item once, and ok2eat reminds you before it goes bad. Free, no subscription.</p>
+      <p>Add an item once, and ok2eat reminds you before it goes bad. Free, no signup.</p>
       <a href="{APP_STORE_URL}" class="btn-primary">Download for iOS</a>
       <a href="{WEB_APP_URL}" class="btn-secondary">Try the web app</a>
     </section>
@@ -401,9 +401,9 @@ def render_index_page(items_with_slugs, by_category):
     body = f"""
 <main class="shelf-index">
   <header class="index-header">
-    <p class="index-eyebrow">// shelf life directory</p>
+    <p class="index-eyebrow">// shelf life directory · free, no signup</p>
     <h1>How long does food last?</h1>
-    <p class="index-tagline">Storage times for {len(items_with_slugs)} foods. Sourced from the USDA FoodKeeper database, FDA Refrigerator &amp; Freezer Storage Chart, USDA FSIS guidance, the National Center for Home Food Preservation, and Cooperative Extension Service publications. Search or browse below.</p>
+    <p class="index-tagline">Storage times for {len(items_with_slugs)} foods. Sourced from the USDA FoodKeeper database, FDA Refrigerator &amp; Freezer Storage Chart, USDA FSIS guidance, the National Center for Home Food Preservation, and Cooperative Extension Service publications. <strong>Free to browse, no account needed.</strong> Search or browse below.</p>
   </header>
 
   <div class="search-wrap">

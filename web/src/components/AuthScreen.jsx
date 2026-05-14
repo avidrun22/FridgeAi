@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { supabase } from "../lib/supabase.js";
 import { track } from "../lib/analytics.js";
 
@@ -224,6 +225,20 @@ export default function AuthScreen() {
           <p className="text-center text-xs text-muted mt-4 leading-relaxed">
             Signed up with "Sign in with Apple" on iPhone? Use the Apple button above — same account, no separate password needed.
           </p>
+        )}
+
+        {/* v1.20 — "Try the demo first" exit ramp. Curious visitors who
+            aren't ready to sign up can tour the product first. Big chunk of
+            cold traffic from Reddit / X / Product Hunt won't convert until
+            they see the app work. */}
+        {mode !== "reset" && (
+          <Link
+            to="/demo"
+            onClick={() => track("auth_demo_link_clicked", { from_mode: mode })}
+            className="block w-full text-center mt-4 px-4 py-2.5 rounded-lg border border-accent/40 bg-accent/5 text-accent text-sm font-semibold hover:bg-accent/10 transition"
+          >
+            Try the demo first — no signup needed →
+          </Link>
         )}
 
         <p className="text-center text-xs text-muted mt-6">

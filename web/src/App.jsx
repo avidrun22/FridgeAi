@@ -8,6 +8,7 @@ import Plan from "./screens/Plan.jsx";
 import EatMeFirst from "./screens/EatMeFirst.jsx";
 import Dashboard from "./screens/Dashboard.jsx";
 import Settings from "./screens/Settings.jsx";
+import Demo from "./screens/Demo.jsx";
 
 // Root component. Wraps the auth state listener and the router.
 // Single rule: if no session, show AuthScreen. Otherwise, render the routes.
@@ -57,6 +58,21 @@ export default function App() {
       <div className="h-full flex items-center justify-center">
         <div className="text-textSoft text-sm">Loading…</div>
       </div>
+    );
+  }
+
+  // v1.20 — /demo is the no-auth onboarding route. Anyone (signed-in or
+  // not) can land here and tour Eat Me First with pre-populated demo data.
+  // We render it BEFORE the !session gate so unauthenticated visitors can
+  // hit it directly from the marketing site without seeing the auth screen
+  // first. Signed-in users who somehow land on /demo also see the demo
+  // (rare — they'd have to click a marketing CTA after logging in — but
+  // it's harmless: it doesn't touch their fridge).
+  if (location.pathname === "/demo") {
+    return (
+      <Routes>
+        <Route path="/demo" element={<Demo />} />
+      </Routes>
     );
   }
 
