@@ -143,6 +143,10 @@
 
     // --- Outbound clicks: app.ok2eat.com / App Store ---
     // Lets us measure conversion from marketing pages → web app or App Store.
+    // v1.20: also fire a more specific `homepage_demo_click` event when the
+    // href targets /demo, so the funnel insight can split the demo-CTA-
+    // surfaces (card vs phone) using the existing data-event attribute we
+    // added to the anchor tags in ok2eat.html.
     document.addEventListener("click", function (e) {
       var a = e.target.closest && e.target.closest("a");
       if (!a) return;
@@ -155,6 +159,14 @@
       if (event) {
         posthog.capture(event, {
           href: href,
+          source_path: window.location.pathname,
+        });
+      }
+      // Demo-specific surface for the v1.20 funnel. Fires IN ADDITION to
+      // outbound_web_app_click so we don't lose backward compatibility.
+      if (/^https?:\/\/app\.ok2eat\.com\/demo/.test(href)) {
+        posthog.capture("homepage_demo_click", {
+          surface: a.getAttribute("data-event") || "unknown",
           source_path: window.location.pathname,
         });
       }
