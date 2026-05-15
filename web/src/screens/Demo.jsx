@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { daysUntil, formatQty } from "../lib/helpers.js";
 import { CATEGORY_EMOJI, inferEmoji } from "../lib/constants.js";
 import { track } from "../lib/analytics.js";
-import { DEMO_ITEMS, DEMO_RECIPES_TOP5, DEMO_RECIPES_BY_LEAD } from "../lib/demoData.js";
+import { getDemoItems, DEMO_RECIPES_TOP5, DEMO_RECIPES_BY_LEAD } from "../lib/demoData.js";
 import DemoLayout from "../components/DemoLayout.jsx";
 import Modal from "../components/Modal.jsx";
 import SignupPromptModal from "../components/SignupPromptModal.jsx";
 import AddDemoItemModal from "../components/AddDemoItemModal.jsx";
 import DemoItemDetailModal from "../components/DemoItemDetailModal.jsx";
+import DemoShoppingListModal from "../components/DemoShoppingListModal.jsx";
 
 // Demo screen — v1.20 no-auth onboarding.
 //
@@ -50,8 +51,10 @@ function urgencyBadge(days) {
 export default function Demo() {
   // v1.20 — items live in state so "Add by hand" can prepend new rows
   // and the urgency ranking re-sorts in real time. Initial value is
-  // the 5 hard-coded demo items.
-  const [items, setItems]             = useState(DEMO_ITEMS);
+  // computed at mount so dates roll forward each day (see #217 fix
+  // in demoData.js — the prior static array baked dates into the JS
+  // bundle, causing items to drift into "Expired" as the bundle aged).
+  const [items, setItems]             = useState(() => getDemoItems());
   const [recipeModal, setRecipeModal] = useState(null); // {leadItem, items, recipes}
   const [promptOpen, setPromptOpen]   = useState(false);
   const [promptReason, setPromptReason] = useState("default");
@@ -61,6 +64,15 @@ export default function Demo() {
   // dates, opened status). Sells the product's depth without forcing the
   // visitor to sign up to see it.
   const [detailItem, setDetailItem]   = useState(null);
+  // v1.20 #216 — Demo shopping list lives in local state so visitors can
+  // build it freely without an account. The signup gate moved from
+  // "add to list" → "save/share the list" (much higher intent moment).
+  // Each row: { recipeName, item, amount } — preserving the source so
+  // the list view groups items under the recipe they came from.
+  const [demoShoppingList, setDemoShoppingList] = useState([]);
+  const [listOpen, setListOpen]       = useState(false);
+  // Tiny ephemeral toast confirming "Added N items" after each add.
+  const [addedToast, setAddedToast]   = useState(null);
 
   // Same sort + cap as the real Eat Me First.
   const ranked = items
@@ -121,6 +133,59 @@ export default function Demo() {
   function handleAddDemoItem(newItem) {
     track("demo_item_added", { name: newItem.name, category: newItem.category });
     setItems(prev => [newItem, ...prev]);
+  }
+
+  // v1.20 #216 — Adding a recipe's missing ingredients to the shopping
+  // list. NO LONGER GATES ON SIGNUP — visitors build freely; signup is
+  // gated at save/share instead. Simple "missing" heuristic: an
+  // ingredient is missing if no current fridge item's name contains
+  // (or is contained in) the ingredient's first word. Substring-only,
+  // case-insensitive — good enough for a 5-item demo.
+  function handleAddRecipeToList(recipe) {
+    const fridgeNames = items.map(i => i.name.toLowerCase());
+    const missing = (recipe.ingredients || []).filter(ing => {
+      const token = (ing.item || "").toLowerCase().split(/\s+/)[0];
+      if (!token) return false;
+      return !fridgeNames.some(n => n.includes(token) || token.includes(n.split(/\s+/)[0]));
+    });
+    if (missing.length === 0) {
+      setAddedToast("You already have everything for this recipe.");
+      setTimeout(() => setAddedToast(null), 2500);
+      return;
+    }
+    track("demo_list_items_added", {
+      recipe_name: recipe.name,
+      missing_count: missing.length,
+      total_ingredients: (recipe.ingredients || []).length,
+    });
+    setDemoShoppingList(prev => [
+      ...prev,
+      ...missing.map(ing => ({
+        recipeName: recipe.name,
+        item: ing.item,
+        amount: ing.amount || "",
+      })),
+    ]);
+    setAddedToast(`Added ${missing.length} ${missing.length === 1 ? "item" : "items"} from ${recipe.name}.`);
+    setTimeout(() => setAddedToast(null), 2500);
+  }
+
+  // v1.20 #216 — Save + Share are the new conversion gates. Each fires
+  // a SignupPromptModal with bespoke copy (see SignupPromptModal.jsx
+  // reasons map).
+  function handleSaveList() {
+    track("demo_list_save_tapped", { item_count: demoShoppingList.length });
+    setListOpen(false);
+    triggerSignupPrompt("save_list");
+  }
+  function handleShareList() {
+    track("demo_list_share_tapped", { item_count: demoShoppingList.length });
+    setListOpen(false);
+    triggerSignupPrompt("share_list");
+  }
+  function handleClearList() {
+    track("demo_list_cleared", { item_count: demoShoppingList.length });
+    setDemoShoppingList([]);
   }
 
   return (
@@ -341,12 +406,15 @@ export default function Demo() {
                     <p className="text-accent text-xs mb-3 italic">💡 {r.tip}</p>
                   )}
 
-                  {/* Conversion-action row. Both buttons trip the signup
-                      prompt — view-only is free, save-anything requires
-                      an account. */}
+                  {/* v1.20 #216 — Add-to-list is now FREE (builds the
+                      local demo shopping list); Save-recipe still gates
+                      on signup because saved-recipes persistence requires
+                      an account. The save/share gates fire when the
+                      visitor opens the list modal and taps either of
+                      those buttons. */}
                   <div className="flex gap-2 pt-3 border-t border-border">
                     <button
-                      onClick={() => triggerSignupPrompt("add_to_list")}
+                      onClick={() => handleAddRecipeToList(r)}
                       className="flex-1 px-3 py-2 rounded-lg bg-accent text-white text-xs font-semibold hover:opacity-90 transition"
                     >
                       Add missing ingredients to shopping list
@@ -387,6 +455,45 @@ export default function Demo() {
         onClose={() => setDetailItem(null)}
         item={detailItem}
       />
+      <DemoShoppingListModal
+        open={listOpen}
+        onClose={() => setListOpen(false)}
+        items={demoShoppingList}
+        onClear={handleClearList}
+        onSave={handleSaveList}
+        onShare={handleShareList}
+      />
+
+      {/* v1.20 #216 — Floating "View list" pill, bottom-right of viewport.
+          Only renders when there's something in the list, so the visitor
+          isn't pestered until they've actually built something. Tapping
+          it opens the list modal where save/share fire signup prompts. */}
+      {demoShoppingList.length > 0 && (
+        <button
+          onClick={() => {
+            track("demo_list_viewed", { item_count: demoShoppingList.length });
+            setListOpen(true);
+          }}
+          className="fixed bottom-6 right-6 z-40 px-5 py-3 rounded-full bg-accent text-white text-sm font-semibold shadow-lg hover:opacity-90 transition flex items-center gap-2"
+          aria-label={`View your shopping list (${demoShoppingList.length} items)`}
+        >
+          <span aria-hidden="true">🛒</span>
+          <span>Your list ({demoShoppingList.length})</span>
+        </button>
+      )}
+
+      {/* Ephemeral toast confirming "Added N items from {recipe}." after
+          each add. Auto-dismisses after 2.5s. Centered horizontally at
+          the top so it doesn't collide with the floating list pill. */}
+      {addedToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed top-24 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-full bg-text text-white text-sm font-medium shadow-lg max-w-[90vw] text-center"
+        >
+          {addedToast}
+        </div>
+      )}
     </DemoLayout>
   );
 }

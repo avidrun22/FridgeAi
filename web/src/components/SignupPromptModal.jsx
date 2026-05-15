@@ -67,4 +67,12 @@ const REASONS = {
     title: "Scan your grocery receipt",
     body: "Snap a picture of any receipt and we'll fill your fridge in seconds — every line categorized, every expiry date set from USDA shelf-life data. Sign up free to try it on your next grocery run.",
   },
+  save_list: {
+    title: "Save this shopping list",
+    body: "You've built a real list — nice work. Sign up free to keep it between sessions, sync it to the app on grocery day, and share it with your household.",
+  },
+  share_list: {
+    title: "Share this shopping list",
+    body: "Send the list to a partner, roommate, or whoever's doing the run. Sign up free and you'll get a link they can open anywhere — even without an account.",
+  },
 };

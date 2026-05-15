@@ -28,75 +28,95 @@ function isoDaysFromNow(days) {
   return d.toISOString().slice(0, 10);
 }
 
-// Stable IDs so React keys + recipe lookups behave like real rows would.
-export const DEMO_ITEMS = [
-  {
-    id: "demo-cilantro",
-    name: "Cilantro",
-    category: "Produce",
-    emoji: "🌿",
-    quantity: 1,
-    unit: "bunch",
-    addedDate: isoDaysFromNow(-2),
-    expiryDate: isoDaysFromNow(1),
-    container: "fridge",
-    section: "fridge",
-    isOpened: false,
-  },
-  {
-    id: "demo-salmon",
-    name: "Salmon fillet",
-    category: "Protein",
-    emoji: "🐟",
-    quantity: 1,
-    unit: "lb",
-    addedDate: isoDaysFromNow(-1),
-    expiryDate: isoDaysFromNow(2),
-    container: "fridge",
-    section: "fridge",
-    isOpened: false,
-  },
-  {
-    id: "demo-spinach",
-    name: "Baby spinach",
-    category: "Produce",
-    emoji: "🥬",
-    quantity: 5,
-    unit: "oz",
-    addedDate: isoDaysFromNow(-2),
-    expiryDate: isoDaysFromNow(3),
-    container: "fridge",
-    section: "fridge",
-    isOpened: false,
-  },
-  {
-    id: "demo-milk",
-    name: "Whole milk",
-    category: "Dairy",
-    emoji: "🥛",
-    quantity: 1,
-    unit: "gallon",
-    addedDate: isoDaysFromNow(-4),
-    expiryDate: isoDaysFromNow(4),
-    container: "fridge",
-    section: "fridge",
-    isOpened: true,
-    openedAt: isoDaysFromNow(-3),
-  },
-  {
-    id: "demo-beef",
-    name: "Ground beef",
-    category: "Protein",
-    emoji: "🥩",
-    quantity: 1,
-    unit: "lb",
-    addedDate: isoDaysFromNow(-1),
-    expiryDate: isoDaysFromNow(5),
-    container: "fridge",
-    section: "fridge",
-    isOpened: false,
-  },
-];
+// 2026-05-15 fix — Greg reported items showing as Expired after the demo
+// had been live for a few days. Root cause: when DEMO_ITEMS was a static
+// array literal, `isoDaysFromNow(N)` was evaluated at MODULE LOAD time —
+// once per JS bundle parse. Cached bundles (Netlify CDN, service workers,
+// browser memory) kept serving the same baked-in dates, so the relative
+// offsets bled into the past as days passed.
+//
+// Fix: expose the items as a function (`getDemoItems()`) so dates are
+// recomputed every time Demo.jsx mounts. The 5 demo items always look
+// like Cilantro=expired, Salmon=1d, Spinach=2d, Milk=3d, Beef=4d
+// relative to whatever "now" is when the user opens the page.
+//
+// IDs stay stable across calls so React keys + recipe-lookup maps still
+// resolve identically.
+export function getDemoItems() {
+  return [
+    {
+      id: "demo-cilantro",
+      name: "Cilantro",
+      category: "Produce",
+      emoji: "🌿",
+      quantity: 1,
+      unit: "bunch",
+      addedDate: isoDaysFromNow(-2),
+      expiryDate: isoDaysFromNow(0),   // expires today → "Expired" pill
+      container: "fridge",
+      section: "fridge",
+      isOpened: false,
+    },
+    {
+      id: "demo-salmon",
+      name: "Salmon fillet",
+      category: "Protein",
+      emoji: "🐟",
+      quantity: 1,
+      unit: "lb",
+      addedDate: isoDaysFromNow(-1),
+      expiryDate: isoDaysFromNow(1),   // "Expires tomorrow"
+      container: "fridge",
+      section: "fridge",
+      isOpened: false,
+    },
+    {
+      id: "demo-spinach",
+      name: "Baby spinach",
+      category: "Produce",
+      emoji: "🥬",
+      quantity: 5,
+      unit: "oz",
+      addedDate: isoDaysFromNow(-2),
+      expiryDate: isoDaysFromNow(2),   // "2 days left"
+      container: "fridge",
+      section: "fridge",
+      isOpened: false,
+    },
+    {
+      id: "demo-milk",
+      name: "Whole milk",
+      category: "Dairy",
+      emoji: "🥛",
+      quantity: 1,
+      unit: "gallon",
+      addedDate: isoDaysFromNow(-4),
+      expiryDate: isoDaysFromNow(3),   // "3 days left"
+      container: "fridge",
+      section: "fridge",
+      isOpened: true,
+      openedAt: isoDaysFromNow(-3),
+    },
+    {
+      id: "demo-beef",
+      name: "Ground beef",
+      category: "Protein",
+      emoji: "🥩",
+      quantity: 1,
+      unit: "lb",
+      addedDate: isoDaysFromNow(-1),
+      expiryDate: isoDaysFromNow(4),   // "4 days left"
+      container: "fridge",
+      section: "fridge",
+      isOpened: false,
+    },
+  ];
+}
+
+// Back-compat shim: anything that still imports DEMO_ITEMS as a constant
+// gets a fresh-on-access getter via the named export. (Demo.jsx will
+// switch to calling getDemoItems() directly in the same commit.)
+export const DEMO_ITEMS = getDemoItems();
 
 // Pre-written recipes — matches the DailyRecipe shape from
 // supabase/functions/_shared/daily_recipes.ts so the recipe sheet renders
