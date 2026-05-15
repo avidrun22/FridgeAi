@@ -115,6 +115,33 @@ triage:
   exists; just need the recipes-as-sibling layout once the recipe
   browser ports.
 
+**2026-05-15 (continued) — sky21 follow-up DM with two more ideas + a
+pricing-tier hypothesis:**
+
+- [ ] **Weekly menu autopilot.** The app proactively suggests the
+  upcoming week's meals based on the user's habits (what they typically
+  cook, what they have, what's expiring), and auto-generates the
+  shopping list to execute on it. Sky21's framing: "less user, less
+  friction — that's where people will pay for it." Moves ok2eat from
+  "nice to have" to "need to have" by eliminating the active-planning
+  step entirely. Big technical lift: needs a habit-detection layer
+  (consumption_events + meal_log table or similar), a constraint
+  solver for "what's in stock + what cooks well together + what fits
+  the user's dietary preferences," and a UI that shows the proposed
+  week before locking it in. Strong candidate for v1.23+ alongside the
+  "usage-pattern learning" idea — they share a habit-detection backend.
+  Pricing implication: this is likely the wedge that justifies a paid
+  tier. Worth a real product-thinking pass before designing.
+
+- [ ] **Family/household pricing tier.** Sky21 sees ok2eat's real value
+  in family coordination (vs. solo use). Suggests tiered pricing:
+  individual free / couple tier (2 devices) / family tier (4+ devices),
+  with the autopilot/weekly-menu features gated behind a paid tier.
+  Aligns with the v1.10 household_members infra we already have — the
+  data model supports this; it's a packaging + paywall problem, not a
+  rebuild. Worth a pricing experiment after we have ≥1000 active
+  households and can A/B test conversion.
+
 **Positive validation from sky21 (not action items, but worth keeping):**
 "Onboarding very smooth, link to go in, not even a password, welcome email
 shortly after. You are doing good man! I like it." — v1.17's

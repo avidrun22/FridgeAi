@@ -73,8 +73,19 @@ export default function EatMeFirst({ user }) {
   // Map<recipeIndex, savedRowId>
   const [savedRowIds, setSavedRowIds] = useState({});
   const [savingIdx, setSavingIdx]     = useState(null);   // shows spinner on the heart while in-flight
-  const [addingIdx, setAddingIdx]     = useState(null);   // shows spinner on the "Add to list" while in-flight
+  const [addingIdx, setAddingIdx]     = useState(null);   // shows spinner on the "Add to list" while we open the picker
   const [recipeToast, setRecipeToast] = useState(null);   // string | null — floating 2.5s confirmation
+
+  // v1.22 #187 — Add-to-list picker state. Opens when the user taps
+  // "+ Add to list" on a recipe card. Mirrors iOS's InventoryMatchSheet
+  // pattern: a destination-list picker (existing lists OR "New list…")
+  // plus per-ingredient checkboxes (default all checked). User confirms
+  // with "Add N items" and the rows land in the chosen list.
+  // shape: { recipe, recipeIndex, householdId, lists:[{id,name}],
+  //          ingredients:[string], toggles:{idx:bool},
+  //          listId:uuid|null, newListName:string, creatingList:bool }
+  const [addToListState, setAddToListState] = useState(null);
+  const [confirmingAdd, setConfirmingAdd]   = useState(false);
 
   async function load() {
     try {
@@ -206,7 +217,12 @@ export default function EatMeFirst({ user }) {
     }
   }
 
-  async function addRecipeIngredientsToList(recipe, index) {
+  // v1.22 #187 — open the picker. Loads the user's active lists, extracts
+  // ingredient names (no amounts — quantities don't carry over to a
+  // shopping list), and seeds the toggles all-checked. The user can
+  // uncheck items they already have + pick which list to add to before
+  // committing.
+  async function openAddToListModal(recipe, index) {
     if (!user?.id || addingIdx === index) return;
     if (!Array.isArray(recipe?.ingredients) || recipe.ingredients.length === 0) {
       setRecipeToast("Recipe has no ingredients to add.");
@@ -215,8 +231,6 @@ export default function EatMeFirst({ user }) {
     }
     setAddingIdx(index);
     try {
-      // Resolve household_id once + pick the most-recently-created active
-      // shopping list (or create a default "Shopping list" if none exist).
       const { data: hh, error: hhErr } = await supabase.rpc("ensure_household_for_user");
       if (hhErr) throw hhErr;
 
@@ -228,39 +242,79 @@ export default function EatMeFirst({ user }) {
         .order("created_at", { ascending: false });
       if (lErr) throw lErr;
 
-      let listId = (lists && lists[0]?.id) || null;
-      let listName = (lists && lists[0]?.name) || null;
-      if (!listId) {
-        // First-time path — create a default list so the user isn't bounced
-        // to Plan to set one up manually.
+      // Normalize ingredients to clean strings before showing in the picker.
+      const ingredients = recipe.ingredients
+        .map(ing => (typeof ing === "object" && ing !== null ? ing.item : ing))
+        .filter(name => typeof name === "string" && name.trim().length > 0)
+        .map(name => name.trim());
+
+      const toggles = {};
+      ingredients.forEach((_, i) => { toggles[i] = true; });
+
+      // Default destination: most-recently-created active list, or
+      // null (= "create new") if the user has none.
+      const defaultListId = (lists && lists[0]?.id) || null;
+
+      setAddToListState({
+        recipe,
+        recipeIndex: index,
+        householdId: hh,
+        lists: lists || [],
+        ingredients,
+        toggles,
+        listId: defaultListId,
+        newListName: "",
+        creatingList: defaultListId === null,   // jump straight into "new list" mode for empty-state users
+      });
+    } catch (e) {
+      console.warn("[eat-me-first] openAddToListModal failed:", e?.message || e);
+      setRecipeToast("Couldn't load your lists. Try again.");
+      setTimeout(() => setRecipeToast(null), 2500);
+    } finally {
+      setAddingIdx(null);
+    }
+  }
+
+  // v1.22 #187 — commit the picker. Filters ingredients by the user's
+  // checkbox toggles, optionally creates a new list, then bulk-inserts
+  // shopping_list_items in one round-trip. Closes the picker on success.
+  async function confirmAddToList() {
+    if (!addToListState || confirmingAdd) return;
+    const { recipe, householdId, lists, ingredients, toggles, listId, newListName, creatingList } = addToListState;
+
+    const selectedIngredients = ingredients.filter((_, i) => toggles[i]);
+    if (selectedIngredients.length === 0) {
+      setRecipeToast("Pick at least one ingredient.");
+      setTimeout(() => setRecipeToast(null), 2500);
+      return;
+    }
+
+    setConfirmingAdd(true);
+    try {
+      // Resolve target list. Existing → use its id. "New list…" → create now.
+      let targetListId = listId;
+      let targetListName = null;
+      if (creatingList || !targetListId) {
+        const name = (newListName || "").trim() || "Shopping list";
         const { data: newList, error: createErr } = await supabase
           .from("shopping_lists")
-          .insert({ household_id: hh, name: "Shopping list", created_by: user.id })
+          .insert({ household_id: householdId, name, created_by: user.id })
           .select("id, name")
           .single();
         if (createErr) throw createErr;
-        listId = newList.id;
-        listName = newList.name;
+        targetListId = newList.id;
+        targetListName = newList.name;
+      } else {
+        const existing = lists.find(l => l.id === targetListId);
+        targetListName = existing?.name || "list";
       }
 
-      // Extract just the item name (no amount) for the list row. iOS does
-      // the same — quantities don't carry over because the user buys what
-      // they buy, not what a recipe portions for.
-      const rows = recipe.ingredients
-        .map(ing => (typeof ing === "object" && ing !== null ? ing.item : ing))
-        .filter(name => typeof name === "string" && name.trim().length > 0)
-        .map(name => ({
-          household_id: hh,
-          list_id: listId,
-          name: name.trim(),
-          created_by: user.id,
-        }));
-
-      if (rows.length === 0) {
-        setRecipeToast("Recipe has no ingredients to add.");
-        setTimeout(() => setRecipeToast(null), 2500);
-        return;
-      }
+      const rows = selectedIngredients.map(name => ({
+        household_id: householdId,
+        list_id: targetListId,
+        name,
+        created_by: user.id,
+      }));
 
       const { error: insErr } = await supabase
         .from("shopping_list_items")
@@ -269,18 +323,20 @@ export default function EatMeFirst({ user }) {
 
       track("shopping_list_generated", {
         recipe_name: recipe?.name || null,
-        target_list_id: listId,
+        target_list_id: targetListId,
         item_count: rows.length,
         source: "eat_me_first",
+        created_new_list: creatingList,
       });
-      setRecipeToast(`Added ${rows.length} item${rows.length === 1 ? "" : "s"} to "${listName}"`);
+      setRecipeToast(`Added ${rows.length} item${rows.length === 1 ? "" : "s"} to "${targetListName}"`);
       setTimeout(() => setRecipeToast(null), 3000);
+      setAddToListState(null);
     } catch (e) {
-      console.warn("[eat-me-first] addRecipeIngredientsToList failed:", e?.message || e);
+      console.warn("[eat-me-first] confirmAddToList failed:", e?.message || e);
       setRecipeToast("Couldn't add to list. Try again.");
       setTimeout(() => setRecipeToast(null), 2500);
     } finally {
-      setAddingIdx(null);
+      setConfirmingAdd(false);
     }
   }
 
@@ -465,11 +521,11 @@ export default function EatMeFirst({ user }) {
                         <div className="flex items-center justify-between mb-1">
                           <p className="text-text text-xs font-bold">Ingredients</p>
                           <button
-                            onClick={() => addRecipeIngredientsToList(r, i)}
+                            onClick={() => openAddToListModal(r, i)}
                             disabled={isAdding}
                             className={`text-xs font-semibold px-2.5 py-1 rounded-full bg-accent text-white transition ${isAdding ? "opacity-60" : "hover:opacity-90"}`}
                           >
-                            {isAdding ? "Adding…" : "+ Add to list"}
+                            {isAdding ? "Loading…" : "+ Add to list"}
                           </button>
                         </div>
                         <ul className="text-text text-sm space-y-0.5">
@@ -512,6 +568,154 @@ export default function EatMeFirst({ user }) {
           </div>
         </Modal>
       )}
+
+      {/* v1.22 #187 — Add-to-list picker. Stacks on top of the recipe
+          modal when the user taps "+ Add to list" on a recipe card.
+          Renders the destination-list dropdown + per-ingredient
+          checkboxes, then confirms with a bulk insert. Mirrors iOS's
+          InventoryMatchSheet pattern from v1.19. */}
+      <Modal
+        open={!!addToListState}
+        onClose={() => !confirmingAdd && setAddToListState(null)}
+        title="Add to shopping list"
+        size="md"
+      >
+        {addToListState && (
+          <div className="space-y-4">
+            <div>
+              <p className="text-textSoft text-xs font-bold tracking-widest uppercase mb-1.5">
+                Add to list
+              </p>
+              {!addToListState.creatingList ? (
+                <div className="flex items-center gap-2">
+                  <select
+                    className="flex-1 px-3 py-2 rounded-lg border border-border bg-bg text-text text-sm"
+                    value={addToListState.listId || ""}
+                    onChange={(e) =>
+                      setAddToListState({ ...addToListState, listId: e.target.value })
+                    }
+                  >
+                    {addToListState.lists.map((l) => (
+                      <option key={l.id} value={l.id}>{l.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAddToListState({ ...addToListState, creatingList: true, newListName: "" })
+                    }
+                    className="text-xs font-semibold text-accent hover:opacity-80 whitespace-nowrap"
+                  >
+                    + New list
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    autoFocus
+                    placeholder='e.g. "Costco trip" or "This week"'
+                    value={addToListState.newListName}
+                    onChange={(e) =>
+                      setAddToListState({ ...addToListState, newListName: e.target.value })
+                    }
+                    className="flex-1 px-3 py-2 rounded-lg border border-border bg-bg text-text text-sm placeholder-textSoft/70"
+                  />
+                  {addToListState.lists.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setAddToListState({ ...addToListState, creatingList: false, newListName: "" })
+                      }
+                      className="text-xs font-semibold text-textSoft hover:text-text whitespace-nowrap"
+                    >
+                      Pick existing
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-textSoft text-xs font-bold tracking-widest uppercase">
+                  Ingredients ({Object.values(addToListState.toggles).filter(Boolean).length}/{addToListState.ingredients.length})
+                </p>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const all = {};
+                      addToListState.ingredients.forEach((_, i) => { all[i] = true; });
+                      setAddToListState({ ...addToListState, toggles: all });
+                    }}
+                    className="text-xs font-semibold text-accent hover:opacity-80"
+                  >
+                    All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const none = {};
+                      addToListState.ingredients.forEach((_, i) => { none[i] = false; });
+                      setAddToListState({ ...addToListState, toggles: none });
+                    }}
+                    className="text-xs font-semibold text-textSoft hover:text-text"
+                  >
+                    None
+                  </button>
+                </div>
+              </div>
+              <ul className="space-y-1.5 max-h-72 overflow-auto pr-1">
+                {addToListState.ingredients.map((name, i) => {
+                  const checked = !!addToListState.toggles[i];
+                  return (
+                    <li key={i}>
+                      <label className="flex items-center gap-2 cursor-pointer py-1 px-1 rounded hover:bg-bg transition">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            setAddToListState({
+                              ...addToListState,
+                              toggles: { ...addToListState.toggles, [i]: !checked },
+                            })
+                          }
+                          className="w-4 h-4 accent-accent flex-shrink-0"
+                        />
+                        <span className={`text-sm ${checked ? "text-text" : "text-textSoft line-through"}`}>
+                          {name}
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setAddToListState(null)}
+                disabled={confirmingAdd}
+                className="flex-1 px-4 py-2 rounded-lg border border-border bg-card text-text text-sm font-semibold hover:bg-bg transition disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmAddToList}
+                disabled={confirmingAdd || Object.values(addToListState.toggles).filter(Boolean).length === 0}
+                className="flex-1 px-4 py-2 rounded-lg bg-accent text-white text-sm font-semibold hover:opacity-90 transition disabled:opacity-60"
+              >
+                {confirmingAdd
+                  ? "Adding…"
+                  : `Add ${Object.values(addToListState.toggles).filter(Boolean).length} item${Object.values(addToListState.toggles).filter(Boolean).length === 1 ? "" : "s"}`}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </Layout>
   );
 }
