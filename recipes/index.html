@@ -258,7 +258,11 @@
     // Hardcoded — same anon key as lists/index.html. Marketing site has no
     // build step that injects env vars.
     var ENDPOINT = 'https://qemarhvgeuzhlwybmbie.supabase.co/functions/v1/get-public-recipe?slug=' + encodeURIComponent(slug);
-    var ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlbWFyaHZnZXV6aGx3eWJtYmllIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDU4NjQ2NTUsImV4cCI6MjA2MTQ0MDY1NX0.k0Y5SMP3dgevuHi67E5LZP5OcfDeexQZf5N3jvkz28Y';
+    // 2026-05-15 — anon key rotated. Old iat=1745864655 was rejected as
+    // UNAUTHORIZED_LEGACY_JWT after Supabase enforced its new JWT secret.
+    // Current legacy anon key is iat=1774667658 (matches App.js + web/.env).
+    // If this 401s, re-pull from Supabase Dashboard → Settings → API Keys → Legacy.
+    var ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlbWFyaHZnZXV6aGx3eWJtYmllIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2Njc2NTgsImV4cCI6MjA5MDI0MzY1OH0.ejYeJkucIwAWZ7Rf0hcmpIENSnnmXMh4V_nhjXlDQk4';
 
     fetch(ENDPOINT, {
       headers: { apikey: ANON_KEY, Authorization: 'Bearer ' + ANON_KEY },
