@@ -42,7 +42,84 @@ Last reviewed: 2026-05-12 (v1.16 mega-ship + v1.17 polish + full marketing-ops s
 
 > Items captured via Telegram `/idea` land here. Triage into the sections below when you've got time.
 
-*(empty — last triaged 2026-05-01: of the 6 items from Greg's May 1 batch feedback, all 6 rolled into v1.13 (3 bug fixes + multi-add + checked-collapse + recently-added chips). Drag-to-reorder, household-create push notification, save-completed-lists deferred to v1.14 — see Eventually section. Database strategy (Open Food Facts) also captured under Eventually.)*
+**2026-05-15 — sky21 web-tester feedback batch** (signed up via demo, multiple
+DMs to Greg). Their unfiltered take is gold — captured here verbatim before
+triage:
+
+- [ ] **Usage-pattern learning → proactive nudges** ("You usually eat the
+  Carrots in 3 days, are they still there?"). Detect each user's
+  consumption cadence per item-category and nudge before the fridge_items
+  row goes stale. Needs: a `consumption_events` log (item removed /
+  marked-used + timestamp), a rolling-window aggregator, and a push/email
+  template. Likely a v1.23+ feature; complements expiry-based reminders
+  with usage-based ones.
+
+- [ ] **Mark items "used" via fridge photo** (reduces friction vs. tapping
+  each row to remove). User snaps a fridge pic; we OCR/vision-compare
+  against current fridge_items rows and auto-mark missing ones as used.
+  Big UX win for power users. Connects to the "fridge photo" Reddit
+  thread sky21 saw — current app only supports receipts, but the
+  marketing implied fridge-photo input. Closing this gap removes a
+  legitimate user-disappointment vector.
+
+- [ ] **Duplicate-item counter** ("if same name + same description, show
+  one row with a counter"). When user adds "milk" twice (e.g. two grocery
+  trips a week apart), the fridge tab today shows two rows. Sky21 wants
+  one row with quantity=2 and the older expiry on top. Needs: a merge
+  rule in `rowToItem` or the AddModal commit path, plus a UI for
+  "this expires Tue, the other one Fri" without losing per-unit
+  expiry. Tricky to get right — defer until we see the duplicate-row
+  pattern in PostHog.
+
+- [ ] **OCR personalization — learn from user's amendments.** Sky21
+  scanned an Australian receipt and got cryptic supermarket codes
+  ("BNLSS CHK BR" etc.). They want the system to remember their
+  amendments so the next "BNLSS CHK BR" on a future receipt
+  auto-maps to "Boneless chicken breast" without re-typing. Needs:
+  a per-user `receipt_alias` table (code → friendly name), prompt
+  augmentation for scan-receipt with this user's aliases, and a
+  ratchet-up confidence threshold so the system doesn't auto-apply
+  shaky guesses. Same data also unlocks shared aliasing for
+  popular chains (Aldi, Trader Joe's, Coles, Woolworths).
+
+- [ ] **Photograph BBDs / expiry dates of individual items** (not the
+  full receipt). Tighter scoped scan, lower Claude token cost,
+  works for produce/dairy that don't show on receipts. Could be
+  the v1.21+ "easier inventory capture" item #218 — they're related.
+
+- [ ] **Receipt-edit screen font size on mobile** is too small per sky21
+  on S25 Ultra. Quick win — bump the post-scan edit screen's row
+  font to 15px+ on mobile breakpoints.
+
+- [ ] **Android Chrome S25 Ultra layout bugs** — scan button overflows
+  screen edge, "My fridge" title + subtitle squeezed into one column
+  at narrow viewports. Audit the fridge tab + AddModal CSS at
+  ~360-400px viewport widths.
+
+- [ ] **Demo autocomplete doesn't fire on manual add.** sky21 typed into
+  the demo's manual-add input and got no suggestions. Verify
+  `web/src/components/AddDemoItemModal.jsx` autocomplete state +
+  recent-items chip logic.
+
+- [ ] **Cuisine selector for recipes (Italian/Chinese/Thai/Mediterranean)**
+  — already in iOS v1.19 as the cuisine-first browser. Just need
+  the web parity port (currently in progress as Phase 3 of #187).
+
+- [ ] **Dietary tags on recipes (vegan, reduce-fat etc.) + favorite for
+  later** — also already iOS v1.16 (dietary tags) + v1.18 (heart).
+  Web parity port (Phase 3 of #187) closes both.
+
+- [ ] **Eat Me First as the dominant home view + recipes as a sibling
+  section** rather than embedded in the same flow. sky21's instinct
+  matches the iOS v1.16 layout. Web's Eat Me First tab already
+  exists; just need the recipes-as-sibling layout once the recipe
+  browser ports.
+
+**Positive validation from sky21 (not action items, but worth keeping):**
+"Onboarding very smooth, link to go in, not even a password, welcome email
+shortly after. You are doing good man! I like it." — v1.17's
+auto-create-user_settings + Resend confirmation flow + onboarding email
+sequence are landing well with real users.
 
 
 

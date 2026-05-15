@@ -486,7 +486,13 @@ export default function Plan({ user }) {
         )}
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-text tracking-tight">Plan</h1>
-          <p className="text-textSoft text-sm mt-0.5">Recipes from your fridge · shopping list</p>
+          {/* v1.21 — subtitle was "Recipes from your fridge · shopping list"
+              but the recipes half was removed when the external AllRecipes /
+              NYT / Epicurious links got dropped (iOS dropped them in v1.18,
+              #169). Native recipe browser (v1.19) hasn't been ported to web
+              yet (#187 Phase 3 — in progress). Until that lands, the page is
+              shopping-list-only so the subtitle should reflect that. */}
+          <p className="text-textSoft text-sm mt-0.5">Build a shopping list — share it with whoever&apos;s at the store</p>
         </div>
 
         {err && (
