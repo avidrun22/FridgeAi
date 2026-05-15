@@ -2,33 +2,28 @@
 
 Demo URL: **https://app.ok2eat.com/demo**
 
-The pitch in one line: "Try ok2eat with a pre-loaded fridge — no signup, see what to cook before it spoils, 60 seconds."
-
-What the demo actually does:
-- Fake fridge with 5 items at varying urgencies (Cilantro expired, Salmon 2d, Spinach 3d, Milk 4d, Beef 5d)
-- Tap any item → full details (qty, unit, category, container, expiry)
-- Tap "Get recipes" → real-looking recipe cards using the most urgent items
-- "Add by hand" → really adds an item to the demo state (no signup, no API)
-- "Scan a receipt" + "Add to shopping list" + "Save recipe" → signup prompts (the conversion points)
+Tone calibration locked in 2026-05-14 (see `.appstoreconnect/marketing_strategy/brand_context.md`):
+- Broader hook than the product category ("Most apps" not "Most fridge apps").
+- Benefit cascade in one sentence — three verbs, reader as subject.
+- One playful informalism per piece ("automagically").
+- Punchy close: "Free @ app.ok2eat.com/demo" on its own line.
 
 ---
 
-## X / Twitter — 4-tweet thread (paste into Typefully)
+## X / Twitter — 4-tweet thread (drop into Typefully)
 
-**Tweet 1 (hook):**
-
-```
-Most fridge apps make you sign up before they show you anything.
-
-We flipped it. Tap a link, see your fridge ranked by what spoils first, see tonight's recipe before the cilantro dies.
-
-60-second demo, no account: app.ok2eat.com/demo
-```
-
-**Tweet 2 (what you see):**
+**Tweet 1**
 
 ```
-Five real items loaded:
+Most apps make you sign up before they show you anything.
+We flipped it. Tap a link, see your fridge ranked by what spoils first, create dynamic recipes based on the contents, and automagically create a shopping list for the rest.
+60-second demo. Free @ app.ok2eat.com/demo
+```
+
+**Tweet 2 (reply)**
+
+```
+Five real items pre-loaded so you can see the ranking work:
 
 🌿 Cilantro — expired
 🐟 Salmon fillet — expires tomorrow
@@ -36,31 +31,30 @@ Five real items loaded:
 🥛 Whole milk — 3 days
 🥩 Ground beef — 4 days
 
-Tap any one — three recipes that use it before it dies.
+Tap any one. Get three recipes that use it before it dies.
 ```
 
-**Tweet 3 (depth):**
+**Tweet 3 (reply)**
 
 ```
-Tap an item for the detail card and you see what we actually track per row:
+Tap an item open and you see what we track per row:
 
 · Quantity + unit (5 oz, 1 lb)
-· Category (Produce, Protein, Dairy)
-· Container (fridge, pantry, freezer)
-· Added date + expiry date
-· Sealed vs opened — opened milk recalculates
+· Category, container (fridge / pantry / freezer)
+· Added + expiry dates
+· Sealed vs opened — opened milk recalculates its window
 
-This is the data behind the urgency ranking.
+That's the data behind every urgency rank and recipe.
 ```
 
-**Tweet 4 (close):**
+**Tweet 4 (reply)**
 
 ```
-You can add an item by hand in the demo — type "kale," watch it slot into the ranking.
+Type "kale" in the demo. Watch it slot into the ranking by the time you finish reading this sentence.
 
-When you're ready to scan a real receipt or save your fridge between sessions, sign up free.
+When you want it real — receipt scan, save your fridge between sessions, share with your household — sign up free.
 
-app.ok2eat.com/demo
+Free @ app.ok2eat.com/demo
 ```
 
 ---
@@ -68,42 +62,40 @@ app.ok2eat.com/demo
 ## LinkedIn — single post
 
 ```
-Built a no-signup demo of ok2eat this week.
+Most apps make you sign up before they show you anything.
 
-Background: ok2eat is a fridge-tracking app I've been shipping solo for 6 months. The pitch is simple — your fridge knows what's expiring, so it should tell you what to cook before things go bad. iOS + web, free, no subscription.
+We flipped it for ok2eat — the fridge-tracking app I've been shipping solo for 6 months. Tap a link, see a fridge ranked by what spoils first, create dynamic recipes from what's there, and automagically build a shopping list for the rest. No account.
 
-The problem: cold visitors hit the auth wall before seeing the product. Conversion from homepage was lower than it should have been.
+The problem this fixes: cold visitors hit the auth wall before they ever see the product. Conversion from the homepage was lower than it should have been.
 
-So I rebuilt the entry point. Now anyone can visit app.ok2eat.com/demo, see a pre-loaded fridge with 5 items at varying urgencies, tap any one to get three recipes that use it, and add their own items by hand — no account required.
+Three signals I'm watching this week:
+- Time-on-demo (does the value land in 60 seconds?)
+- Add-by-hand → signup (cheapest signal someone "got it")
+- Recipe-modal → signup (highest-intent moment)
 
-Three things I'm watching:
-- Time-on-demo (PostHog event-stream)
-- Add-by-hand → signup conversion (the cheapest possible signal that someone "got it")
-- Recipe-modal → signup conversion (the highest-intent moment)
+If you've ever built a landing page and wondered whether the auth wall is killing you, this is the answer in one experiment.
 
-If you've ever built a SaaS landing and wondered whether the auth wall is killing you, this is the answer in one experiment.
-
-Demo: app.ok2eat.com/demo
+Free @ app.ok2eat.com/demo
 ```
 
 ---
 
-## Instagram — single post (caption + image direction)
+## Instagram — single post (+2h after X)
 
-**Image direction:** Screenshot of the demo on mobile showing the 5-item ranked list with the green "Sign up to start cooking" header CTA visible. Add a sticker-style overlay: "TRY IT — NO SIGNUP →"
+**Image:** screenshot of `app.ok2eat.com/demo` on mobile (post-stacking-fix). Optional sticker overlay: "FREE — NO SIGNUP →" in green pill.
 
-**Caption:**
+**Caption**
 
 ```
-Most fridge apps gate the good stuff behind a signup screen.
+Most apps make you sign up before they show you anything.
 
-Ok2eat doesn't anymore.
+We flipped it.
 
-Tap the link, see five items pre-loaded in a fake fridge — cilantro expired, salmon tomorrow, spinach 2 days, milk 3 days, beef 4 days. Tap any one to see three recipes that use it before it spoils.
+Tap the link, see a fridge already ranked by what spoils first, create dynamic recipes from what's there, and automagically build a shopping list for the rest.
 
-Want to try adding your own? Type "kale" in the demo — it slots right into the ranking.
+Cilantro expired. Salmon tomorrow. Spinach two days. Tap any one — three recipes use it before it dies. Type "kale" yourself, watch it slot into the ranking.
 
-60 seconds. No account needed.
+60 seconds. No account.
 
 Link in bio → app.ok2eat.com/demo
 
@@ -112,46 +104,50 @@ Link in bio → app.ok2eat.com/demo
 #foodwaste #grocery #mealplanning #budgeting #fridgeorganization #lifehack #sustainableliving #household #cookingathome #appdemo
 ```
 
----
-
-## Facebook — single post
-
-```
-Just shipped a no-signup demo of ok2eat — the app that ranks your fridge by what's about to spoil and tells you what to cook tonight.
-
-Tap the link, see a pre-loaded fridge with 5 real items at different urgencies, get recipes that use the ones about to die. Add an item by hand to see how it slots into the ranking. All without making an account.
-
-Takes about a minute. Free when you do sign up.
-
-→ app.ok2eat.com/demo
-```
+**Linktree / bio swap:** point to `app.ok2eat.com/demo` for 7 days.
 
 ---
 
-## Reddit reply template (for r/Frugal, r/MealPrepSunday, r/foodhacks threads about waste)
-
-Use this when someone's complaining about throwing away groceries or asking for fridge-organization apps. Don't lead with the demo link — answer their question first, then mention.
+## Facebook — single post (+4-6h after IG)
 
 ```
-I built a small iOS + web app for exactly this — ok2eat. It ranks your fridge by what's about to spoil and gives you 3 recipes that use the most urgent items together.
+Most apps make you sign up before they show you anything.
 
-If you want to see how it works without signing up, there's a demo at app.ok2eat.com/demo — pre-loaded fridge, takes 60 seconds. Free when you do sign up, no ads.
+We flipped it. Tap a link, see a fridge ranked by what spoils first, create dynamic recipes from what's there, and automagically build a shopping list for the rest. No account, no card.
 
-Reply to the welcome email with anything broken or confusing — I read same-day. — Greg
+Free @ app.ok2eat.com/demo
 ```
 
 ---
 
-## Hacker News — "Show HN" post (if you want to risk it)
+## Reddit — reply template (organic threads only)
 
-**Title:** `Show HN: A fridge-tracking app you can try without signing up`
-
-**Body:**
+Don't seed threads. Wait for r/Frugal, r/MealPrepSunday, r/foodhacks, r/EatCheapAndHealthy posts about throwing away groceries or asking for fridge-organization apps.
 
 ```
-I've been shipping ok2eat solo for 6 months — iOS + web fridge tracker that ranks items by what spoils first and suggests recipes that use the most urgent items together.
+I build a small iOS + web app for exactly this — ok2eat. It ranks your fridge by what spoils first, suggests recipes that use the most urgent stuff together, and automagically builds a shopping list for what you're missing.
 
-Same problem most SaaS landings have: auth wall before the demo. I rebuilt the entry point this week. app.ok2eat.com/demo loads a fake fridge with 5 items, lets you tap into recipes, lets you add your own item by hand. The conversion gates (scan receipt, save recipe, add to shopping list) are still there — but the parts that demonstrate value are free.
+You can see the whole flow without an account — there's a demo with a pre-loaded fridge at app.ok2eat.com/demo. Takes 60 seconds. Free when you do sign up, no ads.
+
+Reply to the welcome email with anything broken or confusing — I read same day. — Greg
+```
+
+---
+
+## Hacker News — Show HN (Tue/Wed AM Pacific)
+
+**Title**
+
+```
+Show HN: A fridge-tracking app you can try without signing up
+```
+
+**Body**
+
+```
+I've been shipping ok2eat solo for 6 months — iOS + web fridge tracker that ranks items by what spoils first, suggests recipes that use the most urgent ones together, and automagically builds a shopping list for what you're missing.
+
+Same problem most SaaS landings have: auth wall before the demo. Rebuilt the entry point this week. app.ok2eat.com/demo loads a fake fridge with 5 items, lets you tap into recipes, lets you add your own item by hand. The conversion gates (scan receipt, save recipe, add to shopping list) are still there — but the parts that demonstrate value are free.
 
 What I'd love feedback on:
 - Does the value land in 60 seconds?
@@ -166,23 +162,23 @@ Built with React Native + Expo + Supabase + Anthropic Claude (recipe gen). No su
 
 ---
 
-## Email blast (optional — to existing subscribers)
+## Email blast — to subscribers (optional, pending deliverability check)
 
 Subject options:
-- "Try the new demo — no signup required"
-- "Five fake items, sixty seconds"
-- "ok2eat's first no-account tour"
+- `Tap a link, see your fridge ranked — no signup`
+- `60 seconds. Free @ app.ok2eat.com/demo`
+- `The no-account tour of ok2eat`
+
+**Body**
 
 ```
 Hi —
 
-If you've ever wanted to show ok2eat to someone but they wanted to see it before signing up, you can now point them at app.ok2eat.com/demo.
+Most apps make you sign up before they show you anything. We flipped that for ok2eat — there's now a demo you can send anyone, no account needed.
 
-It's a pre-loaded fridge with 5 items at different urgencies. They can tap into recipes, tap into item details, and even add their own items by hand — no account.
+Tap app.ok2eat.com/demo and you'll see a pre-loaded fridge ranked by what spoils first, three recipes per item, and the same shopping-list flow that real users get. You can even add an item by hand and watch it slot into the ranking.
 
-It's also the new "Open the web app" link on the homepage. New visitors land in the demo first, see how it works, then sign up.
-
-If you've got a friend who's been on the fence, this is the link to send them.
+If you've got a friend who's been on the fence about trying ok2eat, this is the link to send them.
 
 Reply to this email with anything broken or confusing — read same day.
 
@@ -191,15 +187,13 @@ Reply to this email with anything broken or confusing — read same day.
 
 ---
 
-## Post timing recommendation
+## Posting cadence
 
-Stagger across 24 hours, not all at once:
+- **Hour 0 (now):** X thread (Typefully or manual), LinkedIn post.
+- **+2h:** Instagram (screenshot + caption).
+- **+4-6h:** Facebook page.
+- **Day 1 morning:** Email blast (skip if deliverability still spotty).
+- **Day 1-3:** Reddit replies on organic threads only — don't seed.
+- **Tue/Wed AM Pacific (Day 5-7):** Hacker News Show HN.
 
-- **Hour 0 (now):** X thread (Typefully schedule), LinkedIn (post live)
-- **Hour 2:** Instagram (single image + caption)
-- **Hour 6:** Facebook page
-- **Day 1 morning:** Email blast to subscribers
-- **Day 1-3:** Reddit replies — wait for organic context (don't seed threads)
-- **Day 3+ (optional):** Hacker News Show HN, ideally Tuesday/Wednesday morning Pacific
-
-The demo URL gets the same UTM-free format everywhere so PostHog's `outbound_web_app_click` + `homepage_demo_click` events stay clean — referrer alone tells the channel story.
+Demo URL is the same everywhere (no UTM) so PostHog's `outbound_web_app_click` + `homepage_demo_click` events stay clean — referrer alone tells the channel story.

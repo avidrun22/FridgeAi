@@ -60,7 +60,7 @@
           e._i.push([i, s, a]);
         }),
         (e.__SV = 1));
-  })(document, window.posthog || []);
+  }(document, window.posthog || []);
 
   // 2) Initialize. Same project key as iOS + web app.
   posthog.init("phc_szxhjw2eQmYYhNGicX3kmNXxdz47Sj7evqx5Quqw8dTY", {

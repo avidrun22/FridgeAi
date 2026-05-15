@@ -6,6 +6,15 @@
 html, body, #root {
   height: 100%;
 }
+/* Bryan Leboff (2026-05-14): Android Chrome was horizontal-scrolling on
+   /fridge. Setting overflow-x: hidden on BOTH html and body — only one
+   alone isn't enough on Android Chrome / iOS Safari when the scroll
+   container picking changes between elements. Children that exceed the
+   viewport (e.g. the 5-tab nav at ~500px) are clipped, then the nav
+   itself scrolls within its own container (see Layout.jsx). */
+html, body {
+  overflow-x: hidden;
+}
 body {
   margin: 0;
   background: #F7FAF7;

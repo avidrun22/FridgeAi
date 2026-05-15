@@ -40,7 +40,12 @@
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-  html { scroll-behavior: smooth; }
+  /* Bryan Leboff (2026-05-14) reported horizontal scroll on Android Chrome.
+     Setting overflow-x: hidden on <body> alone isn't enough — Android Chrome
+     and iOS Safari use <html> as the scroll container in some configurations,
+     so an oversized child can still cause horizontal scroll even when body
+     clips. Setting it on both elements is the documented fix. */
+  html { scroll-behavior: smooth; overflow-x: hidden; }
 
   body {
     background: var(--bg);
