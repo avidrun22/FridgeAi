@@ -260,9 +260,13 @@
         </label>
 
         <button type="submit" id="submit-btn">Get in touch</button>
-
-        <div id="form-msg" class="form-msg" style="display:none;"></div>
       </form>
+
+      <!-- 2026-05-15 — moved outside the <form> because hiding the form on
+           submit also hid the success message (parent display:none cascades
+           to children). Now lives at the same level so it's visible after
+           the form unmounts. -->
+      <div id="form-msg" class="form-msg" style="display:none; margin-top:14px;"></div>
 
       <p class="founder">
         <strong>One more thing.</strong> I&rsquo;m the solo founder of ok2eat
