@@ -26,3 +26,14 @@ body {
 /* Killing the jankiest mobile-Safari behaviors when used as a PWA-ish app */
 input, textarea, button { font-family: inherit; }
 button { cursor: pointer; }
+
+/* Chrome-for-iOS pinch-zoom mitigation (2026-05-14):
+   `touch-action: manipulation` disables the 300ms double-tap-to-zoom
+   timeout AND prevents double-tap from zooming the page on the
+   elements that have it. Applied to everything clickable. We can't
+   block pinch-zoom entirely (Apple requires it for a11y), but this
+   removes the most common accidental-zoom trigger — a user fast-tapping
+   on a row and accidentally double-tapping. */
+button, a, [role="button"], [tabindex] {
+  touch-action: manipulation;
+}

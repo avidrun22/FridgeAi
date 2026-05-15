@@ -3,7 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/icon.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- Chrome-for-iOS user (2026-05-14) reported page zooming + browser
+         nav bars disappearing after a few swipes. Dropped viewport-fit=cover
+         — it makes the page extend into safe-area insets, which on Chrome
+         iOS confuses the auto-hide reveal logic for the top URL bar +
+         bottom toolbar, leaving the user stuck without browser navigation.
+         interactive-widget=resizes-content keeps the layout stable when
+         the on-screen keyboard appears. Apple/Chrome require pinch-zoom
+         to be allowed (a11y), so we don't try to block it — but we add
+         touch-action: manipulation on clickable elements in index.css
+         to reduce accidental zooms from quick double-taps. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
     <meta name="theme-color" content="#16A34A" />
     <meta name="description" content="ok2eat — track your fridge from any device. Less waste, more savings." />
     <title>ok2eat</title>
