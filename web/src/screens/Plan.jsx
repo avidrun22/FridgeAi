@@ -513,6 +513,23 @@ export default function Plan({ user }) {
         <section>
           <div className="flex items-center justify-between mb-3 gap-2">
             <div className="flex items-center gap-2 min-w-0 flex-1">
+              {/* v1.22 — promoted the back-to-picker link from a faint gray
+                  text link in the right action row to a real left-side
+                  chevron button next to the list name. Matches iOS App.js
+                  Plan tab where chevron-back sits left of the title.
+                  Easier to discover when the user lands in a list-detail
+                  view after Add-to-list or Save and wants to see all
+                  their lists again. Only renders when multiple lists
+                  exist; single-list users have no picker to go back to. */}
+              {!showPicker && lists.length > 1 && (
+                <button
+                  onClick={() => setActiveListId(null)}
+                  className="w-7 h-7 rounded-full hover:bg-bg flex items-center justify-center text-accent flex-shrink-0"
+                  aria-label="Back to all lists"
+                >
+                  <span aria-hidden="true" className="text-lg leading-none">‹</span>
+                </button>
+              )}
               <h2 className="text-[11px] font-bold tracking-widest text-textSoft uppercase truncate">
                 {showPicker ? "Shopping Lists" : `// ${(activeList?.name || "shopping list").toUpperCase()}`}
               </h2>
@@ -520,8 +537,7 @@ export default function Plan({ user }) {
                   list name (per Greg, 2026-05-15) and styled like the
                   prominent solid-green "Order N items" button so it
                   reads as a primary action, not a sidekick to the text
-                  links on the right. The text links (Clear checked /
-                  ← All lists / + New list) stay on the right as before. */}
+                  links on the right. */}
               {!showPicker && activeList && (
                 <button
                   onClick={shareActiveList}
@@ -533,11 +549,6 @@ export default function Plan({ user }) {
               )}
             </div>
             <div className="flex items-center gap-3 flex-shrink-0">
-              {!showPicker && lists.length > 1 && (
-                <button onClick={() => setActiveListId(null)} className="text-xs text-textSoft hover:text-accent">
-                  ← All lists
-                </button>
-              )}
               {!showPicker && items.some(i => i.checked) && (
                 <button onClick={clearChecked} className="text-xs text-accent font-semibold hover:underline">
                   Clear checked
