@@ -25,7 +25,18 @@ function isoDaysFromNow(days) {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
   d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  // 2026-05-14 fix — Greg reported items still showing Expired after the
+  // module-load rollover fix. Real root cause: toISOString() formats in
+  // UTC. For users west of UTC (PST, EST, CST, MST), `new Date("YYYY-MM-DD")`
+  // is parsed as UTC midnight — which is the AFTERNOON of the PREVIOUS day
+  // in local time. After setHours(0,0,0,0) it lands on yesterday's
+  // midnight. daysUntil() then returns 0 even when we asked for tomorrow.
+  // Format YYYY-MM-DD from the LOCAL date parts so the ISO string matches
+  // what the user thinks of as "today".
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 // 2026-05-15 fix — Greg reported items showing as Expired after the demo

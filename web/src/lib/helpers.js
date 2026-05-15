@@ -3,7 +3,22 @@
 
 export function daysUntil(isoDate) {
   if (!isoDate) return Infinity;
-  const target = new Date(isoDate);
+  // 2026-05-14 fix — Greg reported demo items showing "Expired" one day
+  // early in PST. Same bug affects every real user west of UTC.
+  // JS spec: date-only strings (YYYY-MM-DD) are parsed as UTC midnight,
+  // which in PST/PDT (UTC-7/-8) lands at 4-5pm the previous day local.
+  // After setHours(0,0,0,0) it zeroes to midnight YESTERDAY in local
+  // time, so daysUntil reports -1 when we expected 0. Parse date-only
+  // strings as LOCAL midnight by splitting into year/month/day parts.
+  // Full ISO timestamps (with T and offset) keep the standard new Date()
+  // path — those carry timezone info already.
+  let target;
+  if (typeof isoDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(isoDate)) {
+    const [y, m, d] = isoDate.split("-").map(Number);
+    target = new Date(y, m - 1, d);
+  } else {
+    target = new Date(isoDate);
+  }
   const now = new Date();
   // Day-precision math: zero-out time so "today" expiry counts as 0 days
   // instead of -0.4 because of clock drift.

@@ -30,6 +30,10 @@ export default function Plan({ user }) {
   const [loadingLists, setLoadingLists] = useState(true);
   const [loadingList, setLoadingList] = useState(false);
   const [err, setErr] = useState(null);
+  // v1.21 #215 — Share toast lives at the top of the screen for ~2.5s
+  // after the user taps Share and we successfully copy the URL or fire
+  // the native share sheet.
+  const [shareToast, setShareToast] = useState(null);
 
   // New-list dialog
   const [showCreateList, setShowCreateList] = useState(false);
@@ -65,7 +69,10 @@ export default function Plan({ user }) {
 
       const { data: l, error: lErr } = await supabase
         .from("shopping_lists")
-        .select("id, name, archived_at, created_at")
+        // v1.21 #215 — pull share_token + is_public_shareable so the
+        // Share button can read existing tokens (no DB round-trip when
+        // re-sharing a list that already has one).
+        .select("id, name, archived_at, created_at, share_token, is_public_shareable")
         .eq("household_id", hh)
         .is("archived_at", null)
         .order("created_at", { ascending: true });
@@ -382,19 +389,12 @@ export default function Plan({ user }) {
     }
   }
 
-  // ─── Recipe seed ────────────────────────────────────────────────────────────
-  // Top 3 most-recent fresh items become the recipe search query. Mirrors the
-  // iOS logic.
-  const recipeIngredients = (fridgeItems || [])
-    .map(i => i.name)
-    .filter(Boolean)
-    .slice(0, 3);
-  const recipeQuery = recipeIngredients.join(" ").trim();
-  const recipeSources = recipeQuery ? [
-    { label: "AllRecipes",  url: `https://www.allrecipes.com/search?q=${encodeURIComponent(recipeQuery)}` },
-    { label: "NYT Cooking", url: `https://cooking.nytimes.com/search?q=${encodeURIComponent(recipeQuery)}` },
-    { label: "Epicurious",  url: `https://www.epicurious.com/search/${encodeURIComponent(recipeQuery)}` },
-  ] : [];
+  // v1.21 — Recipe ideas section removed (iOS dropped these external links
+  // in v1.18 — see #169). Greg flagged the lingering web links 2026-05-15.
+  // Full native Recipes UI parity (v1.19 recipe_bank browser + inventory
+  // match) is tracked under #187 v1.20 — Web at parity with iOS. Until
+  // that lands, the Plan tab is shopping-list-only on web — same as iOS
+  // before v1.19.
 
   // Order picker — runs against unchecked items.
   const unchecked = items.filter(i => !i.checked);
@@ -408,10 +408,82 @@ export default function Plan({ user }) {
   const activeList = lists.find(l => l.id === activeListId);
   const showPicker = !activeListId;
 
+  // v1.21 #215 — Share the active list. Generates a UUID share_token on
+  // first share (and flips is_public_shareable=true), then either fires
+  // the native share sheet (mobile, navigator.share) or copies the URL
+  // to clipboard with a toast confirmation. Subsequent shares reuse the
+  // existing token so the link stays stable for recipients.
+  async function shareActiveList() {
+    if (!activeList) return;
+    let token = activeList.share_token;
+    if (!token || !activeList.is_public_shareable) {
+      // Most browsers expose crypto.randomUUID(); fall back to v4 polyfill.
+      token = (crypto && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+            const r = (Math.random() * 16) | 0;
+            return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+          });
+      const { error } = await supabase
+        .from("shopping_lists")
+        .update({
+          share_token: token,
+          is_public_shareable: true,
+          share_token_created_at: new Date().toISOString(),
+        })
+        .eq("id", activeList.id);
+      if (error) {
+        setShareToast("Couldn't generate share link — please try again.");
+        setTimeout(() => setShareToast(null), 3000);
+        return;
+      }
+      // Update local cache so subsequent shares of this same list reuse
+      // the token instead of regenerating.
+      setLists(prev => prev.map(l =>
+        l.id === activeList.id
+          ? { ...l, share_token: token, is_public_shareable: true }
+          : l));
+      track("shopping_list_share_link_generated", { list_id: activeList.id });
+    }
+    const url = `https://ok2eat.com/lists?t=${token}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: activeList.name,
+          text: `Shopping list: ${activeList.name}`,
+          url,
+        });
+        track("shopping_list_share_link_native_shared", { list_id: activeList.id });
+        return;
+      } catch (_e) {
+        // user canceled / dismissed — fall through to clipboard
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareToast("Link copied — paste anywhere to share.");
+      setTimeout(() => setShareToast(null), 2500);
+      track("shopping_list_share_link_copied", { list_id: activeList.id });
+    } catch (_e) {
+      setShareToast(`Couldn't copy. Link: ${url}`);
+      setTimeout(() => setShareToast(null), 5000);
+    }
+  }
+
   // ─── Render ─────────────────────────────────────────────────────────────────
   return (
     <Layout user={user}>
       <>
+        {/* v1.21 #215 — Share-link toast (auto-dismisses ~2.5s) */}
+        {shareToast && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="fixed top-24 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-full bg-text text-white text-sm font-medium shadow-lg max-w-[90vw] text-center"
+          >
+            {shareToast}
+          </div>
+        )}
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-text tracking-tight">Plan</h1>
           <p className="text-textSoft text-sm mt-0.5">Recipes from your fridge · shopping list</p>
@@ -423,46 +495,38 @@ export default function Plan({ user }) {
           </div>
         )}
 
-        {/* ─── Recipe ideas ─────────────────────────────────────────────────── */}
-        <section className="mb-8">
-          <h2 className="text-[11px] font-bold tracking-widest text-textSoft uppercase mb-3">Recipe Ideas</h2>
-          {recipeSources.length > 0 ? (
-            <>
-              <p className="text-xs text-textSoft mb-2">
-                Based on {recipeIngredients.join(", ")}
-              </p>
-              <div className="space-y-2">
-                {recipeSources.map(src => (
-                  <a
-                    key={src.label}
-                    href={src.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={() => track("plan_recipe_link_tapped", { source: src.label, ingredient_count: recipeIngredients.length })}
-                    className="block rounded-xl border border-border bg-card p-4 hover:border-accent/60 transition"
-                  >
-                    <p className="text-text font-semibold text-sm">{src.label}</p>
-                    <p className="text-textSoft text-xs mt-0.5">Search results for your fridge →</p>
-                  </a>
-                ))}
-              </div>
-            </>
-          ) : (
-            <div className="rounded-xl border border-border bg-card p-4">
-              <p className="text-textSoft text-sm">
-                Add some items to your fridge and we'll suggest recipes based on what you have.
-              </p>
-            </div>
-          )}
-        </section>
+        {/* ─── Recipe ideas removed v1.21 ──────────────────────────────────────
+            iOS dropped the external AllRecipes/NYT/Epicurious search links in
+            v1.18 (#169) when native recipes shipped in the daily digest +
+            in-app recipe sheet. The web copy lingered as a stale parity gap.
+            Full native Recipes UI (recipe_bank browser + inventory match) is
+            #187 v1.20 web parity. Leaving Plan as shopping-list-only here is
+            the right interim — same state iOS was in pre-v1.19. */}
 
         {/* ─── Shopping lists ───────────────────────────────────────────────── */}
         <section>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-[11px] font-bold tracking-widest text-textSoft uppercase">
-              {showPicker ? "Shopping Lists" : `// ${(activeList?.name || "shopping list").toUpperCase()}`}
-            </h2>
-            <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between mb-3 gap-2">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <h2 className="text-[11px] font-bold tracking-widest text-textSoft uppercase truncate">
+                {showPicker ? "Shopping Lists" : `// ${(activeList?.name || "shopping list").toUpperCase()}`}
+              </h2>
+              {/* v1.21 #215 — Share button positioned right next to the
+                  list name (per Greg, 2026-05-15) and styled like the
+                  prominent solid-green "Order N items" button so it
+                  reads as a primary action, not a sidekick to the text
+                  links on the right. The text links (Clear checked /
+                  ← All lists / + New list) stay on the right as before. */}
+              {!showPicker && activeList && (
+                <button
+                  onClick={shareActiveList}
+                  className="px-3 py-1.5 rounded-full bg-accent text-white text-xs font-semibold hover:opacity-90 transition flex items-center gap-1.5 flex-shrink-0 shadow-sm"
+                  aria-label="Share this shopping list"
+                >
+                  <span aria-hidden="true">📤</span> Share
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-3 flex-shrink-0">
               {!showPicker && lists.length > 1 && (
                 <button onClick={() => setActiveListId(null)} className="text-xs text-textSoft hover:text-accent">
                   ← All lists
