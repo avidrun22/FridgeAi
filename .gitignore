@@ -45,3 +45,4 @@ supabase/.temp/
 # generated native folders
 /ios
 /android
+web/vite.config.js.timestamp-*
