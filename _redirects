@@ -6,7 +6,18 @@
 /open  https://apps.apple.com/us/app/ok2eat/id6761730687  302
 /open/* https://apps.apple.com/us/app/ok2eat/id6761730687  302
 
-# v1.19 — Public /scan/ landing page retired. It was a try-it-free receipt
+# v1.21 — Public recipe pages. The iOS Share button on the recipe sheet and
+# the daily digest's recipe deep-links both point at ok2eat.com/recipes/<slug>.
+# iOS users with the app installed hit Universal Links (configured in
+# /.well-known/apple-app-site-association) and never reach Netlify. Everyone
+# else hits Netlify, where this rewrite turns the pretty URL into the
+# query-string form the SPA-style /recipes/index.html reads. Using "rewrite"
+# semantics (status 200) instead of redirect (302) so the URL bar stays clean.
+# Recipe slug shape is restricted to lowercase alphanumeric + hyphens so this
+# can't accidentally intercept /recipes/index.html or future static assets.
+/recipes/:slug   /recipes/index.html?id=:slug   200
+
+
 # scanner that ran without auth, but a failed scan (faded receipt, dark
 # photo, odd format) became a poor first impression. Receipt scan still
 # exists for logged-in users inside the iOS app + web app — we just don't

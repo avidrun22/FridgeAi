@@ -41,7 +41,14 @@ function urgencyScore(item) {
 }
 
 function urgencyBadge(days) {
-  if (days <= 0)  return { text: "Expired",            color: "#DC2626", bg: "#FEE2E2" };
+  // 2026-05-15 — splitting "Expired" (truly past) from "Use today" (expires
+  // today, still safe to eat). Greg flagged the demo's day-0 item reading
+  // "Expired" — that contradicts the whole pitch (don't throw it out, cook
+  // it tonight). Same fix is worth making in the real app too; tracked
+  // for the next pass. The bg + color stay danger-red because today-expiry
+  // is still the most urgent state.
+  if (days < 0)   return { text: "Expired",            color: "#DC2626", bg: "#FEE2E2" };
+  if (days === 0) return { text: "Use today",          color: "#DC2626", bg: "#FEE2E2" };
   if (days === 1) return { text: "Expires tomorrow",   color: "#DC2626", bg: "#FEE2E2" };
   if (days <= 3)  return { text: `${days} days left`,  color: "#EA580C", bg: "#FFEDD5" };
   if (days <= 7)  return { text: `${days} days left`,  color: "#CA8A04", bg: "#FEF9C3" };

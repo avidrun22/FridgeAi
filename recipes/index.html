@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#3E721D">
+  <!-- Public recipe pages — fine to index. Each slug is a unique URL and
+       canonical lives on the rendered page after JS runs (we set the title
+       and meta description dynamically so it shows up properly in OG cards
+       + Search). -->
+  <title>Recipe · ok2eat</title>
+  <meta name="description" content="A recipe from ok2eat — sign up free to track your fridge and see what to cook tonight before food expires.">
+  <link rel="icon" type="image/png" href="/assets/favicon.png">
+  <!-- Apple-touch + Universal Links: ok2eat.com/recipes/* is registered in
+       the marketing-site AASA so iOS users with the app installed get
+       deep-linked straight into the in-app recipe sheet. Everyone else
+       lands on this page. -->
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,700;12..96,800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --green: #3E721D;
+      --green-dim: #2A4F12;
+      --green-soft: #A6D388;
+      --bg: #F0EADC;
+      --surface: #F7F3E8;
+      --text: #1C261C;
+      --text-soft: #6B8264;
+      --muted: #8C9C82;
+      --border: #D1D8C5;
+    }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: 'Bricolage Grotesque', -apple-system, sans-serif; -webkit-font-smoothing: antialiased; }
+    .container { max-width: 680px; margin: 0 auto; padding: 32px 20px 80px; }
+    header { display: flex; align-items: center; gap: 8px; margin-bottom: 28px; }
+    .logo { width: 32px; height: 32px; border-radius: 9px; background: var(--green); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 16px; }
+    .brand { color: var(--green); font-weight: 800; font-size: 18px; letter-spacing: -0.01em; }
+
+    .state { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 28px; margin-bottom: 20px; }
+    .state h1 { margin: 0 0 8px 0; font-size: 26px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.2; }
+    .state .sub { color: var(--text-soft); font-size: 14px; margin: 0; }
+
+    .recipe-hero { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 12px; }
+    .recipe-emoji { font-size: 44px; line-height: 1; flex-shrink: 0; }
+    .recipe-meta { color: var(--text-soft); font-size: 12px; font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.3px; margin-top: 6px; }
+    .recipe-desc { color: var(--text-soft); font-size: 15px; line-height: 1.55; margin: 14px 0 0; }
+
+    .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+    .tag { font-size: 11px; padding: 4px 9px; border-radius: 999px; background: rgba(166,211,136,0.35); color: var(--green-dim); font-weight: 600; }
+
+    .section-label { font-family: 'DM Mono', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--green); font-weight: 700; margin: 20px 0 10px; }
+    ul.ingredients, ol.instructions { margin: 0; padding: 0 0 0 20px; }
+    ul.ingredients li, ol.instructions li { font-size: 15px; line-height: 1.55; margin-bottom: 6px; color: var(--text); }
+    ol.instructions li { margin-bottom: 10px; }
+    .ingredient-amount { color: var(--text-soft); font-size: 13px; }
+
+    .tip { margin-top: 16px; padding: 12px 14px; background: rgba(166,211,136,0.25); border-radius: 12px; color: var(--green-dim); font-size: 14px; line-height: 1.5; font-style: italic; }
+
+    .cta { background: var(--green); color: #fff; padding: 22px; border-radius: 20px; margin-top: 24px; }
+    .cta h2 { margin: 0 0 6px 0; font-size: 19px; font-weight: 800; }
+    .cta p { margin: 0 0 14px 0; opacity: 0.92; font-size: 14px; line-height: 1.5; }
+    .cta-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    @media (max-width: 480px) { .cta-buttons { grid-template-columns: 1fr; } }
+    .btn { display: block; padding: 13px 16px; border-radius: 12px; text-align: center; font-weight: 700; text-decoration: none; font-size: 14px; transition: opacity 0.15s; }
+    .btn:hover { opacity: 0.92; }
+    .btn-primary { background: #fff; color: var(--green); }
+    .btn-secondary { background: transparent; color: #fff; border: 2px solid rgba(255,255,255,0.4); }
+
+    .footer { margin-top: 28px; text-align: center; color: var(--muted); font-size: 12px; }
+    .footer a { color: var(--green); text-decoration: none; }
+    .skeleton { background: linear-gradient(90deg, var(--surface) 0%, var(--bg) 50%, var(--surface) 100%); background-size: 200% 100%; animation: shimmer 1.4s infinite; border-radius: 8px; height: 18px; margin: 10px 0; }
+    @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  </style>
+  <script src="/assets/posthog.js" defer></script>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <a href="/" style="display:flex;align-items:center;gap:8px;text-decoration:none;color:inherit;">
+        <span class="logo">o</span>
+        <span class="brand">ok2eat</span>
+      </a>
+    </header>
+
+    <div id="state-loading" class="state">
+      <h1>Loading recipe…</h1>
+      <div class="skeleton" style="width:60%"></div>
+      <div class="skeleton" style="width:80%"></div>
+      <div class="skeleton" style="width:70%"></div>
+    </div>
+
+    <div id="state-error" class="state" style="display:none;">
+      <h1 id="error-headline">Recipe not found</h1>
+      <p class="sub" id="error-detail">This link may have expired, or the recipe was removed. Sign up free and we'll surface fresh recipes based on what's in your fridge.</p>
+    </div>
+
+    <div id="state-ok" style="display:none;">
+      <div class="state">
+        <div class="recipe-hero">
+          <div class="recipe-emoji" id="recipe-emoji">🍳</div>
+          <div style="flex:1;">
+            <h1 id="recipe-name">—</h1>
+            <p class="recipe-meta" id="recipe-meta"></p>
+            <div class="tags" id="recipe-tags"></div>
+          </div>
+        </div>
+        <p class="recipe-desc" id="recipe-desc"></p>
+
+        <p class="section-label">Ingredients</p>
+        <ul class="ingredients" id="recipe-ingredients"></ul>
+
+        <p class="section-label">Instructions</p>
+        <ol class="instructions" id="recipe-instructions"></ol>
+
+        <div class="tip" id="recipe-tip" style="display:none;"></div>
+      </div>
+
+      <div class="cta">
+        <h2>Want recipes from your fridge?</h2>
+        <p>ok2eat tracks what's in your fridge and suggests recipes from what's about to expire — so you cook the right thing tonight instead of throwing food out Friday.</p>
+        <div class="cta-buttons">
+          <a id="signup-cta" class="btn btn-primary" href="https://app.ok2eat.com/">Try free in your browser</a>
+          <a id="appstore-cta" class="btn btn-secondary" href="https://apps.apple.com/us/app/ok2eat/id6761730687">Download on App Store</a>
+        </div>
+      </div>
+    </div>
+
+    <p class="footer">
+      Shared via <a href="https://ok2eat.com">ok2eat</a> — track your fridge, see what to cook first.
+    </p>
+  </div>
+
+  <script>
+  (function () {
+    // Resolve the recipe slug from one of two URL shapes:
+    //   1. /recipes/<slug>     — pretty URL (Netlify _redirects rewrites this
+    //                            to /recipes/?id=<slug> behind the scenes,
+    //                            so the path stays clean in the browser bar)
+    //   2. /recipes/?id=<slug> — fallback the rewrite produces, and direct
+    //                            entry point if someone hand-types it
+    var url = new URL(window.location.href);
+    var pathParts = url.pathname.split('/').filter(Boolean); // ["recipes", "<slug>?"]
+    var slug = (url.searchParams.get('id') || pathParts[1] || '').toLowerCase().trim();
+    // Strip any trailing query-string remnant from the path-segment form.
+    if (slug.indexOf('?') !== -1) slug = slug.split('?')[0];
+    var slug_re = /^[a-z0-9][a-z0-9-]{0,99}$/i;
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function showError(headline, detail) {
+      document.getElementById('state-loading').style.display = 'none';
+      var errEl = document.getElementById('state-error');
+      if (headline) document.getElementById('error-headline').textContent = headline;
+      if (detail)   document.getElementById('error-detail').textContent   = detail;
+      errEl.style.display = 'block';
+    }
+
+    function showOk(data) {
+      var loading = document.getElementById('state-loading');
+      var ok      = document.getElementById('state-ok');
+      loading.style.display = 'none';
+
+      var r = data.recipe || {};
+
+      // Page-level metadata for OG cards + Search results. Title becomes
+      // "Chicken Parmesan — recipe from ok2eat"; description pulls from
+      // the recipe.description when present.
+      document.title = (r.name || 'Recipe') + ' — recipe from ok2eat';
+      if (r.description) {
+        var m = document.querySelector('meta[name="description"]');
+        if (m) m.setAttribute('content', r.description);
+      }
+
+      document.getElementById('recipe-emoji').textContent = r.emoji || '🍳';
+      document.getElementById('recipe-name').textContent  = r.name  || 'Recipe';
+
+      var metaBits = [];
+      if (r.time)        metaBits.push(r.time);
+      if (r.difficulty)  metaBits.push(r.difficulty);
+      if (r.meal_type)   metaBits.push(r.meal_type);
+      if (r.cuisine)     metaBits.push(r.cuisine);
+      document.getElementById('recipe-meta').textContent = metaBits.join(' · ');
+
+      var tagsEl = document.getElementById('recipe-tags');
+      (r.dietary_tags || []).forEach(function (t) {
+        var el = document.createElement('span');
+        el.className = 'tag';
+        el.textContent = String(t).replace(/_/g, ' ');
+        tagsEl.appendChild(el);
+      });
+
+      var descEl = document.getElementById('recipe-desc');
+      if (r.description) descEl.textContent = r.description;
+      else descEl.style.display = 'none';
+
+      var ingEl = document.getElementById('recipe-ingredients');
+      (r.ingredients || []).forEach(function (ing) {
+        var li = document.createElement('li');
+        if (typeof ing === 'object' && ing !== null) {
+          li.appendChild(document.createTextNode(ing.item || ''));
+          if (ing.amount) {
+            var amt = document.createElement('span');
+            amt.className = 'ingredient-amount';
+            amt.textContent = ' — ' + ing.amount;
+            li.appendChild(amt);
+          }
+        } else {
+          li.textContent = String(ing);
+        }
+        ingEl.appendChild(li);
+      });
+
+      var instrEl = document.getElementById('recipe-instructions');
+      (r.instructions || []).forEach(function (step) {
+        var li = document.createElement('li');
+        li.textContent = step;
+        instrEl.appendChild(li);
+      });
+
+      if (r.tip) {
+        var tipEl = document.getElementById('recipe-tip');
+        tipEl.textContent = '💡 ' + r.tip;
+        tipEl.style.display = 'block';
+      }
+
+      // Tag the CTAs with the recipe slug so we can attribute downstream
+      // signups in PostHog.
+      var signup = document.getElementById('signup-cta');
+      signup.href = 'https://app.ok2eat.com/?utm_source=recipe_share&utm_medium=web&utm_campaign=' + encodeURIComponent(slug);
+      signup.addEventListener('click', function () {
+        if (window.posthog) window.posthog.capture('shared_recipe_signup_cta_clicked', { slug: slug, recipe_name: r.name });
+      });
+      var appstore = document.getElementById('appstore-cta');
+      appstore.addEventListener('click', function () {
+        if (window.posthog) window.posthog.capture('shared_recipe_download_cta_clicked', { slug: slug, recipe_name: r.name });
+      });
+
+      ok.style.display = 'block';
+
+      if (window.posthog) {
+        window.posthog.capture('shared_recipe_viewed', {
+          slug:           slug,
+          recipe_id:      r.id,
+          recipe_name:    r.name,
+          meal_type:      r.meal_type,
+          referrer:       document.referrer || null,
+        });
+      }
+    }
+
+    if (!slug || !slug_re.test(slug)) {
+      showError('Recipe not found', 'This link doesn’t point to a valid recipe. Browse ok2eat’s recipes by signing up free below.');
+      return;
+    }
+
+    // Hardcoded — same anon key as lists/index.html. Marketing site has no
+    // build step that injects env vars.
+    var ENDPOINT = 'https://qemarhvgeuzhlwybmbie.supabase.co/functions/v1/get-public-recipe?slug=' + encodeURIComponent(slug);
+    var ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlbWFyaHZnZXV6aGx3eWJtYmllIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDU4NjQ2NTUsImV4cCI6MjA2MTQ0MDY1NX0.k0Y5SMP3dgevuHi67E5LZP5OcfDeexQZf5N3jvkz28Y';
+
+    fetch(ENDPOINT, {
+      headers: { apikey: ANON_KEY, Authorization: 'Bearer ' + ANON_KEY },
+    })
+      .then(function (r) {
+        if (r.status === 410) {
+          // Daily-cache recipe (personalized to original recipient). The
+          // sharer didn't realize this isn't shareable — show that
+          // explicitly rather than a generic "not found".
+          showError(
+            'This recipe was personalized',
+            'It was generated from someone’s fridge, so it isn’t a recipe we can show you out of context. Sign up free and we’ll surface recipes from yours.'
+          );
+          throw new Error('expired_personalized');
+        }
+        if (!r.ok) throw new Error('http ' + r.status);
+        return r.json();
+      })
+      .then(showOk)
+      .catch(function (err) {
+        if (err && err.message === 'expired_personalized') return; // already shown
+        console.error('Recipe fetch failed', err);
+        showError();
+      });
+  })();
+  </script>
+</body>
+</html>

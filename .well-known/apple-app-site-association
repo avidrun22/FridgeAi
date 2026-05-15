@@ -4,7 +4,8 @@
       {
         "appIDs": ["VU4973B972.com.gregorygoldberg.ok2eat"],
         "components": [
-          { "/": "/open*", "comment": "Email digest 'Open ok2eat' button" }
+          { "/": "/open*",     "comment": "Email digest 'Open ok2eat' button" },
+          { "/": "/recipes/*", "comment": "v1.21 — Recipe deep-links (digest links, iOS Share button). Public /recipes/{slug}.html page is the fallback for non-iOS recipients." }
         ]
       }
     ]

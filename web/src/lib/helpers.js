@@ -34,7 +34,12 @@ export function expiryColor(days) {
 }
 
 export function expiryLabel(days) {
-  if (days <= 0) return "Expired";
+  // 2026-05-15 — split day-0 from negative days. An item expiring today is
+  // not yet expired — it's still safe and is exactly the one we want the
+  // user to cook tonight. Labeling it "Expired" contradicts the whole
+  // pitch (don't toss it — use it). Matches the demo's urgencyBadge split.
+  if (days < 0)   return "Expired";
+  if (days === 0) return "Use today";
   if (days === 1) return "Expires tomorrow";
   return `Expires in ${days} days`;
 }

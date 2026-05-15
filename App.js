@@ -1041,7 +1041,8 @@ function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse
             <Text style={{ fontSize: 72 }}>{inferEmoji(name || item.name, emojiMap[category] || item.emoji)}</Text>
             {editing ? <TextInput style={[s.input, { textAlign: "center", fontSize: 18, fontWeight: "700", marginTop: 12, marginBottom: 0, width: "100%" }]} value={name} onChangeText={setName} /> : <Text style={[s.pageTitle, { textAlign: "center", marginTop: 12, fontSize: 22 }]}>{item.name}</Text>}
             <View style={[s.expiryBadge, { backgroundColor: color + "22", borderColor: color + "55", marginTop: 10 }]}>
-              <Text style={[s.expiryText, { color, fontSize: 13 }]}>{days <= 0 ? "Expired" : days === 1 ? "Expires tomorrow" : `Expires in ${days} days`}</Text>
+              {/* v1.21 2026-05-15 — day-0 reads "Use today" instead of "Expired"; an item expiring today is still safe to cook tonight. Same split shipped in web helpers + EatMeFirst + Demo. */}
+              <Text style={[s.expiryText, { color, fontSize: 13 }]}>{days < 0 ? "Expired" : days === 0 ? "Use today" : days === 1 ? "Expires tomorrow" : `Expires in ${days} days`}</Text>
             </View>
             {/* v1.16 — dual-date: when the user's expiry is conservative
                 relative to USDA FoodKeeper's window, surface the gap. Only
@@ -1784,7 +1785,8 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
                       {item.barcode && <Text style={[s.monoText, { color: T.muted, fontSize: 10, marginTop: 2 }]}>#{item.barcode}</Text>}
                     </View>
                     <View style={{ alignItems: "flex-end", gap: 8 }}>
-                      <View style={[s.expiryBadge, { backgroundColor: color + "22", borderColor: color + "55" }]}><Text style={[s.expiryText, { color }]}>{days <= 0 ? "Expired" : days === 1 ? "1 day" : `${days}d`}</Text></View>
+                      {/* v1.21 2026-05-15 — compact-badge variant. Day-0 collapses to "Today" since "Use today" is too wide for the row-trailing pill; "Expired" stays for truly past items. */}
+                      <View style={[s.expiryBadge, { backgroundColor: color + "22", borderColor: color + "55" }]}><Text style={[s.expiryText, { color }]}>{days < 0 ? "Expired" : days === 0 ? "Today" : days === 1 ? "1 day" : `${days}d`}</Text></View>
                       {!selectMode && <Text style={{ color: T.muted, fontSize: 12 }}>›</Text>}
                     </View>
                   </TouchableOpacity>
@@ -2414,7 +2416,11 @@ function urgencyScoreIOS(item) {
   return d + spoil;
 }
 function urgencyBadgeIOS(days) {
-  if (days <= 0)  return { text: "Expired",          color: T.danger, bg: "rgba(220,38,38,0.12)" };
+  // v1.21 2026-05-15 — "Use today" for day-0 (still safe), "Expired" only
+  // for truly past items. Same split as web helpers.expiryLabel +
+  // EatMeFirst.urgencyBadge + Demo.urgencyBadge.
+  if (days < 0)   return { text: "Expired",          color: T.danger, bg: "rgba(220,38,38,0.12)" };
+  if (days === 0) return { text: "Use today",        color: T.danger, bg: "rgba(220,38,38,0.12)" };
   if (days === 1) return { text: "Expires tomorrow", color: T.danger, bg: "rgba(220,38,38,0.12)" };
   if (days <= 3)  return { text: `${days} days left`, color: T.warn,  bg: "rgba(234,88,12,0.12)" };
   if (days <= 7)  return { text: `${days} days left`, color: "#CA8A04", bg: "rgba(202,138,4,0.12)" };
@@ -6533,11 +6539,41 @@ function PlanScreen({ items, householdId, onOpenRecipeId, onOpenSavedRecipe, lis
                       </Text>
                     )}
                   </View>
+                  {/* v1.21 — Share button on the saved-recipe sheet, mirrors
+                      the deep-link sheet placement (left of close). Uses
+                      source_recipe_id when present (bank-slug recipe with a
+                      public URL); falls back to no-share for AI-generated
+                      saved recipes that don't have a stable public ID. */}
+                  {openSavedRecipe && openSavedRecipe.id && !/^\d{8}-/.test(String(openSavedRecipe.id)) && (
+                    <TouchableOpacity
+                      onPress={async () => {
+                        const recipeId = openSavedRecipe.id;
+                        const url = `https://ok2eat.com/recipes/${encodeURIComponent(recipeId)}?utm_source=share&utm_medium=ios_app&utm_campaign=recipe_share`;
+                        try {
+                          const result = await Share.share({
+                            message: `${openSavedRecipe.name} — recipe from ok2eat\n${url}`,
+                            url,
+                            title: openSavedRecipe.name,
+                          });
+                          if (result.action === Share.sharedAction) {
+                            track("recipe_shared", { name: openSavedRecipe.name, recipe_id: recipeId, source: "saved_sheet" });
+                          }
+                        } catch (e) {
+                          console.warn("share saved recipe:", e?.message);
+                        }
+                      }}
+                      hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                      accessibilityLabel="Share recipe"
+                      style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: T.bg, alignItems: "center", justifyContent: "center", marginLeft: 12 }}
+                    >
+                      <Ionicons name="share-outline" size={20} color={T.text} />
+                    </TouchableOpacity>
+                  )}
                   <TouchableOpacity
                     onPress={() => setOpenSavedRecipe(null)}
                     hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                     accessibilityLabel="Close recipe"
-                    style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: T.bg, alignItems: "center", justifyContent: "center", marginLeft: 12 }}
+                    style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: T.bg, alignItems: "center", justifyContent: "center", marginLeft: 8 }}
                   >
                     <Ionicons name="close" size={20} color={T.text} />
                   </TouchableOpacity>
@@ -8391,6 +8427,40 @@ export default function App() {
                   </Text>
                 )}
               </View>
+              {/* v1.21 — Share button. Sits LEFT of the heart per Greg's spec.
+                  Public URL is https://ok2eat.com/recipes/{id} — same shape
+                  used by the email digest deep-links. iOS recipients with the
+                  app installed get Universal Link → opens the recipe sheet;
+                  everyone else lands on the public recipe page (built in
+                  /recipes/ on the marketing site). Daily-cache recipe IDs
+                  (YYYYMMDD-…-N) are per-user and won't resolve publicly, so
+                  we only show Share for recipes whose `id` looks like a bank
+                  slug (no date prefix). */}
+              {deepLinkRecipe && deepLinkRecipe.id && !/^\d{8}-/.test(String(deepLinkRecipe.id)) && (
+                <TouchableOpacity
+                  onPress={async () => {
+                    const recipeId = deepLinkRecipe.id;
+                    const url = `https://ok2eat.com/recipes/${encodeURIComponent(recipeId)}?utm_source=share&utm_medium=ios_app&utm_campaign=recipe_share`;
+                    try {
+                      const result = await Share.share({
+                        message: `${deepLinkRecipe.name} — recipe from ok2eat\n${url}`,
+                        url, // iOS-specific; Android/web ignore
+                        title: deepLinkRecipe.name,
+                      });
+                      if (result.action === Share.sharedAction) {
+                        track("recipe_shared", { name: deepLinkRecipe.name, recipe_id: recipeId });
+                      }
+                    } catch (e) {
+                      console.warn("share recipe:", e?.message);
+                    }
+                  }}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  accessibilityLabel="Share recipe"
+                  style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: T.bg, alignItems: "center", justifyContent: "center", marginLeft: 12 }}
+                >
+                  <Ionicons name="share-outline" size={20} color={T.text} />
+                </TouchableOpacity>
+              )}
               {/* v1.18 — heart toggle. Hidden until the recipe loads. */}
               {deepLinkRecipe && (
                 <TouchableOpacity
@@ -8428,7 +8498,7 @@ export default function App() {
                   }}
                   hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                   accessibilityLabel={deepLinkRecipeSavedId ? "Remove from saved" : "Save recipe"}
-                  style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: T.bg, alignItems: "center", justifyContent: "center", marginLeft: 12 }}
+                  style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: T.bg, alignItems: "center", justifyContent: "center", marginLeft: 8 }}
                 >
                   <Ionicons
                     name={deepLinkRecipeSavedId ? "heart" : "heart-outline"}

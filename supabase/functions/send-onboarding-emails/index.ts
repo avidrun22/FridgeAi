@@ -241,9 +241,9 @@ const TPL_D0 = `<!DOCTYPE html>
               </p>
               <p style="margin:0 0 8px 0;">Here's how ok2eat works:</p>
               <ul style="margin:0 0 16px 0; padding-left:20px;">
-                <li style="margin:0 0 6px 0;">Scan items into your fridge — barcode or receipt photo.</li>
-                <li style="margin:0 0 6px 0;">We track shelf life using USDA FoodKeeper data, the most accurate source we know of.</li>
-                <li style="margin:0 0 6px 0;">You get a heads-up the day before something goes bad — plus recipes for whatever's about to expire.</li>
+                <li style="margin:0 0 6px 0;"><strong>Snap a receipt.</strong> Our AI reads every line and fills your fridge in seconds — each item gets a smart shelf-life date from USDA FoodKeeper data (950+ foods).</li>
+                <li style="margin:0 0 6px 0;"><strong>Open Eat Me First.</strong> Your fridge already ranked by what spoils soonest. Tap any item for three recipes that use it, plus the four next-most-urgent items alongside.</li>
+                <li style="margin:0 0 6px 0;"><strong>Build a shopping list automagically.</strong> Pick a recipe and only the missing ingredients hit your list — no more buying spinach you already have.</li>
               </ul>
               <p style="margin:0 0 24px 0;">
                 The fastest way to feel the difference is to scan one thing right now. Open the app and point your camera at whatever's closest in your fridge.
@@ -269,8 +269,8 @@ const TPL_D0 = `<!DOCTYPE html>
           <!-- PS -->
           <tr>
             <td style="padding:24px 32px 8px 32px; font-family:'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:16px; line-height:1.6; color:#1C261C;">
-              <p style="margin:0 0 12px 0;">Prefer to start with your last grocery receipt? Receipt OCR adds 10–20 items in one shot — handy after a big shop.</p>
-              <p style="margin:24px 0 0 0; color:#1C261C;">— Greg<br>founder, ok2eat</p>
+              <p style="margin:0 0 12px 0;">Prefer to start with your last grocery receipt? Snap a photo and we read every line — a 30-item haul lands in seconds.</p>
+              <p style="margin:24px 0 0 0; color:#1C261C;">Reply to any of our emails with anything broken or confusing — read same day.<br><br>— Greg<br>founder, ok2eat</p>
             </td>
           </tr>
 
@@ -284,7 +284,7 @@ const TPL_D0 = `<!DOCTYPE html>
           <!-- P.S. block -->
           <tr>
             <td style="padding:16px 32px 28px 32px; font-family:'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:14px; line-height:1.6; color:#3E721D;">
-              <p style="margin:0;"><strong>P.S.</strong> Our shelf-life directory at <a href="https://ok2eat.com/shelf-life/" style="color:#3E721D;">ok2eat.com/shelf-life</a> covers 660 foods with USDA numbers — free, no account needed. Useful for one-off "is this still good?" texts.</p>
+              <p style="margin:0;"><strong>P.S.</strong> Our shelf-life directory at <a href="https://ok2eat.com/shelf-life/" style="color:#3E721D;">ok2eat.com/shelf-life</a> covers 950+ foods with USDA numbers — free, no account needed. Useful for one-off "is this still good?" texts.</p>
             </td>
           </tr>
 
@@ -417,7 +417,7 @@ const TPL_D2 = `<!DOCTYPE html>
           <tr>
             <td style="padding:24px 32px 4px 32px; font-family:'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:16px; line-height:1.6; color:#1C261C;">
               <p style="margin:0;">Less than two minutes, promise.</p>
-              <p style="margin:20px 0 0 0;">— Greg<br>founder, ok2eat</p>
+              <p style="margin:20px 0 0 0;">Reply to any of our emails with anything broken or confusing — read same day.<br><br>— Greg<br>founder, ok2eat</p>
             </td>
           </tr>
 
@@ -499,7 +499,7 @@ const TPL_D5 = `<!DOCTYPE html>
           <tr>
             <td style="padding:8px 32px 0 32px;">
               <h1 style="margin:0; font-family:'Georgia', serif; font-size:28px; line-height:1.25; color:#1C261C; font-weight:700; letter-spacing:-0.5px;">
-                Scan once. We'll handle the rest.
+                Scan once. See what to cook tonight.
               </h1>
             </td>
           </tr>
@@ -528,17 +528,17 @@ const TPL_D5 = `<!DOCTYPE html>
 
                     <div style="margin-bottom:14px;">
                       <span style="font-family:'DM Mono', 'Courier New', monospace; font-size:13px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#2A4F12;">01 &nbsp;·&nbsp; Scan</span>
-                      <div style="font-size:16px; line-height:1.65; margin-top:4px;">Barcode for one-off items, receipt photo for the whole haul. We pull the product info and assign a shelf-life window from USDA FoodKeeper data.</div>
+                      <div style="font-size:16px; line-height:1.65; margin-top:4px;">Barcode for one-off items, receipt photo for the whole haul. We pull the product info and assign a shelf-life window from USDA FoodKeeper data — 950+ foods covered.</div>
                     </div>
 
                     <div style="margin-bottom:14px;">
-                      <span style="font-family:'DM Mono', 'Courier New', monospace; font-size:13px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#2A4F12;">02 &nbsp;·&nbsp; Alert</span>
-                      <div style="font-size:16px; line-height:1.65; margin-top:4px;">The day before something's about to turn, you get a ping. Not a generic "your fridge needs you" — a specific "the spinach you bought Monday should get used today or tomorrow."</div>
+                      <span style="font-family:'DM Mono', 'Courier New', monospace; font-size:13px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#2A4F12;">02 &nbsp;·&nbsp; Eat Me First</span>
+                      <div style="font-size:16px; line-height:1.65; margin-top:4px;">Every item ranked by urgency, with the chicken that expires tomorrow at the top. Not a generic "your fridge needs you" — a specific, ordered list of what to eat now.</div>
                     </div>
 
                     <div>
-                      <span style="font-family:'DM Mono', 'Courier New', monospace; font-size:13px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#2A4F12;">03 &nbsp;·&nbsp; Recipe</span>
-                      <div style="font-size:16px; line-height:1.65; margin-top:4px;">Tap the alert and we'll show you a recipe that uses the expiring item — and ideally a few others you already have. The recipes are a feature, not the headline; the headline is you didn't throw the spinach away.</div>
+                      <span style="font-family:'DM Mono', 'Courier New', monospace; font-size:13px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#2A4F12;">03 &nbsp;·&nbsp; Recipe → shopping list</span>
+                      <div style="font-size:16px; line-height:1.65; margin-top:4px;">Tap any item for three recipes that use it. Pick one, and only the missing ingredients hit your shopping list — no more buying spinach you already have.</div>
                     </div>
 
                   </td>
@@ -551,7 +551,7 @@ const TPL_D5 = `<!DOCTYPE html>
           <tr>
             <td style="padding:20px 32px 0 32px;">
               <div style="border-left:3px solid #A6D388; padding:8px 16px; font-family:'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:16px; line-height:1.6; color:#1C261C; font-style:italic;">
-                Example: <span style="font-style:normal;">scan a tub of Greek yogurt on Sunday → ping Wednesday saying "3 days left" → tap into a parfait recipe that also uses the strawberries from the same shop.</span>
+                Example: <span style="font-style:normal;">scan a tub of Greek yogurt → it slots into Eat Me First by urgency → tap it for a parfait recipe that also uses the strawberries from the same shop.</span>
               </div>
             </td>
           </tr>
@@ -574,8 +574,8 @@ const TPL_D5 = `<!DOCTYPE html>
           <!-- Sign-off -->
           <tr>
             <td style="padding:24px 32px 4px 32px; font-family:'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:16px; line-height:1.6; color:#1C261C;">
-              <p style="margin:0;">Try it this week — scan everything from your next grocery run as you unpack. Usually takes under five minutes. Then forget about it until we ping you.</p>
-              <p style="margin:20px 0 0 0;">— Greg<br>founder, ok2eat</p>
+              <p style="margin:0;">Try it this week — scan everything from your next grocery run as you unpack. Usually takes under five minutes. Then open Eat Me First and see your fridge ranked.</p>
+              <p style="margin:20px 0 0 0;">Reply to any of our emails with anything broken or confusing — read same day.<br><br>— Greg<br>founder, ok2eat</p>
             </td>
           </tr>
 
@@ -589,7 +589,7 @@ const TPL_D5 = `<!DOCTYPE html>
           <!-- Tease next -->
           <tr>
             <td style="padding:16px 32px 28px 32px; font-family:'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:14px; line-height:1.6; color:#3E721D;">
-              <p style="margin:0;"><strong>Next email:</strong> the five less-obvious things in ok2eat — receipt OCR vs. barcode, the public shelf-life directory, and a few others most users don't find on their own.</p>
+              <p style="margin:0;"><strong>Next email:</strong> the five less-obvious things in ok2eat — receipt scan vs. barcode, the public shelf-life directory, and a few others most users don't find on their own.</p>
             </td>
           </tr>
 
@@ -620,7 +620,7 @@ const TPL_D10 = `<!DOCTYPE html>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="x-apple-disable-message-reformatting">
-  <title>5 ok2eat tricks most users miss</title>
+  <title>Five things most ok2eat users haven't tried yet</title>
   <!--[if mso]>
   <style>
     body, table, td, a { font-family: Georgia, 'Times New Roman', serif !important; }
@@ -631,7 +631,7 @@ const TPL_D10 = `<!DOCTYPE html>
 
   <!-- Preview text -->
   <div style="display:none; max-height:0; overflow:hidden; mso-hide:all; font-size:1px; line-height:1px; color:#F0EADC;">
-    Receipt OCR vs barcodes, the public shelf-life directory, and three other things most users don't find on their own.
+    Receipt scanning, the public shelf-life directory, the recipe browser that knows your fridge, and two more.
   </div>
 
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#F0EADC;">
@@ -657,7 +657,7 @@ const TPL_D10 = `<!DOCTYPE html>
           <tr>
             <td style="padding:8px 32px 0 32px;">
               <h1 style="margin:0; font-family:'Georgia', serif; font-size:28px; line-height:1.25; color:#1C261C; font-weight:700; letter-spacing:-0.5px;">
-                Five tricks most users miss.
+                Five things most users haven't tried yet.
               </h1>
             </td>
           </tr>
@@ -677,8 +677,8 @@ const TPL_D10 = `<!DOCTYPE html>
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#EDE6D2; border-left:4px solid #3E721D; border-radius:8px;">
                 <tr>
                   <td style="padding:16px 20px; font-family:'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; color:#1C261C;">
-                    <div style="font-family:'DM Mono', 'Courier New', monospace; font-size:13px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#2A4F12; margin-bottom:4px;">01 &nbsp;·&nbsp; Receipt OCR beats barcodes for big trips</div>
-                    <div style="font-size:16px; line-height:1.65;">Snap a photo of your grocery receipt and we'll add 10–20 items in one shot. Barcodes are great for the one yogurt you grabbed at the corner store; receipts win for the Sunday haul.</div>
+                    <div style="font-family:'DM Mono', 'Courier New', monospace; font-size:13px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#2A4F12; margin-bottom:4px;">01 &nbsp;·&nbsp; Receipt scan beats barcodes for big trips</div>
+                    <div style="font-size:16px; line-height:1.65;">Snap a photo of your grocery receipt — our AI reads every line in about 5 seconds, with categories and shelf-life dates set automatically. Barcodes are great for the one yogurt you grabbed at the corner store; receipts win for the Sunday haul.</div>
                   </td>
                 </tr>
               </table>
@@ -693,7 +693,7 @@ const TPL_D10 = `<!DOCTYPE html>
                   <td style="padding:16px 20px; font-family:'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; color:#1C261C;">
                     <div style="font-family:'DM Mono', 'Courier New', monospace; font-size:13px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#2A4F12; margin-bottom:4px;">02 &nbsp;·&nbsp; The shelf-life directory works without the app</div>
                     <div style="font-size:16px; line-height:1.65;">
-                      <a href="https://ok2eat.com/shelf-life/" style="color:#3E721D; text-decoration:underline;">ok2eat.com/shelf-life</a> covers 660 foods with USDA FoodKeeper numbers. No sign-in. Bookmark it on your phone for the "is this still good?" texts from your partner standing in front of the fridge.
+                      <a href="https://ok2eat.com/shelf-life/" style="color:#3E721D; text-decoration:underline;">ok2eat.com/shelf-life</a> covers 950+ foods with USDA FoodKeeper numbers. No sign-in. Bookmark it on your phone for the "is this still good?" texts from your partner standing in front of the fridge.
                     </div>
                   </td>
                 </tr>
@@ -707,8 +707,8 @@ const TPL_D10 = `<!DOCTYPE html>
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#EDE6D2; border-left:4px solid #3E721D; border-radius:8px;">
                 <tr>
                   <td style="padding:16px 20px; font-family:'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; color:#1C261C;">
-                    <div style="font-family:'DM Mono', 'Courier New', monospace; font-size:13px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#2A4F12; margin-bottom:4px;">03 &nbsp;·&nbsp; Use the web app on the laptop, the iOS app on the move</div>
-                    <div style="font-size:16px; line-height:1.65;">Same account, both surfaces. The web version is handy for meal-planning at the kitchen counter on a Sunday; the iOS app is for grocery aisles and quick scans.</div>
+                    <div style="font-family:'DM Mono', 'Courier New', monospace; font-size:13px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#2A4F12; margin-bottom:4px;">03 &nbsp;·&nbsp; The recipe browser knows what's already in your fridge</div>
+                    <div style="font-size:16px; line-height:1.65;">Open the Plan tab, pick a cuisine (Italian, Mexican, Thai, and 9 more), and every recipe card shows which ingredients you already have. Tap one → only the missing items hit your shopping list. No more buying spinach twice.</div>
                   </td>
                 </tr>
               </table>
@@ -750,7 +750,7 @@ const TPL_D10 = `<!DOCTYPE html>
                 <tr>
                   <td bgcolor="#3E721D" style="border-radius:8px;">
                     <a href="{{cta_url}}" target="_blank" style="display:inline-block; padding:14px 24px; font-family:'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:16px; font-weight:600; color:#F7F3E8; text-decoration:none; border-radius:8px;">
-                      Open the app
+                      See what's expiring tonight →
                     </a>
                   </td>
                 </tr>
@@ -762,7 +762,7 @@ const TPL_D10 = `<!DOCTYPE html>
           <tr>
             <td style="padding:24px 32px 28px 32px; font-family:'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:16px; line-height:1.6; color:#1C261C;">
               <p style="margin:0;">Thanks for sticking with ok2eat through the first ten days. The boring secret is: the app gets noticeably better the more you scan. There's no shortcut.</p>
-              <p style="margin:20px 0 0 0;">— Greg<br>founder, ok2eat</p>
+              <p style="margin:20px 0 0 0;">Reply to any of our emails with anything broken or confusing — read same day.<br><br>— Greg<br>founder, ok2eat</p>
             </td>
           </tr>
 
@@ -897,9 +897,10 @@ const TPL_QUICK_START = `<!DOCTYPE html>
           <!-- Founder note -->
           <tr>
             <td style="padding:20px 32px 28px 32px; font-family:'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, sans-serif; font-size:14px; line-height:1.6; color:#3A4A38;">
-              <p style="margin:0;">
+              <p style="margin:0 0 16px 0;">
                 Once you've added a handful of items, open the new <strong>Eat Me First</strong> tab — it ranks your fridge by urgency and suggests three recipes for whatever's closest to spoiling. That's the moment ok2eat starts paying you back.
               </p>
+              <p style="margin:0; color:#1C261C;">Reply to any of our emails with anything broken or confusing — read same day.<br><br>— Greg<br>founder, ok2eat</p>
             </td>
           </tr>
 
@@ -1016,9 +1017,10 @@ const TPL_TRY_RECEIPT = `<!DOCTYPE html>
 
           <tr>
             <td style="padding:20px 32px 28px 32px; font-family:'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, sans-serif; font-size:14px; line-height:1.6; color:#3A4A38;">
-              <p style="margin:0;">
+              <p style="margin:0 0 16px 0;">
                 No receipt handy? The barcode scanner works for one item at a time. Either way, the more ok2eat knows about your fridge, the more useful it gets at the 6pm <em>"what should we eat?"</em> moment.
               </p>
+              <p style="margin:0; color:#1C261C;">Reply to any of our emails with anything broken or confusing — read same day.<br><br>— Greg<br>founder, ok2eat</p>
             </td>
           </tr>
 
