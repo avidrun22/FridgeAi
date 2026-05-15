@@ -148,6 +148,71 @@ shortly after. You are doing good man! I like it." — v1.17's
 auto-create-user_settings + Resend confirmation flow + onboarding email
 sequence are landing well with real users.
 
+---
+
+**2026-05-15 — B2B opportunity surfaced on r/InventoryManagement.**
+Post from Darkflame1O (4d ago): "Expiration Date Tracking (With Toast
+Retail Integration?)". Small family-run grocery store upscaling their
+warehouse inventory, needs:
+  - Stock-location tracking in a warehouse
+  - Per-case expiration date tracking + reminders before expiry
+  - Push sales/promotions on expiring stock
+  - Toast Retail POS integration (avoid double-keying SKUs)
+  - Open to a 3rd-party tool if Toast can't do it natively
+
+This is a real adjacent market to ok2eat's consumer ICP. Backend
+(`fridge_items` + expiry + reminders + FoodKeeper) covers ~60% of the
+data model. UI, multi-user roles, location tracking, and POS sync are
+the gaps.
+
+**Effort tiers (do NOT pursue mid-Product-Hunt-launch; capture for
+post-launch evaluation):**
+
+- [ ] **Tier 1 — B2B-lite pilot (~1 week dev).** CSV import of SKUs +
+  expiry dates, Stripe paywall for a Pro tier, simple landing page
+  targeting small grocers. Validates demand with 1-2 paying pilots at
+  $50-100/mo before any bigger investment. No Toast integration —
+  user dual-keys via export from Toast → CSV → ok2eat.
+
+- [ ] **Tier 2 — Real B2B product (~4-6 weeks dev).** Builds on Tier 1
+  with: multi-user roles (staff/manager/owner) on top of
+  `household_members`, audit log of inventory changes, free-form
+  location strings beyond fridge/pantry/freezer, custom reminder
+  windows per category, promotion-suggestion engine ("these 12 SKUs
+  expire in 3 days, here are markdown prompts"), per-location billing.
+  After this, ok2eat stands alone for small grocers / cafes /
+  caterers / juice bars without needing POS integration.
+
+- [ ] **Tier 3 — Full Toast Retail integration (~5-7 weeks dev +
+  2-4 weeks waiting on Toast partner approval).** What Darkflame1O
+  specifically asked for. Requires Toast Developer Partner Program
+  approval (free but enforces partner-quality SLAs + security review),
+  OAuth + API client, two-way inventory sync, webhook subscriptions
+  for real-time updates. Significant commitment with non-trivial
+  ongoing maintenance burden (Toast API changes, idempotency,
+  retry/DLQ).
+
+**Recommended path (in order):**
+
+1. **Reply to the Reddit post** with a low-effort offer: "ok2eat
+   tracks expiry but doesn't integrate with Toast yet — happy to chat
+   about your use case." Costs 5 min, surfaces qualified leads.
+
+2. **Add a "B2B interest" Resend audience** + a one-line link on
+   ok2eat.com footer or `/for-business` landing page. Capture emails
+   from people self-identifying.
+
+3. **Watch the funnel for 4-6 weeks post-Product-Hunt.** If ≥5 small
+   grocers volunteer "yes I'd pay $X/mo," Tier 1 becomes worth a
+   week of dev time. If crickets, ok2eat stays consumer-focused.
+
+**Strategic risk:** B2B is a completely different go-to-market motion
+(cold outreach vs paid social), pricing model ($50-300/mo vs
+$0-10/mo), and support burden (a grocery store down at 8am during
+inventory is a different incident than a consumer email). Pursuing it
+splits the founder's time. Worth pursuing only if signal is strong
+post-PH.
+
 
 
 ---
