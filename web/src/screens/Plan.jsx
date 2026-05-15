@@ -272,14 +272,62 @@ export default function Plan({ user }) {
     /* eslint-disable-line */
   }, [householdId]);
 
-  function openRecipeSheet(recipe, savedRowId = null) {
-    setOpenRecipe(recipe);
+  // v1.22 — open the recipe sheet. The recipe-browse Edge Function only
+  // returns a card-shape payload (id, name, emoji, time, difficulty,
+  // meal_type, cuisine, dietary_tags, description, fridge_overlap_count) —
+  // it leaves out ingredients / instructions / tip. When the user taps a
+  // browse-tab card, we hydrate from recipe_bank by slug before opening
+  // the sheet. Saved cards already carry the full recipe_data blob from
+  // user_recipes_saved, so they open instantly.
+  async function openRecipeSheet(recipe, savedRowId = null) {
     setOpenRecipeSavedRowId(savedRowId);
     track("recipe_sheet_opened", {
       recipe_name: recipe?.name,
       recipe_id: recipe?.id,
       source: savedRowId ? "saved_tab" : recipesTab,
     });
+
+    // If the recipe already has ingredients (Saved tab + cache hits),
+    // open immediately.
+    if (Array.isArray(recipe?.ingredients) && recipe.ingredients.length > 0) {
+      setOpenRecipe(recipe);
+      return;
+    }
+
+    // Card-shape recipe — hydrate from recipe_bank. id IS the slug for
+    // bank recipes per the recipe-browse interface comment.
+    setOpenRecipe(recipe);   // open immediately so user sees the card while we fetch
+    try {
+      const slug = recipe?.slug || recipe?.id;
+      if (!slug || /^\d{8}-/.test(String(slug))) {
+        // Daily-cache id — can't resolve publicly. Leave the card as-is.
+        return;
+      }
+      const { data, error } = await supabase
+        .from("recipe_bank")
+        .select("id, slug, name, emoji, time_minutes, difficulty, meal_type, cuisine, dietary_tags, description, ingredients, instructions, tip")
+        .eq("slug", slug)
+        .maybeSingle();
+      if (error) throw error;
+      if (data) {
+        // Format time_minutes back to "20 min" / "1 hr 30 min" — matches what
+        // the card-shape `time` field provides.
+        const timeStr = (function () {
+          if (!data.time_minutes) return recipe.time || null;
+          if (data.time_minutes < 60) return `${data.time_minutes} min`;
+          const h = Math.floor(data.time_minutes / 60);
+          const m = data.time_minutes % 60;
+          return m > 0 ? `${h} hr ${m} min` : `${h} hr`;
+        })();
+        setOpenRecipe({
+          ...recipe,
+          ...data,
+          time: timeStr,
+        });
+      }
+    } catch (e) {
+      console.warn("[plan-web] hydrate recipe failed:", e?.message || e);
+    }
   }
 
   // Update savedRecipes list when the user heart-toggles in the sheet.
@@ -704,22 +752,37 @@ export default function Plan({ user }) {
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        {currentList.map(r => (
-                          <button
-                            key={r.id || r.slug || r.name}
-                            onClick={() => openRecipeSheet(r)}
-                            className="w-full rounded-xl border border-border bg-card p-3 flex items-start gap-3 text-left hover:border-accent/60 transition"
-                          >
-                            <div className="text-2xl flex-shrink-0">{r.emoji || "🍽️"}</div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-text font-semibold text-sm truncate">{r.name}</p>
-                              <p className="text-textSoft text-xs mt-0.5">
-                                {[r.time, r.difficulty].filter(Boolean).join(" · ")}
-                              </p>
-                            </div>
-                            <span className="text-muted text-xl flex-shrink-0">›</span>
-                          </button>
-                        ))}
+                        {currentList.map(r => {
+                          // v1.22 #187 — "USES N" inventory-match badge.
+                          // The recipe-browse Edge Function returns
+                          // fridge_overlap_count on the Tonight tab (it's
+                          // how the server ranks results). Render as a
+                          // green pill to call out which recipes lean on
+                          // what's already in the user's fridge. Hidden
+                          // when 0 or null (no useful signal there).
+                          const overlap = typeof r.fridge_overlap_count === "number" ? r.fridge_overlap_count : null;
+                          return (
+                            <button
+                              key={r.id || r.slug || r.name}
+                              onClick={() => openRecipeSheet(r)}
+                              className="w-full rounded-xl border border-border bg-card p-3 flex items-start gap-3 text-left hover:border-accent/60 transition"
+                            >
+                              <div className="text-2xl flex-shrink-0">{r.emoji || "🍽️"}</div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-text font-semibold text-sm truncate">{r.name}</p>
+                                <p className="text-textSoft text-xs mt-0.5">
+                                  {[r.time, r.difficulty].filter(Boolean).join(" · ")}
+                                </p>
+                              </div>
+                              {overlap != null && overlap > 0 && (
+                                <span className="text-[10px] font-bold tracking-wider px-2 py-1 rounded-full bg-accent/15 text-accent flex-shrink-0 self-center">
+                                  USES {overlap}
+                                </span>
+                              )}
+                              <span className="text-muted text-xl flex-shrink-0 self-center">›</span>
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
                   </>
