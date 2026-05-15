@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#3E721D">
+  <title>ok2eat for small grocers, cafes, and food retailers</title>
+  <meta name="description" content="Per-case expiry tracking, reminders before stock expires, and promotion suggestions for small food retailers. Built consumer-first — talking to small businesses now to see whether a business tier is worth building.">
+  <meta name="robots" content="index, follow">
+  <link rel="icon" type="image/png" href="/assets/favicon.png">
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --green:       #3E721D;
+      --green-dim:   #2A4F12;
+      --green-soft:  #A6D388;
+      --bg:          #F0EADC;
+      --surface:     #F7F3E8;
+      --text:        #1C261C;
+      --text-soft:   #6B8264;
+      --muted:       #8C9C82;
+      --border:      #D1D8C5;
+      --danger:      #B53D2A;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: 'Bricolage Grotesque', -apple-system, sans-serif; -webkit-font-smoothing: antialiased; line-height: 1.5; }
+    a { color: var(--green); }
+    a:hover { opacity: 0.85; }
+
+    .container { max-width: 760px; margin: 0 auto; padding: 32px 20px 80px; }
+
+    header { display: flex; align-items: center; gap: 8px; margin-bottom: 40px; }
+    .logo { width: 32px; height: 32px; border-radius: 9px; background: var(--green); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 16px; }
+    .brand { color: var(--green); font-weight: 800; font-size: 18px; letter-spacing: -0.01em; }
+
+    .hero h1 { font-size: 36px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; margin: 0 0 14px; }
+    .hero .sub { font-size: 17px; color: var(--text-soft); margin: 0 0 28px; max-width: 620px; }
+    @media (max-width: 540px) {
+      .hero h1 { font-size: 28px; }
+      .hero .sub { font-size: 15px; }
+    }
+
+    .pill { display: inline-block; padding: 4px 10px; border-radius: 999px; background: rgba(166,211,136,0.35); color: var(--green-dim); font-size: 12px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; margin-bottom: 16px; }
+
+    section { margin: 48px 0; }
+    section h2 { font-size: 22px; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 18px; }
+
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 22px; }
+
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    @media (max-width: 540px) { .grid { grid-template-columns: 1fr; } }
+    .grid .card h3 { font-size: 16px; margin: 0 0 6px; font-weight: 800; }
+    .grid .card p { font-size: 14px; color: var(--text-soft); margin: 0; line-height: 1.5; }
+
+    .status-row { display: flex; gap: 12px; align-items: flex-start; padding: 14px 0; border-top: 1px solid var(--border); }
+    .status-row:first-of-type { border-top: none; padding-top: 0; }
+    .status-tag { font-family: 'DM Mono', monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; padding: 3px 8px; border-radius: 6px; flex-shrink: 0; margin-top: 2px; }
+    .status-now { background: rgba(62,114,29,0.12); color: var(--green-dim); }
+    .status-soon { background: rgba(181,61,42,0.10); color: var(--danger); }
+    .status-row p { margin: 0; font-size: 15px; }
+    .status-row p strong { font-weight: 700; }
+    .status-row p span { color: var(--text-soft); font-size: 14px; display: block; margin-top: 2px; }
+
+    form { display: flex; flex-direction: column; gap: 14px; }
+    label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; color: var(--text); }
+    label .req { color: var(--danger); margin-left: 2px; }
+    label .hint { font-weight: 400; color: var(--text-soft); font-size: 12px; }
+    input[type="text"], input[type="email"], input[type="tel"], input[type="number"], select, textarea {
+      width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: #fff; color: var(--text); font-family: inherit; font-size: 14px;
+    }
+    textarea { min-height: 96px; resize: vertical; line-height: 1.4; }
+    .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 540px) { .row-2 { grid-template-columns: 1fr; } }
+
+    button[type="submit"] {
+      margin-top: 8px;
+      padding: 14px 18px;
+      border-radius: 12px;
+      background: var(--green);
+      color: #fff;
+      font-weight: 800;
+      font-size: 15px;
+      border: none;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    button[type="submit"]:hover:not(:disabled) { opacity: 0.92; }
+    button[type="submit"]:disabled { opacity: 0.6; cursor: wait; }
+
+    .form-msg { padding: 14px 16px; border-radius: 12px; font-size: 14px; }
+    .form-msg.success { background: rgba(166,211,136,0.35); color: var(--green-dim); }
+    .form-msg.error { background: rgba(181,61,42,0.10); color: var(--danger); }
+
+    .founder { color: var(--text-soft); font-size: 14px; line-height: 1.55; margin: 32px 0; padding: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+    .founder strong { color: var(--text); }
+
+    footer { margin-top: 56px; text-align: center; color: var(--muted); font-size: 12px; }
+    footer a { color: var(--green); text-decoration: none; }
+  </style>
+  <script src="/assets/posthog.js" defer></script>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <a href="/" style="display:flex;align-items:center;gap:8px;text-decoration:none;color:inherit;">
+        <span class="logo">o</span>
+        <span class="brand">ok2eat</span>
+      </a>
+    </header>
+
+    <section class="hero">
+      <div class="pill">For small food businesses</div>
+      <h1>Stop throwing out cases before you can move them.</h1>
+      <p class="sub">
+        ok2eat tracks per-item expiry and reminds you before stock goes bad —
+        built consumer-first, but the data model fits small grocers, cafes,
+        caterers, and convenience stores. We&rsquo;re talking to operators
+        right now to figure out whether a business tier is worth building.
+        Building reach out for more information about testing and
+        collaboration.
+      </p>
+    </section>
+
+    <section>
+      <h2>What you&rsquo;d get</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>Per-item expiry tracking</h3>
+          <p>Every item has its own best-by date. Add by hand, scan a receipt, or import a CSV from your POS export.</p>
+        </div>
+        <div class="card">
+          <h3>Reminders before stock goes bad</h3>
+          <p>Daily email or push notification with what&rsquo;s expiring in the next 1-7 days. Configurable by category.</p>
+        </div>
+        <div class="card">
+          <h3>USDA-backed shelf life</h3>
+          <p>5,000+ items mapped to the USDA FoodKeeper database. The app knows ground beef lasts 1-2 days in the fridge before you do.</p>
+        </div>
+        <div class="card">
+          <h3>Multi-user access</h3>
+          <p>Your team shares one inventory view. Add a staff member, they see what&rsquo;s on hand. Update items, everyone&rsquo;s synced.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Where we are honestly</h2>
+      <div class="card" style="padding:8px 22px;">
+        <div class="status-row">
+          <span class="status-tag status-now">Today</span>
+          <p>
+            <strong>Per-item expiry, reminders, FoodKeeper lookup, multi-user via households, receipt scan, recipe suggestions.</strong>
+            <span>This is what ok2eat does for ~hundreds of consumer users. You&rsquo;d use the same app with a CSV import path for SKU lists.</span>
+          </p>
+        </div>
+        <div class="status-row">
+          <span class="status-tag status-soon">Next, with pilot input</span>
+          <p>
+            <strong>Per-case tracking, free-form locations, multi-user roles, promotion-suggestion engine, custom reminder windows.</strong>
+            <span>These are 1-6 weeks of dev each. We build them if pilot partners say they&rsquo;d pay for them.</span>
+          </p>
+        </div>
+        <div class="status-row">
+          <span class="status-tag status-soon">Eventually</span>
+          <p>
+            <strong>POS integration (Toast Retail first).</strong>
+            <span>5-7 weeks of dev plus Toast partner-program approval. We commit to building it when ~5 pilots tell us they need it.</span>
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Get on the list</h2>
+      <p style="font-size:14px;color:var(--text-soft);margin:0 0 18px;max-width:620px;">
+        Tell us a bit about your business. We&rsquo;ll reach out to schedule
+        a short call — no sales pitch, just trying to figure out which
+        pieces would actually save you time and money.
+      </p>
+
+      <form id="biz-form" novalidate>
+        <label>
+          Your name
+          <input type="text" name="contact_name" autocomplete="name" maxlength="200">
+        </label>
+
+        <div class="row-2">
+          <label>
+            Email <span class="req">*</span>
+            <input type="email" name="email" required autocomplete="email" maxlength="320">
+          </label>
+          <label>
+            Phone <span class="hint">(optional)</span>
+            <input type="tel" name="phone" autocomplete="tel" maxlength="40">
+          </label>
+        </div>
+
+        <label>
+          Business name <span class="req">*</span>
+          <input type="text" name="business_name" required maxlength="200">
+        </label>
+
+        <div class="row-2">
+          <label>
+            Business type
+            <select name="business_type">
+              <option value="">— Select —</option>
+              <option value="grocery">Grocery / market</option>
+              <option value="cafe">Cafe / coffee shop</option>
+              <option value="restaurant">Restaurant</option>
+              <option value="catering">Catering</option>
+              <option value="juice_bar">Juice bar / smoothie</option>
+              <option value="butcher">Butcher / meat shop</option>
+              <option value="bakery">Bakery</option>
+              <option value="deli">Deli / sandwich shop</option>
+              <option value="convenience">Convenience store</option>
+              <option value="ghost_kitchen">Ghost kitchen</option>
+              <option value="other">Something else</option>
+            </select>
+          </label>
+          <label>
+            POS system
+            <select name="pos_system">
+              <option value="">— Select —</option>
+              <option value="toast">Toast</option>
+              <option value="square">Square</option>
+              <option value="clover">Clover</option>
+              <option value="lightspeed">Lightspeed</option>
+              <option value="aloha">Aloha</option>
+              <option value="shopify_pos">Shopify POS</option>
+              <option value="revel">Revel</option>
+              <option value="other">Other</option>
+              <option value="none">None / spreadsheet</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="row-2">
+          <label>
+            Number of locations
+            <input type="number" name="location_count" min="1" max="10000" step="1" placeholder="1">
+          </label>
+          <label>
+            Roughly how many SKUs?
+            <select name="sku_count_range">
+              <option value="">— Select —</option>
+              <option value="<100">Under 100</option>
+              <option value="100-500">100 - 500</option>
+              <option value="500-1000">500 - 1,000</option>
+              <option value="1000-5000">1,000 - 5,000</option>
+              <option value="5000+">Over 5,000</option>
+            </select>
+          </label>
+        </div>
+
+        <label>
+          What problem are you trying to solve?
+          <span class="hint">A few sentences. What inventory pain is costing you the most right now?</span>
+          <textarea name="description" maxlength="2000" placeholder="e.g. We toss out ~$X of dairy each month because we don't catch best-by dates in time. Currently tracked in a spreadsheet that nobody updates."></textarea>
+        </label>
+
+        <button type="submit" id="submit-btn">Get in touch</button>
+
+        <div id="form-msg" class="form-msg" style="display:none;"></div>
+      </form>
+
+      <p class="founder">
+        <strong>One more thing.</strong> I&rsquo;m the solo founder of ok2eat
+        and the person who&rsquo;ll be reading every submission and replying
+        personally. If you&rsquo;d rather skip the form, email me directly
+        at <a href="mailto:hello@ok2eat.com">hello@ok2eat.com</a> and tell
+        me what you&rsquo;re trying to solve. &mdash; Greg
+      </p>
+    </section>
+
+    <footer>
+      <a href="/">&larr; back to ok2eat for households</a>
+    </footer>
+  </div>
+
+  <script>
+  (function () {
+    var form = document.getElementById('biz-form');
+    var btn  = document.getElementById('submit-btn');
+    var msg  = document.getElementById('form-msg');
+
+    var ENDPOINT = 'https://qemarhvgeuzhlwybmbie.supabase.co/functions/v1/subscribe-business-waitlist';
+    // Anon key is the current legacy anon key (rotated 2026-05-15). Matches
+    // the value in lists/index.html and recipes/index.html.
+    var ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlbWFyaHZnZXV6aGx3eWJtYmllIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2Njc2NTgsImV4cCI6MjA5MDI0MzY1OH0.ejYeJkucIwAWZ7Rf0hcmpIENSnnmXMh4V_nhjXlDQk4';
+
+    function showMsg(text, kind) {
+      msg.textContent = text;
+      msg.className = 'form-msg ' + (kind === 'error' ? 'error' : 'success');
+      msg.style.display = 'block';
+    }
+
+    form.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      msg.style.display = 'none';
+
+      var fd = new FormData(form);
+      var payload = {
+        email:           (fd.get('email') || '').toString().trim(),
+        contact_name:    (fd.get('contact_name') || '').toString().trim(),
+        phone:           (fd.get('phone') || '').toString().trim(),
+        business_name:   (fd.get('business_name') || '').toString().trim(),
+        business_type:   (fd.get('business_type') || '').toString(),
+        pos_system:      (fd.get('pos_system') || '').toString(),
+        sku_count_range: (fd.get('sku_count_range') || '').toString(),
+        location_count:  fd.get('location_count') ? Number(fd.get('location_count')) : null,
+        description:     (fd.get('description') || '').toString().trim(),
+        source:          (document.referrer || '/for-business').slice(0, 200),
+      };
+
+      if (!payload.email || !payload.business_name) {
+        showMsg('Email and business name are required.', 'error');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Sending…';
+
+      fetch(ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type':  'application/json',
+          'apikey':        ANON_KEY,
+          'Authorization': 'Bearer ' + ANON_KEY,
+        },
+        body: JSON.stringify(payload),
+      })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+        .then(function (res) {
+          if (!res.ok) {
+            showMsg(res.body?.error || 'Something went wrong. Try again in a minute.', 'error');
+            btn.disabled = false;
+            btn.textContent = 'Get in touch';
+            return;
+          }
+          if (window.posthog) {
+            window.posthog.capture('business_waitlist_submitted', {
+              business_type: payload.business_type || null,
+              pos_system:    payload.pos_system || null,
+              sku_count:     payload.sku_count_range || null,
+              already_on_list: !!res.body?.already_on_list,
+            });
+          }
+          form.style.display = 'none';
+          msg.className = 'form-msg success';
+          msg.innerHTML = '<strong>Thanks — got it.</strong> Greg will reply to ' + payload.email + ' within a day or two. If you don\'t see anything, check spam or email <a href="mailto:hello@ok2eat.com">hello@ok2eat.com</a> directly.';
+          msg.style.display = 'block';
+          msg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        })
+        .catch(function (e) {
+          console.error('biz waitlist submit', e);
+          showMsg('Network error. Try again, or email hello@ok2eat.com.', 'error');
+          btn.disabled = false;
+          btn.textContent = 'Get in touch';
+        });
+    });
+  })();
+  </script>
+</body>
+</html>
