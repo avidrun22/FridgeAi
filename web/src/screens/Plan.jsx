@@ -4,6 +4,26 @@ import { RETAILERS } from "../lib/constants.js";
 import { track } from "../lib/analytics.js";
 import Modal from "../components/Modal.jsx";
 import Layout from "../components/Layout.jsx";
+import RecipeSheet from "../components/RecipeSheet.jsx";
+
+// v1.22 #187 — cuisine list for the Plan-tab recipe browser. Mirrors
+// CUISINE_PICKER_OPTIONS in App.js. Ordered roughly by recipe_bank size
+// (largest cuisines first) so the most-populated options sit on top of
+// the picker grid.
+const CUISINE_PICKER_OPTIONS = [
+  { key: "italian",        emoji: "🍝", label: "Italian" },
+  { key: "mexican",        emoji: "🌮", label: "Mexican" },
+  { key: "chinese",        emoji: "🥡", label: "Chinese" },
+  { key: "japanese",       emoji: "🍣", label: "Japanese" },
+  { key: "thai",           emoji: "🌶️", label: "Thai" },
+  { key: "indian",         emoji: "🍛", label: "Indian" },
+  { key: "korean",         emoji: "🍱", label: "Korean" },
+  { key: "vietnamese",     emoji: "🍜", label: "Vietnamese" },
+  { key: "mediterranean",  emoji: "🫒", label: "Mediterranean" },
+  { key: "middle_eastern", emoji: "🧆", label: "Middle Eastern" },
+  { key: "french",         emoji: "🥐", label: "French" },
+  { key: "american",       emoji: "🍔", label: "American" },
+];
 
 // Plan tab — full parity with iOS v1.13:
 //  - Recipe search links (AllRecipes / NYT Cooking / Epicurious) seeded from
@@ -59,6 +79,22 @@ export default function Plan({ user }) {
   // Past lists (archived) — collapsed-by-default section in the picker view.
   const [archivedLists, setArchivedLists] = useState([]);
   const [archivedExpanded, setArchivedExpanded] = useState(false);
+
+  // v1.22 #187 web parity — Recipes section. Mirrors iOS PlanScreen v1.19.
+  // Three sub-tabs: Tonight (fridge-aware, ranked by overlap), All Recipes
+  // (cuisine-filtered browse), Saved (user_recipes_saved).
+  const [recipesTab,     setRecipesTab]     = useState("tonight");   // "tonight" | "all" | "saved"
+  const [tonightCuisine, setTonightCuisine] = useState(null);
+  const [browseCuisine,  setBrowseCuisine]  = useState(null);
+  const [tonightRecipes, setTonightRecipes] = useState([]);
+  const [browseRecipes,  setBrowseRecipes]  = useState([]);
+  const [savedRecipes,   setSavedRecipes]   = useState([]);          // [{ id, recipe_data, saved_at, source_recipe_id }]
+  const [loadingRecipes, setLoadingRecipes] = useState(false);
+  const [loadingSaved,   setLoadingSaved]   = useState(false);
+  // openRecipe is the recipe object currently shown in RecipeSheet.
+  // openRecipeSavedRowId hints the heart's filled state for that recipe.
+  const [openRecipe,            setOpenRecipe]            = useState(null);
+  const [openRecipeSavedRowId,  setOpenRecipeSavedRowId]  = useState(null);
 
   async function loadEverything() {
     try {
@@ -174,6 +210,85 @@ export default function Plan({ user }) {
 
   useEffect(() => { loadEverything(); /* eslint-disable-line */ }, []);
   useEffect(() => { if (activeListId) loadItems(activeListId); else setItems([]); /* eslint-disable-line */ }, [activeListId]);
+
+  // v1.22 #187 — recipe loaders. Tonight comes from recipe-browse with
+  // tab=tonight (server ranks by fridge overlap). All Recipes is browse
+  // mode. Saved reads user_recipes_saved client-side. Both Tonight and
+  // All Recipes are gated behind a cuisine pick — once a cuisine is
+  // selected, we filter the loaded list client-side. Loading is cheap
+  // (Edge Function caches) so we re-load on tab switch rather than
+  // memoizing per cuisine.
+  async function loadRecipesForTab(tab) {
+    if (tab === "saved") return;
+    setLoadingRecipes(true);
+    try {
+      const body = { limit: 50 };
+      if (tab === "tonight") {
+        body.tab = "tonight";
+      } else if (tab === "all") {
+        body.tab = "browse";
+      }
+      const { data, error } = await supabase.functions.invoke("recipe-browse", { body });
+      if (error) throw error;
+      const recipes = Array.isArray(data?.recipes) ? data.recipes : [];
+      if (tab === "tonight") setTonightRecipes(recipes);
+      else if (tab === "all") setBrowseRecipes(recipes);
+      track("recipe_browse_tab_view", {
+        tab, result_count: recipes.length, surface: "web_plan",
+      });
+    } catch (e) {
+      console.warn(`[plan-web] loadRecipesForTab(${tab}) failed:`, e?.message || e);
+    } finally {
+      setLoadingRecipes(false);
+    }
+  }
+
+  async function loadSavedRecipes() {
+    if (!user?.id) { setSavedRecipes([]); return; }
+    setLoadingSaved(true);
+    try {
+      const { data, error } = await supabase
+        .from("user_recipes_saved")
+        .select("id, recipe_data, saved_at, source_recipe_id")
+        .order("saved_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      setSavedRecipes(data || []);
+    } catch (e) {
+      console.warn("[plan-web] loadSavedRecipes failed:", e?.message || e);
+      setSavedRecipes([]);
+    } finally {
+      setLoadingSaved(false);
+    }
+  }
+
+  // Initial recipe load. Tonight is the default tab; saved comes along
+  // because the Saved tab is one click away. All Recipes loads on demand
+  // when the user switches tabs.
+  useEffect(() => {
+    if (!householdId) return;
+    loadRecipesForTab("tonight");
+    loadSavedRecipes();
+    /* eslint-disable-line */
+  }, [householdId]);
+
+  function openRecipeSheet(recipe, savedRowId = null) {
+    setOpenRecipe(recipe);
+    setOpenRecipeSavedRowId(savedRowId);
+    track("recipe_sheet_opened", {
+      recipe_name: recipe?.name,
+      recipe_id: recipe?.id,
+      source: savedRowId ? "saved_tab" : recipesTab,
+    });
+  }
+
+  // Update savedRecipes list when the user heart-toggles in the sheet.
+  // null = unsaved, string = newly-saved row id.
+  function handleSavedRowIdChange(newRowId) {
+    setOpenRecipeSavedRowId(newRowId);
+    // Re-fetch saved list so the Saved tab stays accurate.
+    loadSavedRecipes();
+  }
 
   async function createList() {
     const name = (newListName || "").trim();
@@ -486,13 +601,9 @@ export default function Plan({ user }) {
         )}
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-text tracking-tight">Plan</h1>
-          {/* v1.21 — subtitle was "Recipes from your fridge · shopping list"
-              but the recipes half was removed when the external AllRecipes /
-              NYT / Epicurious links got dropped (iOS dropped them in v1.18,
-              #169). Native recipe browser (v1.19) hasn't been ported to web
-              yet (#187 Phase 3 — in progress). Until that lands, the page is
-              shopping-list-only so the subtitle should reflect that. */}
-          <p className="text-textSoft text-sm mt-0.5">Build a shopping list — share it with whoever&apos;s at the store</p>
+          {/* v1.22 — recipes section restored on web (#187 Phase 2+3). Matches
+              the iOS Plan tab subtitle. */}
+          <p className="text-textSoft text-sm mt-0.5">Recipes · shopping lists · saved</p>
         </div>
 
         {err && (
@@ -501,13 +612,159 @@ export default function Plan({ user }) {
           </div>
         )}
 
-        {/* ─── Recipe ideas removed v1.21 ──────────────────────────────────────
-            iOS dropped the external AllRecipes/NYT/Epicurious search links in
-            v1.18 (#169) when native recipes shipped in the daily digest +
-            in-app recipe sheet. The web copy lingered as a stale parity gap.
-            Full native Recipes UI (recipe_bank browser + inventory match) is
-            #187 v1.20 web parity. Leaving Plan as shopping-list-only here is
-            the right interim — same state iOS was in pre-v1.19. */}
+        {/* ─── Recipes (v1.22 web parity port — #187 Phase 2+3) ─────────────────
+            Three sub-tabs: Tonight (fridge-aware, ranked by overlap), All
+            Recipes (cuisine-filtered browse), Saved (user_recipes_saved).
+            Cuisine-first flow on Tonight + All Recipes — pick a cuisine
+            before seeing cards. Tap a card → opens RecipeSheet with
+            Save / Share / Add-to-list. Mirrors iOS App.js PlanScreen
+            v1.19. */}
+        <section className="mb-8">
+          <h2 className="text-[11px] font-bold tracking-widest text-textSoft uppercase mb-3">
+            // Recipes
+          </h2>
+
+          {/* Tab pills */}
+          <div className="flex items-center gap-2 mb-4 flex-wrap">
+            {[
+              { key: "tonight", label: "Tonight" },
+              { key: "all",     label: "All Recipes" },
+              { key: "saved",   label: "Saved" },
+            ].map(t => {
+              const active = recipesTab === t.key;
+              return (
+                <button
+                  key={t.key}
+                  onClick={() => {
+                    setRecipesTab(t.key);
+                    if (t.key === "all" && browseRecipes.length === 0) loadRecipesForTab("all");
+                    if (t.key === "saved") loadSavedRecipes();
+                  }}
+                  className={`text-xs font-semibold px-3.5 py-1.5 rounded-full transition ${active ? "bg-accent text-white" : "bg-card border border-border text-textSoft hover:text-text"}`}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* ── Tonight / All Recipes — cuisine-first flow ── */}
+          {(recipesTab === "tonight" || recipesTab === "all") && (() => {
+            const activeCuisine = recipesTab === "tonight" ? tonightCuisine : browseCuisine;
+            const setActiveCuisine = recipesTab === "tonight" ? setTonightCuisine : setBrowseCuisine;
+            const baseList = recipesTab === "tonight" ? tonightRecipes : browseRecipes;
+            const currentList = activeCuisine ? baseList.filter(r => r.cuisine === activeCuisine) : [];
+            const activeCuisineOpt = CUISINE_PICKER_OPTIONS.find(c => c.key === activeCuisine);
+
+            return (
+              <>
+                {!activeCuisine ? (
+                  <>
+                    <p className="text-xs text-textSoft mb-3">
+                      {recipesTab === "tonight"
+                        ? "Pick a cuisine to see recipes that use what's in your fridge."
+                        : "Pick a cuisine to browse."}
+                    </p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {CUISINE_PICKER_OPTIONS.map(c => (
+                        <button
+                          key={c.key}
+                          onClick={() => setActiveCuisine(c.key)}
+                          className="rounded-xl border border-border bg-card p-3 hover:border-accent/60 transition text-center"
+                        >
+                          <div className="text-2xl mb-1">{c.emoji}</div>
+                          <div className="text-text text-xs font-semibold">{c.label}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {/* "Change cuisine" pill */}
+                    <button
+                      onClick={() => setActiveCuisine(null)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/15 text-accent text-xs font-semibold mb-3 hover:opacity-80"
+                    >
+                      <span>←</span>
+                      <span>{activeCuisineOpt?.emoji} {activeCuisineOpt?.label}</span>
+                      <span className="text-textSoft font-normal ml-0.5">· tap to change</span>
+                    </button>
+
+                    {loadingRecipes && currentList.length === 0 ? (
+                      <div className="rounded-xl border border-border bg-card p-4 text-sm text-textSoft">
+                        Loading recipes…
+                      </div>
+                    ) : currentList.length === 0 ? (
+                      <div className="rounded-xl border border-border bg-card p-4 text-center">
+                        <p className="text-textSoft text-sm">
+                          {recipesTab === "tonight"
+                            ? "Add items to your fridge to get personalized picks."
+                            : `No ${activeCuisineOpt?.label} recipes in the catalog yet.`}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {currentList.map(r => (
+                          <button
+                            key={r.id || r.slug || r.name}
+                            onClick={() => openRecipeSheet(r)}
+                            className="w-full rounded-xl border border-border bg-card p-3 flex items-start gap-3 text-left hover:border-accent/60 transition"
+                          >
+                            <div className="text-2xl flex-shrink-0">{r.emoji || "🍽️"}</div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-text font-semibold text-sm truncate">{r.name}</p>
+                              <p className="text-textSoft text-xs mt-0.5">
+                                {[r.time, r.difficulty].filter(Boolean).join(" · ")}
+                              </p>
+                            </div>
+                            <span className="text-muted text-xl flex-shrink-0">›</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
+            );
+          })()}
+
+          {/* ── Saved tab ── */}
+          {recipesTab === "saved" && (
+            loadingSaved && savedRecipes.length === 0 ? (
+              <div className="rounded-xl border border-border bg-card p-4 text-sm text-textSoft">
+                Loading saved recipes…
+              </div>
+            ) : savedRecipes.length === 0 ? (
+              <div className="rounded-xl border border-border bg-card p-4 text-center">
+                <p className="text-textSoft text-sm">
+                  No saved recipes yet. Tap the heart on any recipe to save it here.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {savedRecipes.map(sr => {
+                  const r = sr.recipe_data || {};
+                  return (
+                    <button
+                      key={sr.id}
+                      onClick={() => openRecipeSheet(r, sr.id)}
+                      className="w-full rounded-xl border border-border bg-card p-3 flex items-start gap-3 text-left hover:border-accent/60 transition"
+                    >
+                      <div className="text-2xl flex-shrink-0">{r.emoji || "🍽️"}</div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-text font-semibold text-sm truncate">{r.name || "Untitled recipe"}</p>
+                        <p className="text-textSoft text-xs mt-0.5">
+                          {[r.time, r.difficulty].filter(Boolean).join(" · ") || "Saved recipe"}
+                        </p>
+                      </div>
+                      <span className="text-danger text-base flex-shrink-0">♥</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )
+          )}
+        </section>
 
         {/* ─── Shopping lists ───────────────────────────────────────────────── */}
         <section>
@@ -879,6 +1136,17 @@ export default function Plan({ user }) {
           ))}
         </div>
       </Modal>
+
+      {/* v1.22 #187 — full-recipe modal shared by Tonight/All/Saved tabs.
+          Renders only when openRecipe is set; close clears state. */}
+      <RecipeSheet
+        recipe={openRecipe}
+        user={user}
+        open={!!openRecipe}
+        onClose={() => { setOpenRecipe(null); setOpenRecipeSavedRowId(null); }}
+        initialSavedRowId={openRecipeSavedRowId}
+        onSavedRowIdChange={handleSavedRowIdChange}
+      />
       </>
     </Layout>
   );
