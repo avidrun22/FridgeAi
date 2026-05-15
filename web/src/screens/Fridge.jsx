@@ -123,31 +123,37 @@ export default function Fridge({ user }) {
   return (
     <Layout user={user}>
       <>
-        <div className="flex items-baseline justify-between mb-6 gap-4">
+        {/* v1.22 — header restructured for narrow viewports. sky21 reported
+            the "Scan receipt" button overflowing screen edge and the
+            "My Fridge" title squeezed on a Samsung S25 Ultra (~412px wide).
+            Old layout was a single flex row with all 3 buttons + title,
+            which gave each piece too little width on mobile. New layout
+            stacks title row above the button row on <sm screens. */}
+        <div className="mb-6">
           <div>
             <h1 className="text-2xl font-bold text-text tracking-tight">My Fridge</h1>
             <p className="text-textSoft text-sm mt-0.5">
               {loading ? "Loading…" : `${items.length} items tracked across containers`}
             </p>
           </div>
-          <div className="flex gap-2 flex-wrap justify-end flex-shrink-0">
+          <div className="flex gap-2 flex-wrap justify-start sm:justify-end mt-3 sm:mt-0 sm:-mt-12">
             <button
               onClick={() => setShowAdd(true)}
-              className="px-4 py-2 rounded-full border border-border bg-card text-text text-sm font-semibold hover:border-accent hover:text-accent whitespace-nowrap"
+              className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-full border border-border bg-card text-text text-xs sm:text-sm font-semibold hover:border-accent hover:text-accent whitespace-nowrap"
             >
-              + Add item
+              + Add
             </button>
             <button
               onClick={() => setShowBulkAdd(true)}
-              className="px-4 py-2 rounded-full border border-border bg-card text-text text-sm font-semibold hover:border-accent hover:text-accent whitespace-nowrap"
+              className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-full border border-border bg-card text-text text-xs sm:text-sm font-semibold hover:border-accent hover:text-accent whitespace-nowrap"
             >
-              + Add multiple
+              + Multi-add
             </button>
             <button
               onClick={() => setShowScanReceipt(true)}
-              className="px-4 py-2 rounded-full bg-accent text-white text-sm font-semibold hover:bg-accent/90 flex items-center gap-1.5 whitespace-nowrap"
+              className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-full bg-accent text-white text-xs sm:text-sm font-semibold hover:bg-accent/90 flex items-center gap-1.5 whitespace-nowrap"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                 <polyline points="17 8 12 3 7 8"/>
                 <line x1="12" y1="3" x2="12" y2="15"/>

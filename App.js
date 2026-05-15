@@ -5549,6 +5549,10 @@ function PlanScreen({ items, householdId, onOpenRecipeId, onOpenSavedRecipe, lis
   // members can see who added what.
   const [memberInitials, setMemberInitials] = useState({});
 
+  // v1.21 #215 — Share toast. Shown for ~2.5s after the share sheet
+  // either succeeded or was canceled. Sits at the top of the Plan tab.
+  const [shareToast, setShareToast] = useState(null);   // string | null
+
   // v1.18 — Saved Recipes section. Pulls user_recipes_saved rows (the user's
   // own heart-toggled recipes from the deep-link recipe sheet) and surfaces
   // them under Past Lists in the list-picker view. Tapping a saved-recipe
@@ -5602,9 +5606,12 @@ function PlanScreen({ items, householdId, onOpenRecipeId, onOpenSavedRecipe, lis
   async function loadLists() {
     if (!householdId) { setLists([]); setLoadingLists(false); return; }
     try {
+      // v1.21 #215 — pull share_token + is_public_shareable so the in-app
+      // Share button can reuse an existing token instead of regenerating
+      // one per tap (regenerating would invalidate previously-shared links).
       const { data, error } = await supabase
         .from("shopping_lists")
-        .select("id, name, archived_at, created_by, created_at")
+        .select("id, name, archived_at, created_by, created_at, share_token, is_public_shareable")
         .eq("household_id", householdId)
         .is("archived_at", null)
         .order("created_at", { ascending: true });
@@ -5800,6 +5807,75 @@ function PlanScreen({ items, householdId, onOpenRecipeId, onOpenSavedRecipe, lis
       track("recipe_unsaved", { source: "plan_tab" });
     } catch (e) {
       console.warn("[plan] removeSavedRecipe failed:", e?.message || e);
+    }
+  }
+
+  // v1.21 #215 — Share the active shopping list publicly. Mirrors
+  // web/src/screens/Plan.jsx shareActiveList(). First share generates a
+  // UUID `share_token` + flips `is_public_shareable=true` on the
+  // shopping_lists row; subsequent shares of the same list reuse the
+  // token so the link stays stable for recipients. The token grants
+  // read-only access via the `get-shared-list` Edge Function — anyone
+  // with the link can view, only household members can edit.
+  //
+  // Math.random-based UUID v4 instead of `crypto.randomUUID()` because
+  // Hermes (React Native's JS engine) doesn't ship the WebCrypto global
+  // by default. Collision risk is negligible for a per-list token, and
+  // the DB's UNIQUE index would catch any anyway.
+  function generateUuid() {
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+      const r = (Math.random() * 16) | 0;
+      return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+    });
+  }
+
+  async function shareActiveList() {
+    const list = lists.find(l => l.id === activeListId);
+    if (!list) return;
+    let token = list.share_token;
+    if (!token || !list.is_public_shareable) {
+      token = generateUuid();
+      try {
+        const { error } = await supabase
+          .from("shopping_lists")
+          .update({
+            share_token: token,
+            is_public_shareable: true,
+            share_token_created_at: new Date().toISOString(),
+          })
+          .eq("id", list.id);
+        if (error) throw error;
+        // Update local cache so subsequent shares reuse the token.
+        setLists(prev => prev.map(l =>
+          l.id === list.id
+            ? { ...l, share_token: token, is_public_shareable: true }
+            : l));
+        track("shopping_list_share_link_generated", { list_id: list.id });
+      } catch (e) {
+        console.warn("[plan] shareActiveList token-gen failed:", e?.message || e);
+        setShareToast("Couldn't generate link. Try again.");
+        setTimeout(() => setShareToast(null), 2500);
+        return;
+      }
+    }
+    const url = `https://ok2eat.com/lists?t=${token}`;
+    try {
+      const result = await Share.share({
+        message: `Shopping list: ${list.name}\n${url}`,
+        url, // iOS-specific
+        title: list.name,
+      });
+      if (result.action === Share.sharedAction) {
+        track("shopping_list_shared", { list_id: list.id, activity: result.activityType || null });
+        setShareToast("Link shared");
+      } else {
+        setShareToast("Link copied — paste anywhere");
+      }
+      setTimeout(() => setShareToast(null), 2500);
+    } catch (e) {
+      console.warn("[plan] Share.share failed:", e?.message || e);
+      setShareToast("Couldn't open share sheet.");
+      setTimeout(() => setShareToast(null), 2500);
     }
   }
 
@@ -6646,6 +6722,20 @@ function PlanScreen({ items, householdId, onOpenRecipeId, onOpenSavedRecipe, lis
             <Text style={[s.sectionLabel, { paddingHorizontal: 0, marginBottom: 0, flex: 1 }]} numberOfLines={1}>
               // {(activeList?.name || "SHOPPING LIST").toUpperCase()}
             </Text>
+            {/* v1.21 #215 — Share button next to the list name. Solid-green
+                pill (matches the web Plan tab styling) so it reads as the
+                primary action on this row vs. the lower-weight text links
+                on the right. Mirrors web Plan.jsx layout per Greg's spec. */}
+            {activeList && (
+              <TouchableOpacity
+                onPress={shareActiveList}
+                style={{ backgroundColor: T.accent, paddingHorizontal: 11, paddingVertical: 5, borderRadius: 999, flexDirection: "row", alignItems: "center", gap: 4 }}
+                accessibilityLabel="Share this shopping list"
+              >
+                <Ionicons name="share-outline" size={12} color="#FFFFFF" />
+                <Text style={{ fontSize: 11, color: "#FFFFFF", fontWeight: "700" }}>Share</Text>
+              </TouchableOpacity>
+            )}
             {list.some(i => i.checked) && (
               <TouchableOpacity onPress={clearChecked}>
                 <Text style={{ fontSize: 12, color: T.accent, fontWeight: "600" }}>Clear checked</Text>
@@ -6655,6 +6745,15 @@ function PlanScreen({ items, householdId, onOpenRecipeId, onOpenSavedRecipe, lis
               <Text style={{ fontSize: 12, color: T.accent, fontWeight: "600" }}>+ New list</Text>
             </TouchableOpacity>
           </View>
+
+          {/* v1.21 #215 — toast for share status (link copied / shared /
+              error). 2.5s auto-dismiss. Floats above the list with a
+              fade-friendly absolute-y so it doesn't push content. */}
+          {shareToast && (
+            <View style={{ marginHorizontal: 16, marginBottom: 8, backgroundColor: T.text, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12 }}>
+              <Text style={{ color: "#FFFFFF", fontSize: 13, fontWeight: "600", textAlign: "center" }}>{shareToast}</Text>
+            </View>
+          )}
 
           <View style={{ marginHorizontal: 16 }}>
             {loadingList ? (

@@ -52,10 +52,10 @@ export default function Settings({ user }) {
       setErr(null);
       const { data: settings } = await supabase
         .from("user_settings")
-        .select("daily_digest_enabled, dietary_restrictions, allergens, household_size")
+        .select("email_digest_enabled, dietary_restrictions, allergens, household_size")
         .eq("user_id", user.id)
         .maybeSingle();
-      setDigestEnabled(!!settings?.daily_digest_enabled);
+      setDigestEnabled(!!settings?.email_digest_enabled);
       setDietary(Array.isArray(settings?.dietary_restrictions) ? settings.dietary_restrictions : []);
       setAllergens(Array.isArray(settings?.allergens) ? settings.allergens : []);
       setHouseholdSize(
@@ -129,7 +129,7 @@ export default function Settings({ user }) {
     try {
       const { error } = await supabase
         .from("user_settings")
-        .upsert({ user_id: user.id, daily_digest_enabled: next }, { onConflict: "user_id" });
+        .upsert({ user_id: user.id, email_digest_enabled: next }, { onConflict: "user_id" });
       if (error) throw error;
     } catch (e) {
       setDigestEnabled(!next);
