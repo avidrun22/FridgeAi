@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "263450499137",
+    "project_id": "ok2eat-6ca52",
+    "storage_bucket": "ok2eat-6ca52.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:263450499137:android:5a0717d44432ca6d66cec0",
+        "android_client_info": {
+          "package_name": "com.gregorygoldberg.ok2eat"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCxYdlY-uSiW11xIXPeCFw-7TbrkZz49ec"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

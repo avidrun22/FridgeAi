@@ -43,7 +43,7 @@
         "android.permission.VIBRATE"
       ],
       "package": "com.gregorygoldberg.ok2eat",
-      "versionCode": 1
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "favicon": "./assets/favicon.png"

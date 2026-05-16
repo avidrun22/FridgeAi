@@ -46,3 +46,14 @@ supabase/.temp/
 /ios
 /android
 web/vite.config.js.timestamp-*
+
+# Firebase Admin SDK service account key — DO NOT COMMIT (grants full
+# project access). Used by `eas credentials` to authenticate Expo Push with
+# FCM V1; lives locally only.
+*-firebase-adminsdk-*.json
+
+# NOTE: google-services.json IS committed to git. EAS Build only uploads
+# git-tracked files at build time, so the file must be in the repo. The
+# Android API key inside is server-restricted (scoped to the package name
+# + SHA-1 fingerprint), so it's safe to commit publicly. This is the
+# convention recommended by both Firebase and Expo for Android push setup.
