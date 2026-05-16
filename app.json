@@ -37,9 +37,13 @@
       },
       "permissions": [
         "android.permission.CAMERA",
-        "android.permission.INTERNET"
+        "android.permission.INTERNET",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE"
       ],
-      "package": "com.gregorygoldberg.ok2eat"
+      "package": "com.gregorygoldberg.ok2eat",
+      "versionCode": 1
     },
     "web": {
       "favicon": "./assets/favicon.png"
