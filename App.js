@@ -3031,40 +3031,56 @@ function EatMeFirstScreen({ items, householdId }) {
                       const key = `${selectedRecipeIdx}:${j}`;
                       const queued = !!ingToggles[key];
                       const isHave = !!m.matched;
-                      // Visual states:
-                      //   have:   green-tinted card + checkmark, "In stock"
-                      //   queued: green-tinted card + plus icon, "Queued"
-                      //   skip:   neutral card, "Add to list" hint
-                      const bgColor = isHave
+                      // v1.21 (Greg fix 2026-05-16) — matched items are
+                      // now toggleable. Users might want to buy MORE of an
+                      // item they already have (running low). 4 visual
+                      // states:
+                      //   have:           green tint + ✓, "In stock"
+                      //   have-and-queued: green tint + ✓+, "In stock — also added to list"
+                      //   queued (missing): green tint + +, "Queued for shopping list"
+                      //   skip (missing):   neutral, "Tap to add"
+                      const bgColor = (isHave || queued)
                         ? "rgba(22,163,74,0.08)"
-                        : queued
-                          ? "rgba(22,163,74,0.08)"
-                          : T.bg;
+                        : T.bg;
                       const borderColor = (isHave || queued) ? "rgba(22,163,74,0.35)" : T.border;
                       const onTap = () => {
-                        if (isHave) return; // matched items are non-interactive
                         setIngToggles(prev => ({ ...prev, [key]: !prev[key] }));
                       };
                       return (
                         <TouchableOpacity
                           key={j}
-                          activeOpacity={isHave ? 1 : 0.7}
+                          activeOpacity={0.7}
                           onPress={onTap}
                           style={{ backgroundColor: bgColor, borderWidth: 1, borderColor, borderRadius: 10, padding: 10, marginBottom: 6, flexDirection: "row", alignItems: "center", gap: 10 }}
                         >
-                          <View style={{ width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: isHave ? T.accent : queued ? T.accent : "transparent", borderWidth: isHave || queued ? 0 : 1.5, borderColor: T.muted }}>
-                            {isHave ? <Ionicons name="checkmark" size={16} color="#FFFFFF" /> : queued ? <Ionicons name="add" size={16} color="#FFFFFF" /> : null}
+                          {/* Icon: pure-have = checkmark, pure-queued = +,
+                              have-and-queued = checkmark with a small +
+                              overlay (rendered as a stacked badge so users
+                              know it's BOTH). */}
+                          <View style={{ width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: (isHave || queued) ? T.accent : "transparent", borderWidth: (isHave || queued) ? 0 : 1.5, borderColor: T.muted, position: "relative" }}>
+                            {isHave
+                              ? <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                              : queued
+                                ? <Ionicons name="add" size={16} color="#FFFFFF" />
+                                : null}
+                            {isHave && queued && (
+                              <View style={{ position: "absolute", top: -3, right: -3, width: 12, height: 12, borderRadius: 6, backgroundColor: T.warn, alignItems: "center", justifyContent: "center", borderWidth: 1.5, borderColor: T.surface }}>
+                                <Ionicons name="add" size={8} color="#FFFFFF" />
+                              </View>
+                            )}
                           </View>
                           <View style={{ flex: 1 }}>
                             <Text style={{ color: T.text, fontSize: 13, fontWeight: "600" }}>
                               {m.text}{m.amount ? ` — ${m.amount}` : ""}
                             </Text>
                             <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 2 }}>
-                              {isHave
-                                ? `In stock — you have ${m.matched.name}`
-                                : queued
-                                  ? "Queued for shopping list"
-                                  : "Tap to add to shopping list"}
+                              {isHave && queued
+                                ? `In stock — also queued for list (need more)`
+                                : isHave
+                                  ? `In stock — you have ${m.matched.name} · tap to add extra`
+                                  : queued
+                                    ? "Queued for shopping list"
+                                    : "Tap to add to shopping list"}
                             </Text>
                           </View>
                         </TouchableOpacity>
