@@ -26,6 +26,14 @@ Text.defaultProps.maxFontSizeMultiplier = 1.3;
 TextInput.defaultProps = TextInput.defaultProps || {};
 TextInput.defaultProps.maxFontSizeMultiplier = 1.3;
 
+// ─── Android status-bar inset ────────────────────────────────────────────────
+// v1.21 — React Native's built-in SafeAreaView only handles iOS notch/home
+// indicator. On Android, full-screen <Modal>s render *underneath* the status
+// bar (clock + wifi icons overlap our Back/Edit headers). Pad by the status
+// bar height on Android, no-op on iOS. Defaults to 24 if currentHeight isn't
+// available yet (rare — happens during the very first frame).
+const ANDROID_TOP_INSET = Platform.OS === "android" ? (StatusBar.currentHeight || 24) : 0;
+
 // ─── Analytics ───────────────────────────────────────────────────────────────
 const posthog = new PostHog("phc_szxhjw2eQmYYhNGicX3kmNXxdz47Sj7evqx5Quqw8dTY", { host: "https://app.posthog.com" });
 
@@ -1029,7 +1037,7 @@ function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: T.bg, paddingTop: ANDROID_TOP_INSET }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: T.border }}>
           <TouchableOpacity onPress={onClose}><Text style={{ color: T.accent, fontSize: 15 }}>← Back</Text></TouchableOpacity>
           <TouchableOpacity onPress={() => editing ? handleSave() : setEditing(true)}>
@@ -1194,8 +1202,17 @@ function CameraScanner({ onCodeDetected, onClose }) {
         </View>
         <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 14, marginTop: 20 }}>Point at a barcode to scan</Text>
       </View>
-      <TouchableOpacity onPress={onClose} style={{ position: "absolute", top: 60, right: 20, width: 40, height: 40, backgroundColor: "rgba(0,0,0,0.6)", borderRadius: 20, alignItems: "center", justifyContent: "center" }}>
-        <Text style={{ color: "#fff", fontSize: 20, lineHeight: 24 }}>✕</Text>
+      {/* v1.21 — Cancel pill (was a tiny ✕). Greg's Pixel 9 testing showed
+          the old close button was easy to miss against busy camera feeds.
+          Pill format is bigger, labelled, and offset by ANDROID_TOP_INSET
+          so it doesn't sit under the status bar / camera punch-hole. */}
+      <TouchableOpacity
+        onPress={onClose}
+        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        style={{ position: "absolute", top: 20 + ANDROID_TOP_INSET, right: 20, paddingHorizontal: 16, paddingVertical: 9, backgroundColor: "rgba(0,0,0,0.7)", borderRadius: 999, flexDirection: "row", alignItems: "center", gap: 6 }}
+      >
+        <Text style={{ color: "#fff", fontSize: 16, lineHeight: 18, fontWeight: "700" }}>✕</Text>
+        <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700" }}>Cancel</Text>
       </TouchableOpacity>
     </View>
   );
@@ -2501,6 +2518,13 @@ function EatMeFirstScreen({ items, householdId }) {
   const [addingToList, setAddingToList] = useState(false);
   const [addToListError, setAddToListError] = useState(null);
   const [addToListSuccess, setAddToListSuccess] = useState(false);
+  // v1.21 — Save heart on EatMeFirst recipes. These recipes are ephemeral
+  // (Haiku-generated, no recipe_bank.id), so we save the full JSON into
+  // user_recipes_saved.recipe_data with source_recipe_id=NULL. Map is keyed
+  // by recipe index → user_recipes_saved.id (or null if unsaved). Reset on
+  // every fresh fetch since the recipe set rotates.
+  const [savedRecipeMap, setSavedRecipeMap] = useState({});
+  const [savingRecipeIdx, setSavingRecipeIdx] = useState(null);
 
   const ranked = (items || [])
     .filter(i => daysUntil(i.expiryDate) <= 14)
@@ -2533,6 +2557,8 @@ function EatMeFirstScreen({ items, householdId }) {
     setIngToggles({});
     setAddToListError(null);
     setAddToListSuccess(false);
+    setSavedRecipeMap({});
+    setSavingRecipeIdx(null);
     setRecipeModal({ leadItem, items: contextItems, recipes: [], loading: true, error: null });
     track("eat_me_first_recipes_requested", {
       lead_item: leadItem?.name || null,
@@ -2616,6 +2642,49 @@ function EatMeFirstScreen({ items, householdId }) {
       if (!m.matched) next[`${selectedRecipeIdx}:${j}`] = true;
     });
     setIngToggles(next);
+  }
+
+  // v1.21 — Toggle save heart on an EatMeFirst recipe. These recipes have
+  // no recipe_bank.id (Haiku-generated on the fly), so we persist the full
+  // recipe JSON into user_recipes_saved.recipe_data with source_recipe_id=NULL.
+  // The same row id is used to unsave later. Mirrors the deep-link save flow
+  // in App.js around line 8588.
+  async function toggleSaveRecipe(idx) {
+    if (savingRecipeIdx !== null) return;
+    const r = recipeModal?.recipes?.[idx];
+    if (!r) return;
+    setSavingRecipeIdx(idx);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Please sign in to save recipes.");
+      const existingId = savedRecipeMap[idx];
+      if (existingId) {
+        const { error } = await supabase
+          .from("user_recipes_saved")
+          .delete()
+          .eq("id", existingId);
+        if (error) throw error;
+        setSavedRecipeMap(prev => { const n = { ...prev }; delete n[idx]; return n; });
+        track("recipe_unsaved", { source: "eat_me_first", name: r.name });
+      } else {
+        const { data, error } = await supabase
+          .from("user_recipes_saved")
+          .insert({
+            user_id: user.id,
+            source_recipe_id: null,
+            recipe_data: r,
+          })
+          .select("id")
+          .single();
+        if (error) throw error;
+        if (data?.id) setSavedRecipeMap(prev => ({ ...prev, [idx]: data.id }));
+        track("recipe_saved", { source: "eat_me_first", name: r.name });
+      }
+    } catch (e) {
+      console.warn("[eat_me_first] toggleSaveRecipe failed:", e?.message || e);
+    } finally {
+      setSavingRecipeIdx(null);
+    }
   }
 
   async function addQueuedToList(recipe, matches) {
@@ -2818,11 +2887,30 @@ function EatMeFirstScreen({ items, householdId }) {
                   );
                 })()}
               </View>
+              {/* v1.21 — Save heart appears in detail view only. EatMeFirst
+                  recipes are ephemeral, but user_recipes_saved.recipe_data
+                  can store the full JSON, letting users keep one they like
+                  even after the modal rotates. */}
+              {selectedRecipeIdx !== null && (
+                <TouchableOpacity
+                  onPress={() => toggleSaveRecipe(selectedRecipeIdx)}
+                  disabled={savingRecipeIdx !== null}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  accessibilityLabel={savedRecipeMap[selectedRecipeIdx] ? "Remove from saved" : "Save recipe"}
+                  style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: T.bg, alignItems: "center", justifyContent: "center", marginLeft: 8, opacity: savingRecipeIdx === selectedRecipeIdx ? 0.5 : 1 }}
+                >
+                  <Ionicons
+                    name={savedRecipeMap[selectedRecipeIdx] ? "heart" : "heart-outline"}
+                    size={20}
+                    color={savedRecipeMap[selectedRecipeIdx] ? T.danger : T.text}
+                  />
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
                 onPress={() => setRecipeModal(null)}
                 hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                 accessibilityLabel="Close recipes"
-                style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: T.bg, alignItems: "center", justifyContent: "center", marginLeft: 12 }}
+                style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: T.bg, alignItems: "center", justifyContent: "center", marginLeft: 8 }}
               >
                 <Ionicons name="close" size={20} color={T.text} />
               </TouchableOpacity>
@@ -2869,7 +2957,23 @@ function EatMeFirstScreen({ items, householdId }) {
                         {[r.time, r.difficulty].filter(Boolean).join(" · ")}
                       </Text>
                     </View>
-                    <Text style={{ color: T.muted, fontSize: 18, lineHeight: 22 }}>›</Text>
+                    {/* v1.21 — Save heart on list cards too. Mirrors the
+                        detail-view header so users can save a recipe at a
+                        glance without drilling in. stopPropagation prevents
+                        the card's own onPress from firing. */}
+                    <TouchableOpacity
+                      onPress={(e) => { e.stopPropagation?.(); toggleSaveRecipe(i); }}
+                      disabled={savingRecipeIdx !== null}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      accessibilityLabel={savedRecipeMap[i] ? "Remove from saved" : "Save recipe"}
+                      style={{ padding: 4, opacity: savingRecipeIdx === i ? 0.5 : 1 }}
+                    >
+                      <Ionicons
+                        name={savedRecipeMap[i] ? "heart" : "heart-outline"}
+                        size={20}
+                        color={savedRecipeMap[i] ? T.danger : T.muted}
+                      />
+                    </TouchableOpacity>
                   </View>
                   {r.description && <Text style={{ color: T.textSoft, fontSize: 13, lineHeight: 19, marginBottom: 8 }}>{r.description}</Text>}
                   {Array.isArray(r.ingredients) && r.ingredients.length > 0 && (
@@ -2882,6 +2986,14 @@ function EatMeFirstScreen({ items, householdId }) {
                       ))}
                     </View>
                   )}
+                  {/* v1.21 — Discoverability CTA replacing the tiny `›`
+                      chevron. Greg's Android testing surfaced that users
+                      didn't realize each card was tappable. The pill makes
+                      the affordance explicit and previews what's inside. */}
+                  <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: T.border, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                    <Text style={{ color: T.accent, fontSize: 13, fontWeight: "700" }}>View recipe & add to shopping list</Text>
+                    <Ionicons name="arrow-forward" size={14} color={T.accent} />
+                  </View>
                 </TouchableOpacity>
               ))}
 
@@ -3937,7 +4049,7 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: T.bg, paddingTop: ANDROID_TOP_INSET }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: T.border, backgroundColor: "#FFFFFF" }}>
           <TouchableOpacity onPress={onClose}><Text style={{ color: T.accent, fontSize: 15 }}>Cancel</Text></TouchableOpacity>
           <Text style={[s.bold, { fontSize: 16 }]}>Add Multiple Items</Text>
@@ -4233,7 +4345,7 @@ function OnboardingModal({ visible, initialName, onComplete }) {
 
   return (
     <Modal visible={visible} animationType="slide" transparent={false}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: T.bg, paddingTop: ANDROID_TOP_INSET }}>
         <View style={{ flex: 1, padding: 20, justifyContent: "space-between" }}>
           <View>
             {phase === "fork" && (
@@ -4514,7 +4626,7 @@ function ManageInventoryModal({ visible, onClose, items, householdName, onOpenIn
 
   return (
     <Modal visible={visible} animationType="slide" transparent={false}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: T.bg, paddingTop: ANDROID_TOP_INSET }}>
         <View style={{ flexDirection: "row", alignItems: "center", padding: 16, borderBottomWidth: 1, borderBottomColor: T.border }}>
           <TouchableOpacity onPress={onClose} style={{ paddingRight: 14, paddingVertical: 4 }}>
             <Ionicons name="chevron-back" size={24} color={T.accent} />
@@ -4671,7 +4783,7 @@ function InviteHouseholdModal({ visible, onClose, householdId, householdName, on
 
   return (
     <Modal visible={visible} animationType="slide" transparent={false}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: T.bg, paddingTop: ANDROID_TOP_INSET }}>
         <View style={{ flexDirection: "row", alignItems: "center", padding: 16, borderBottomWidth: 1, borderBottomColor: T.border }}>
           <TouchableOpacity onPress={onClose} style={{ paddingRight: 14, paddingVertical: 4 }}>
             <Ionicons name="chevron-back" size={24} color={T.accent} />
@@ -4869,6 +4981,11 @@ function ExpiryDateField({ days, onDaysChange }) {
 function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceipt, section, recentItems }) {
   const [name, setName] = useState("");
   const [category, setCategory] = useState("Other");
+  // v1.21 — Receipt-source chooser. Greg's Pixel 9 testing surfaced that
+  // tapping "Scan Receipt" jumped straight to the system camera with no
+  // way to upload a saved photo. The new flow: tap → small chooser sheet
+  // (Take Photo / Upload from Photos / Cancel) → onScanReceipt(source).
+  const [showReceiptChooser, setShowReceiptChooser] = useState(false);
   const [initialQty, setInitialQty] = useState("");
   const [initialUnit, setInitialUnit] = useState("");
   // v1.17 — container is selectable from inside AddModal (was previously
@@ -5137,11 +5254,11 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
               </TouchableOpacity>
               <TouchableOpacity
                 style={{ flex: 1, backgroundColor: "rgba(22,163,74,0.08)", borderWidth: 1, borderColor: "rgba(22,163,74,0.25)", borderRadius: 14, padding: 12, alignItems: "center", gap: 4 }}
-                onPress={() => { onClose(); setTimeout(() => onScanReceipt && onScanReceipt(), 350); }}
-                accessibilityLabel="Scan receipt"
+                onPress={() => setShowReceiptChooser(true)}
+                accessibilityLabel="Scan or upload receipt"
               >
                 <Text style={{ fontSize: 26 }}>🧾</Text>
-                <Text style={[s.bold, { fontSize: 12, textAlign: "center" }]}>Scan Receipt</Text>
+                <Text style={[s.bold, { fontSize: 12, textAlign: "center" }]}>Scan/Upload Receipt</Text>
                 <Text style={{ color: T.textSoft, fontSize: 10, textAlign: "center" }}>Whole grocery run</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -5371,6 +5488,69 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
             <View style={{ height: 16 }} />
           </ScrollView>
         </TouchableOpacity>
+
+        {/* v1.21 — Receipt-source chooser overlay. Sits ABOVE the AddModal
+            scroll content (siblings inside the same Modal) so we avoid the
+            nested-Modal flicker on Android. Tapping the backdrop or Cancel
+            dismisses; the two action buttons close AddModal and dispatch
+            to onScanReceipt with the chosen source ('camera' | 'library'). */}
+        {showReceiptChooser && (
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={() => setShowReceiptChooser(false)}
+            style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" }}
+          >
+            <TouchableOpacity
+              activeOpacity={1}
+              onPress={() => { /* swallow taps inside the sheet */ }}
+              style={{ backgroundColor: T.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 32 }}
+            >
+              <View style={{ alignItems: "center", marginBottom: 14 }}>
+                <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: T.border }} />
+              </View>
+              <Text style={[s.bold, { fontSize: 18, marginBottom: 4 }]}>Add a receipt</Text>
+              <Text style={{ color: T.textSoft, fontSize: 13, marginBottom: 18 }}>
+                Take a fresh photo of your grocery receipt, or pick a saved one from your photos.
+              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowReceiptChooser(false);
+                  onClose();
+                  setTimeout(() => onScanReceipt && onScanReceipt("camera"), 350);
+                }}
+                style={{ backgroundColor: "rgba(22,163,74,0.08)", borderWidth: 1, borderColor: "rgba(22,163,74,0.3)", borderRadius: 14, padding: 16, flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 10 }}
+              >
+                <Text style={{ fontSize: 28 }}>📷</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.bold, { fontSize: 15 }]}>Take Photo</Text>
+                  <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Open the camera</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={T.muted} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowReceiptChooser(false);
+                  onClose();
+                  setTimeout(() => onScanReceipt && onScanReceipt("library"), 350);
+                }}
+                style={{ backgroundColor: "rgba(22,163,74,0.08)", borderWidth: 1, borderColor: "rgba(22,163,74,0.3)", borderRadius: 14, padding: 16, flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 14 }}
+              >
+                <Text style={{ fontSize: 28 }}>🖼️</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.bold, { fontSize: 15 }]}>Upload from Photos</Text>
+                  <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Pick a saved receipt photo</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={T.muted} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setShowReceiptChooser(false)}
+                style={{ alignItems: "center", paddingVertical: 12 }}
+              >
+                <Text style={{ color: T.textSoft, fontSize: 14, fontWeight: "600" }}>Cancel</Text>
+              </TouchableOpacity>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        )}
       </TouchableOpacity>
     </Modal>
   );
@@ -7339,7 +7519,7 @@ function TourModal({ visible, onClose }) {
 
   return (
     <Modal visible={visible} animationType="fade" onRequestClose={finish}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: T.bg, paddingTop: ANDROID_TOP_INSET }}>
         <View style={{ flexDirection: "row", justifyContent: "flex-end", paddingHorizontal: 20, paddingTop: 8 }}>
           <TouchableOpacity onPress={finish} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
             <Text style={{ color: T.textSoft, fontSize: 14, fontWeight: "600" }}>Skip</Text>
@@ -8382,8 +8562,8 @@ export default function App() {
     // flush with the bottom of the screen, Messages-app style. The nav's
     // own paddingBottom keeps labels above the actual home indicator.
     <View style={s.root}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: "#FFFFFF", paddingBottom: 0 }}>
-      <StatusBar barStyle="dark-content" backgroundColor={T.bg} />
+      <SafeAreaView style={{ flex: 1, backgroundColor: "#FFFFFF", paddingTop: ANDROID_TOP_INSET, paddingBottom: 0 }}>
+      <StatusBar barStyle="dark-content" backgroundColor={T.bg} translucent={false} />
       <View style={s.appBar}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <View style={s.appLogo}><Text style={{ fontSize: 14 }}>🧊</Text></View>
@@ -8412,7 +8592,10 @@ export default function App() {
           // current 2-tap path that's seeing 4% adoption per PostHog).
           // "sample" loads a realistic populated state so the user sees the
           // value of receipt scan before ever needing a real receipt.
-          onScanReceipt={() => { setBulkAddPresetMode("scan-camera"); setShowBulkAdd(true); }}
+          // v1.21 — accepts "camera" | "library" so the empty-state CTA on
+          // FridgeScreen can match the AddModal chooser's UX. Defaults to
+          // camera when no source is provided (legacy callers).
+          onScanReceipt={(src) => { setBulkAddPresetMode(src === "library" ? "scan-library" : "scan-camera"); setShowBulkAdd(true); }}
           onTrySample={() => { track("sample_receipt_tapped"); setBulkAddPresetMode("sample"); setShowBulkAdd(true); }}
         />}
         {tab === "scan" && <ScanScreen onScanned={handleScanned} />}
@@ -8467,7 +8650,8 @@ export default function App() {
         // AddModal "Scan Receipt" tile opened BulkAddModal in manual mode
         // (3 empty rows) instead of auto-launching the camera. The empty-state
         // CTA at line 5411 was correctly wired; only this path regressed.
-        onScanReceipt={() => { setShowAdd(false); setBulkAddPresetMode("scan-camera"); setShowBulkAdd(true); }}
+        // v1.21 — accepts "camera" | "library" from the AddModal chooser.
+        onScanReceipt={(src) => { setShowAdd(false); setBulkAddPresetMode(src === "library" ? "scan-library" : "scan-camera"); setShowBulkAdd(true); }}
         section={addSection}
         onBulkAdd={() => setShowBulkAdd(true)}
         recentItems={recentItems}
@@ -8968,9 +9152,12 @@ export default function App() {
       </Modal>
       </SafeAreaView>
       {/* navBar lives OUTSIDE the SafeAreaView so its white background
-          extends through the home-indicator zone. paddingBottom on iOS
-          (~24pt) keeps the labels above the actual indicator. */}
-      <View style={[s.navBar, Platform.OS === "ios" && { paddingBottom: 24 }]}>
+          extends through the home-indicator / gesture-handle zone.
+          paddingBottom keeps labels above the indicator on iOS and above
+          the Android gesture bar (Pixel 9 default). v1.21 — extended to
+          Android after Greg saw "PLAN" being clipped by the Pixel 9
+          gesture handle. */}
+      <View style={[s.navBar, { paddingBottom: 24 }]}>
         {navItems.map(n => {
           const active = tab === n.id ||
             (n.id === "eatMeFirst" && tab === "reminders") || // back-compat

@@ -162,6 +162,14 @@ Deno.serve(async (req) => {
     const prompt =
       `${preamble} I have these ingredients on hand: ${cleaned.join(", ")}. ` +
       `Suggest 3 recipes that use as many of them as possible. ` +
+      // v1.21 — emoji guidance. Earlier model picks were occasionally
+      // unrelated (e.g. onion 🧅 for "Pan-Seared Chicken"), confusing
+      // users who scanned the card grid. Pin the emoji to the dish's
+      // dominant protein/category instead.
+      `For "emoji", pick ONE Unicode food emoji that matches the dish's main protein or category — ` +
+      `🍗 chicken, 🥩 beef, 🐟 fish, 🦐 shrimp, 🥚 egg, 🥗 salad, 🍝 pasta, 🍕 pizza, 🌮 taco, ` +
+      `🍲 stew/soup, 🥘 paella/braise, 🍛 curry, 🍳 fried egg/breakfast, 🥪 sandwich. ` +
+      `Never use 🧅 onion or 🥬 lettuce unless that ingredient is the actual star of the dish. ` +
       `Respond ONLY with JSON array (no markdown): ` +
       `[{"name":"","time":"","difficulty":"","emoji":"","description":"","ingredients":[{"item":"","amount":""}],"instructions":[""],"tip":""}]`;
     const { text } = await callClaude({
