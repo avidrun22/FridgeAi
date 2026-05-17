@@ -392,6 +392,7 @@ export default function Fridge({ user }) {
           onClose={() => setSelectedItem(null)}
           onUpdated={handleUpdated}
           onRemoved={handleRemoved}
+          onLeftoverSaved={handleAdded}
         />
       </>
     </Layout>

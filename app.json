@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.gregorygoldberg.ok2eat",
-      "buildNumber": "25",
+      "buildNumber": "26",
       "associatedDomains": [
         "applinks:ok2eat.com",
         "applinks:app.ok2eat.com"

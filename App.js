@@ -915,7 +915,24 @@ function NutritionPanel({ nutrition, grade }) {
 // + FRACTION_MAP for cross-unit math (1 tbsp of a 16 oz bottle → 15.5 oz),
 // which was overkill for a fridge tracker. New version: amount in the
 // item's existing unit, subtract directly, "Use it all" shortcut.
-function UseItemModal({ item, visible, onClose, onUse }) {
+// v1.22 #233 — Leftovers / Cooked status. After a user marks an item as
+// used, we ask whether there are leftovers — if yes, we add a "Cooked …"
+// row to the fridge with the USDA leftover guideline (3-4 days). The
+// original raw row is decremented/removed as usual. Skip the prompt for
+// Beverages where "leftovers" doesn't make sense.
+const LEFTOVER_PREFIX = "Cooked ";
+const LEFTOVER_SHELF_DAYS = 4;
+const LEFTOVER_EMOJI = "🍱";
+function leftoversApply(item) {
+  const cat = (item?.category || "").toLowerCase();
+  if (cat === "beverages") return false;
+  // Anything already prefixed is itself a cooked leftover — no point asking
+  // a second time.
+  if (typeof item?.name === "string" && item.name.toLowerCase().startsWith(LEFTOVER_PREFIX.toLowerCase())) return false;
+  return true;
+}
+
+function UseItemModal({ item, visible, onClose, onUse, onSaveLeftovers }) {
   const [amount, setAmount] = useState("1");
 
   useEffect(() => {
@@ -926,6 +943,22 @@ function UseItemModal({ item, visible, onClose, onUse }) {
 
   const currentQty = parseFloat(item.quantity) || 1;
   const unit = (item.unit || "").trim();
+
+  function maybePromptLeftovers() {
+    if (!onSaveLeftovers || !leftoversApply(item)) return;
+    // Defer past the modal-close transition so the Alert isn't competing
+    // with the slide-down animation.
+    setTimeout(() => {
+      Alert.alert(
+        "Save leftovers?",
+        `Add cooked ${item.name} to your fridge — good for ${LEFTOVER_SHELF_DAYS} days.`,
+        [
+          { text: "Skip", style: "cancel" },
+          { text: "Save", onPress: () => onSaveLeftovers(item) },
+        ]
+      );
+    }, 350);
+  }
 
   function handleConfirm() {
     const used = parseFloat(amount) || 0;
@@ -940,7 +973,7 @@ function UseItemModal({ item, visible, onClose, onUse }) {
         `Remove ${item.name} from your fridge?`,
         [
           { text: "Keep it", style: "cancel" },
-          { text: "Remove", style: "destructive", onPress: () => onUse(item.id, null) },
+          { text: "Remove", style: "destructive", onPress: () => { onUse(item.id, null); maybePromptLeftovers(); } },
         ]
       );
       return;
@@ -948,6 +981,7 @@ function UseItemModal({ item, visible, onClose, onUse }) {
     // Round to 1 decimal so we don't store float noise.
     const cleanRemaining = Math.round(remaining * 10) / 10;
     onUse(item.id, cleanRemaining);
+    maybePromptLeftovers();
   }
 
   function handleUseAll() {
@@ -956,7 +990,7 @@ function UseItemModal({ item, visible, onClose, onUse }) {
       "It'll be removed from your fridge.",
       [
         { text: "Cancel", style: "cancel" },
-        { text: "Remove", style: "destructive", onPress: () => onUse(item.id, null) },
+        { text: "Remove", style: "destructive", onPress: () => { onUse(item.id, null); maybePromptLeftovers(); } },
       ]
     );
   }
@@ -1915,7 +1949,7 @@ function CategoryFilterButton({ value, options, onChange }) {
   );
 }
 
-function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, loading, householdName, onOpenManageInventory, onScanReceipt, onTrySample }) {
+function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, onSaveLeftovers, loading, householdName, onOpenManageInventory, onScanReceipt, onTrySample }) {
   const [filter, setFilter] = useState("All");
   const [selectedItem, setSelectedItem] = useState(null);
   const [useItem, setUseItem] = useState(null);
@@ -2314,7 +2348,7 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
         <View style={{ height: 32 }} />
       </ScrollView>
       <ItemDetailModal item={selectedItem} visible={!!selectedItem} onClose={() => setSelectedItem(null)} onUpdate={async (id, updates) => { await onUpdate(id, updates); setSelectedItem(null); }} onDelete={(id) => { onDelete(id); setSelectedItem(null); }} onShowUse={(item) => setUseItem(item)} />
-      <UseItemModal item={useItem} visible={!!useItem} onClose={() => setUseItem(null)} onUse={(id, newQty) => { onUse(id, newQty); setUseItem(null); }} />
+      <UseItemModal item={useItem} visible={!!useItem} onClose={() => setUseItem(null)} onUse={(id, newQty) => { onUse(id, newQty); setUseItem(null); }} onSaveLeftovers={onSaveLeftovers} />
       <TouchableOpacity style={{ position: "absolute", bottom: 24, right: 20, width: 56, height: 56, borderRadius: 28, backgroundColor: T.accent, alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 8 }} onPress={() => onAdd(activeSection)}>
         <Text style={{ color: "#FFFFFF", fontSize: 28, lineHeight: 32 }}>+</Text>
       </TouchableOpacity>
@@ -8363,6 +8397,12 @@ export default function App() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [emailDigestEnabled, setEmailDigestEnabled] = useState(true);
   const [updateInfo, setUpdateInfo] = useState(null);
+  // v1.22 #241 — Session-scoped guard. The check-effect below has empty deps
+  // so it normally runs once per <App/> mount, but Fast Refresh in dev and
+  // some auth-state remounts in prod can re-fire it. This ref ensures the
+  // modal is set at most once per JS-runtime lifetime, complementing the
+  // AsyncStorage cross-launch guard.
+  const updatePromptShownThisSessionRef = useRef(false);
   // v1.0.8 — shared household state
   const [householdId, setHouseholdId] = useState(null);
   const [householdName, setHouseholdName] = useState("");
@@ -8917,15 +8957,16 @@ export default function App() {
   // v1.22 #241 — Three guards against the repeated-popup bug Greg hit:
   //   1. __DEV__ skip — dev clients always run an old "Expo Go-like" version
   //      string, so the prompt nags every Metro reload.
-  //   2. Session-scoped flag (`updatePromptCheckedRef`) — Fast Refresh /
-  //      auth state changes don't trigger a re-mount of <App/>, but if the
-  //      effect ever does re-run it shouldn't re-fire the modal.
+  //   2. Session-scoped flag (`updatePromptShownThisSessionRef`) — Fast
+  //      Refresh / auth state changes don't normally re-mount <App/>, but
+  //      if the effect ever does re-run it shouldn't re-fire the modal.
   //   3. AsyncStorage `app_update_dismissed_version` — once the user taps
   //      "Maybe later" we remember the version they dismissed and suppress
   //      until a NEWER one ships. They still get prompted for the next
   //      release.
   useEffect(() => {
     if (__DEV__) return;
+    if (updatePromptShownThisSessionRef.current) return;
     let cancelled = false;
     const t = setTimeout(async () => {
       try {
@@ -8940,6 +8981,9 @@ export default function App() {
         if (compareVersions(APP_VERSION, latest) >= 0) return;
         // Skip if the user already dismissed THIS latest version.
         if (dismissed && compareVersions(dismissed, latest) >= 0) return;
+        // v1.22 #241 — Mark BEFORE setState so a re-fire of the effect
+        // (Fast Refresh, auth remount) can't double-render the modal.
+        updatePromptShownThisSessionRef.current = true;
         setUpdateInfo({
           current: APP_VERSION,
           latest,
@@ -9296,6 +9340,44 @@ export default function App() {
     } catch (e) { Alert.alert("Couldn't update item", "Check your connection."); }
   }
 
+  // v1.22 #233 — Save a "Cooked …" row when the user confirms they have
+  // leftovers from the just-used item. Standard fridge_item under the hood,
+  // so it shows up in the Fridge tab, Eat Me First, At Risk widget, etc.
+  // without any special-casing — just naturally surfaces because of the
+  // ~4-day expiry. Tracked as a distinct event so we can measure adoption.
+  async function handleSaveLeftovers(originalItem) {
+    if (!originalItem) return;
+    try {
+      const expiryDateIso = new Date(Date.now() + LEFTOVER_SHELF_DAYS * 86400000).toISOString();
+      const saved = await dbAddItem({
+        name: `${LEFTOVER_PREFIX}${originalItem.name}`,
+        category: originalItem.category || "Other",
+        emoji: LEFTOVER_EMOJI,
+        quantity: 1,
+        unit: "serving",
+        addedDate: new Date().toISOString(),
+        expiryDate: expiryDateIso,
+        section: "fridge",
+        // No open/closed semantics — cooked leftovers don't have a packaging
+        // state, the expiry is the same whether you put cling-film on or not.
+        isOpened: false,
+        openedAt: null,
+        expiryOpenedDays: null,
+        expiryUnopened: expiryDateIso.slice(0, 10),
+      });
+      setItems(prev => [rowToItem(saved), ...prev]);
+      showToast(`${LEFTOVER_EMOJI} Saved cooked ${originalItem.name}`);
+      track("leftovers_saved", {
+        original_name: originalItem.name,
+        category: originalItem.category || null,
+        shelf_days: LEFTOVER_SHELF_DAYS,
+      });
+    } catch (e) {
+      console.warn("handleSaveLeftovers failed:", e?.message || e);
+      Alert.alert("Couldn't save leftovers", "Try again in a moment.");
+    }
+  }
+
   async function handleBulkDelete(ids) {
     if (!ids || ids.length === 0) return;
     const results = await Promise.allSettled(ids.map(id => dbDeleteItem(id)));
@@ -9378,6 +9460,7 @@ export default function App() {
           onAdd={(section) => { setAddSection(section || "fridge"); setShowAdd(true); }}
           onUpdate={handleUpdate}
           onUse={handleUse}
+          onSaveLeftovers={handleSaveLeftovers}
           loading={loading}
           householdName={householdName}
           onOpenManageInventory={() => setShowManageInventory(true)}
@@ -9909,7 +9992,14 @@ export default function App() {
         visible={updateInfo !== null}
         transparent
         animationType="fade"
-        onRequestClose={() => setUpdateInfo(null)}
+        onRequestClose={() => {
+          // v1.22 #241 — Android hardware back-button dismissal must persist,
+          // otherwise the next cold launch re-prompts. Mirrors Maybe Later.
+          if (updateInfo?.latest) {
+            AsyncStorage.setItem("app_update_dismissed_version", updateInfo.latest).catch(() => {});
+          }
+          setUpdateInfo(null);
+        }}
       >
         <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", padding: 20 }}>
           <View style={{ backgroundColor: T.surface, borderRadius: 16, padding: 32, alignItems: "center", maxWidth: 360, width: "100%" }}>

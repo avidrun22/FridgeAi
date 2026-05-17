@@ -8,10 +8,24 @@ import {
 } from "../lib/constants.js";
 import { daysUntil, expiryColor, expiryLabel, formatQty } from "../lib/helpers.js";
 
+// v1.22 #233 — Leftovers / Cooked status. After a user marks an item as
+// used, we ask whether there are leftovers — if yes, we add a "Cooked …"
+// row to the fridge with the USDA leftover guideline (4 days). Mirrors
+// the iOS UseItemModal flow in App.js. Skip Beverages.
+const LEFTOVER_PREFIX = "Cooked ";
+const LEFTOVER_SHELF_DAYS = 4;
+const LEFTOVER_EMOJI = "🍱";
+function leftoversApply(item) {
+  const cat = (item?.category || "").toLowerCase();
+  if (cat === "beverages") return false;
+  if (typeof item?.name === "string" && item.name.toLowerCase().startsWith(LEFTOVER_PREFIX.toLowerCase())) return false;
+  return true;
+}
+
 // View / edit / delete a single item. Mark used (decrement quantity, or
 // delete when quantity goes to 0). Mark as opened (for packaged items —
 // recalculates expiry from opened-days).
-export default function ItemDetailModal({ open, onClose, item, onUpdated, onRemoved }) {
+export default function ItemDetailModal({ open, onClose, item, onUpdated, onRemoved, onLeftoverSaved }) {
   const [editing, setEditing] = useState(false);
   const [name, setName]         = useState("");
   const [category, setCategory] = useState("Other");
@@ -112,11 +126,62 @@ export default function ItemDetailModal({ open, onClose, item, onUpdated, onRemo
     }
   }
 
+  // v1.22 #233 — Inserts a "Cooked …" row into fridge_items mirroring the
+  // original (same category + container) but with the USDA leftover expiry.
+  // Bubbles the saved row up via onLeftoverSaved so the parent list refreshes
+  // without a full reload.
+  async function saveLeftoversFromItem(originalItem) {
+    if (!originalItem) return;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const expiryIso = new Date(Date.now() + LEFTOVER_SHELF_DAYS * 86400000).toISOString();
+      const row = {
+        user_id: user?.id || null,
+        household_id: originalItem.householdId || null,
+        name: `${LEFTOVER_PREFIX}${originalItem.name}`,
+        category: originalItem.category || "Other",
+        emoji: LEFTOVER_EMOJI,
+        quantity: 1,
+        unit: "serving",
+        container: originalItem.container || "fridge",
+        section: (originalItem.container === "pantry" ? "cupboard" : (originalItem.container || "fridge")),
+        added_date: new Date().toISOString(),
+        expiry_date: expiryIso,
+        is_opened: false,
+        opened_at: null,
+        expiry_opened_days: null,
+        expiry_unopened: expiryIso.slice(0, 10),
+      };
+      const { data, error } = await supabase.from("fridge_items").insert(row).select().single();
+      if (error) throw error;
+      track("leftovers_saved", {
+        original_name: originalItem.name,
+        category: originalItem.category || null,
+        shelf_days: LEFTOVER_SHELF_DAYS,
+      });
+      onLeftoverSaved?.(data);
+    } catch (e) {
+      console.warn("[leftovers] save failed:", e?.message || e);
+      // Don't block the use flow — surface a soft error.
+      alert("Couldn't save leftovers — try again from the Fridge tab.");
+    }
+  }
+
+  function maybePromptLeftovers(originalItem) {
+    if (!leftoversApply(originalItem)) return;
+    // window.confirm matches the rest of this file's prompting style.
+    const ok = window.confirm(`Save leftovers from ${originalItem.name}? We'll add a cooked row good for ${LEFTOVER_SHELF_DAYS} days.`);
+    if (ok) saveLeftoversFromItem(originalItem);
+  }
+
   async function handleUseAmount(amount) {
     // amount is how many units the user just consumed. If it equals or
     // exceeds the current quantity, delete the row entirely.
     const used = Number.isFinite(amount) && amount > 0 ? amount : 1;
     const remaining = (item.quantity || 1) - used;
+    // Capture the original item BEFORE state mutates / modal closes so the
+    // leftover prompt always has stable data to work with.
+    const original = { ...item };
     if (remaining <= 0) {
       setBusy(true); setErr(null);
       try {
@@ -125,6 +190,7 @@ export default function ItemDetailModal({ open, onClose, item, onUpdated, onRemo
         track("item_used", { fully_used: true, category: item.category });
         onRemoved?.(item.id);
         onClose?.();
+        maybePromptLeftovers(original);
       } catch (e) {
         setErr(e?.message || "Couldn't update item.");
         setBusy(false);
@@ -135,6 +201,7 @@ export default function ItemDetailModal({ open, onClose, item, onUpdated, onRemo
     try {
       await patch({ quantity: remaining });
       setUseOpen(false);
+      maybePromptLeftovers(original);
     } catch {}
   }
 
