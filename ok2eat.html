@@ -716,6 +716,28 @@
     position: relative;
     overflow: hidden;
     transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+    /* v1.22 #250 — cards are now anchors linking to the demo. Keep
+       inheriting text color so the conversion from <div> to <a>
+       doesn't restyle anything. */
+    display: block;
+    text-decoration: none;
+    color: inherit;
+  }
+
+  /* v1.22 #250 — screenshot thumbnail at the top of each card.
+     Uses the App Store screenshots (already designed + branded).
+     object-position: top so the headline portion is visible when
+     the card is short. */
+  .feature-screenshot {
+    display: block;
+    width: 100%;
+    height: 220px;
+    object-fit: cover;
+    object-position: top;
+    border-radius: 14px;
+    margin-bottom: 18px;
+    background: var(--bg);
+    border: 1px solid var(--border);
   }
 
   .feature-card:hover {
@@ -1338,21 +1360,14 @@
 
   <p style="margin-top: 20px; font-size: 13px; color: var(--muted); font-style: italic; max-width: 480px;">I built ok2eat after years of opening the fridge, staring at it, closing it, and ordering takeout. Turns out "what do we have to eat?" is the most-asked question in every household. — Greg</p>
 
-  <!-- v1.22 — Qualifier quiz entry. 60-second 3-question funnel that lands
-       the visitor on a persona-tailored landing state with the relevant
-       feature highlights + CTA. Doubles as a research tool: every answer
-       fires a PostHog event so we learn what people want. -->
-  <p style="margin-top: 14px; font-size: 14px; color: var(--text-soft); text-align: center;">
-    Not sure if ok2eat is for you? <a href="/quiz.html" data-event="hero_quiz_link_clicked" style="color: var(--green); font-weight: 600; text-decoration: underline; text-underline-offset: 3px;">Take the 60-second quiz →</a>
-  </p>
-
-  <!-- v1.20 — Inline demo CTA card. Visitors who skip the three hero
-       buttons get a second prompt anchored to the mockup. Links to the
-       no-auth /demo route on app.ok2eat.com so they can play with a
-       fake fridge before signing up. -->
-  <a href="https://app.ok2eat.com/demo" class="demo-cta-card" data-event="hero_demo_card_clicked">
-    <span class="demo-cta-title">Click the phone for a free demo ↓</span>
-    <span class="demo-cta-sub">5 items pre-loaded. Tap any one to see what to cook before it spoils — no signup needed.</span>
+  <!-- v1.22 #250 — Hero CTA swap. The standalone text link to the quiz was
+       getting lost; the green card (previously the "free demo" prompt) is
+       now the QUIZ CTA so it has visual weight. The phone mockup below
+       remains independently clickable to /demo for visitors who want to
+       skip straight to the interactive demo. -->
+  <a href="/quiz.html" class="demo-cta-card" data-event="hero_quiz_card_clicked">
+    <span class="demo-cta-title">Not sure where to start? Take the 60-second quiz ↓</span>
+    <span class="demo-cta-sub">Three questions. We'll show you the parts of ok2eat that fit your goal — saving money, wasting less, or just deciding what to cook tonight.</span>
   </a>
 
   <!-- v1.19 — Mockup refreshed to show the Eat Me First tab (the headline
@@ -1471,66 +1486,72 @@
   <p class="section-sub">ok2eat is built around one question — what should you eat first, before it goes bad? Every feature below answers that, or makes the answer faster.</p>
 
   <div class="features-grid">
-    <div class="feature-card">
-      <span class="feature-icon">🔥</span>
+    <!-- v1.22 #250 — each feature card is now an anchor to the live /demo
+         on app.ok2eat.com. The 5 cards that correspond to App Store
+         screenshots (Eat Me First, USDA expiry, Receipt Scan, Dashboard,
+         Recipes) show those screenshots as portrait thumbnails. The rest
+         keep the emoji icon. All cards fire a PostHog event so we can
+         see which features are pulling clicks. -->
+    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_eat_me_first_clicked">
+      <img class="feature-screenshot" src="/screenshots/features/01_eat_me_first.png" alt="Eat Me First screen — 8 items ranked by urgency, with use-by labels" loading="lazy">
       <div class="feature-title">Eat Me First <span style="font-size:11px;background:var(--green);color:#fff;padding:2px 8px;border-radius:99px;margin-left:6px;vertical-align:middle;letter-spacing:0.05em;">NEW</span></div>
       <div class="feature-desc">A new top-level tab that ranks your fridge by urgency. The thing closest to spoiling sits at the top. Tap any item to get three recipes that use it — plus the four next-most-urgent things alongside it — so dinner uses what's about to go bad instead of what you'd have to buy.</div>
-    </div>
-    <div class="feature-card">
-      <span class="feature-icon">⏰</span>
+    </a>
+    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_usda_expiry_clicked">
+      <img class="feature-screenshot" src="/screenshots/features/06_dual_date.png" alt="Item detail showing both the printed date and the USDA shelf-life window" loading="lazy">
       <div class="feature-title">USDA-backed expiry dates</div>
       <div class="feature-desc">Per-item shelf life from the <strong>USDA FoodKeeper</strong> dataset plus <strong>USDA FoodData Central</strong>, FDA, FSIS, and Cooperative Extension publications — <strong>1,900+ foods</strong> with their own typical fridge, freezer, and pantry windows. ok2eat stores both the printed date and the USDA window, so you stop tossing cheddar at 14 days when it actually lasts six months.</div>
-    </div>
-    <div class="feature-card">
-      <span class="feature-icon">📸</span>
+    </a>
+    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_receipt_scan_clicked">
+      <img class="feature-screenshot" src="/screenshots/features/04_receipt_scan.png" alt="Receipt scan screen — a grocery receipt being parsed into fridge items" loading="lazy">
       <div class="feature-title">Receipt Scanning</div>
       <div class="feature-desc">Snap your grocery receipt and ok2eat fills your fridge for you in seconds. Every line gets smart expiry dates from FoodKeeper plus a smart container default — bread to pantry, ice cream to freezer, no manual sorting.</div>
-    </div>
-    <div class="feature-card">
-      <span class="feature-icon">📊</span>
+    </a>
+    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_dashboard_clicked">
+      <img class="feature-screenshot" src="/screenshots/features/03_dashboard.png" alt="Dashboard tab showing money saved, items rescued, and at-risk-now tile" loading="lazy">
       <div class="feature-title">Impact Dashboard <span style="font-size:11px;background:var(--green);color:#fff;padding:2px 8px;border-radius:99px;margin-left:6px;vertical-align:middle;letter-spacing:0.05em;">NEW</span></div>
       <div class="feature-desc">Lifetime money saved, pounds of food rescued, CO₂ avoided. Live numbers, recalculated every time you mark something used. The average US household wastes $1,866 of food a year — yours doesn't have to.</div>
-    </div>
-    <div class="feature-card">
-      <span class="feature-icon">🥗</span>
+    </a>
+    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_recipes_clicked">
+      <img class="feature-screenshot" src="/screenshots/features/02_recipe_modal.png" alt="Recipe sheet for an expiring ingredient, with dietary-aware ingredient list" loading="lazy">
       <div class="feature-title">Recipes that respect your diet <span style="font-size:11px;background:var(--green);color:#fff;padding:2px 8px;border-radius:99px;margin-left:6px;vertical-align:middle;letter-spacing:0.05em;">NEW</span></div>
       <div class="feature-desc">Set dietary preferences (vegetarian, vegan, gluten-free, dairy-free, nut-free, low-carb, keto) and allergies (peanut, tree nut, shellfish, fish, egg, milk, soy, wheat, sesame) once. Every recipe respects them. Ingredient amounts scale to your household size.</div>
-    </div>
-    <div class="feature-card">
+    </a>
+    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_barcode_clicked">
       <span class="feature-icon">📷</span>
       <div class="feature-title">Barcode Scanner</div>
       <div class="feature-desc">For quick one-off additions. Scan a barcode and pull nutrition info, ingredients, and suggested expiry from a database of 3 million+ products.</div>
-    </div>
-    <div class="feature-card">
+    </a>
+    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_digest_clicked">
       <span class="feature-icon">🔔</span>
       <div class="feature-title">Daily Digest</div>
       <div class="feature-desc">Get a morning summary by push notification, email, or both — your choice. See what's expiring, what's expired, and what to use first.</div>
-    </div>
-    <div class="feature-card">
+    </a>
+    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_reorder_clicked">
       <span class="feature-icon">🛒</span>
       <div class="feature-title">One-Tap Reorder</div>
       <div class="feature-desc">Tap any low-stock item and order it on <strong>Instacart</strong>, <strong>Amazon</strong>, or <strong>Walmart</strong>. Pre-filled search, your cart, no typing. Restock before you run out.</div>
-    </div>
-    <div class="feature-card">
+    </a>
+    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_household_clicked">
       <span class="feature-icon">🤝</span>
       <div class="feature-title">Shared Household</div>
       <div class="feature-desc">Add an item on your phone, your partner sees it on theirs. One fridge, one source of truth. Stop the "do we still have eggs?" texts.</div>
-    </div>
-    <div class="feature-card">
+    </a>
+    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_shopping_lists_clicked">
       <span class="feature-icon">📝</span>
       <div class="feature-title">Shopping Lists, Together</div>
       <div class="feature-desc">Build separate lists for Costco, Trader Joe's, the weekday grab. Everyone in the house adds items in real time — and you can see who added what.</div>
-    </div>
-    <div class="feature-card">
+    </a>
+    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_cupboard_clicked">
       <span class="feature-icon">🥫</span>
       <div class="feature-title">Cupboard + Fridge</div>
       <div class="feature-desc">Track pantry staples and fridge items side by side, in one place. Different shelf life, same simple interface.</div>
-    </div>
-    <div class="feature-card">
+    </a>
+    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_partial_use_clicked">
       <span class="feature-icon">🍽</span>
       <div class="feature-title">Partial Use Tracking</div>
       <div class="feature-desc">Used half a gallon of milk? Added 2 tbsp of ketchup? Log partial usage in any unit and your inventory stays accurate.</div>
-    </div>
+    </a>
   </div>
 </section>
 

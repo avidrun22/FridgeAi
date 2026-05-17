@@ -80,7 +80,7 @@
   .cta-row { display: flex; flex-direction: column; gap: 10px; margin-bottom: 24px; }
   @media (min-width: 600px) {
     .cta-row { flex-direction: row; flex-wrap: wrap; }
-    .cta-row > * { flex: 1 1 calc(33% - 7px); min-width: 0; }
+    .cta-row > * { flex: 1 1 calc(50% - 5px); min-width: 0; }
   }
   .btn { display: inline-flex; align-items: center; justify-content: center; padding: 14px 20px; border-radius: 12px; font-family: inherit; font-size: 15px; font-weight: 600; text-decoration: none; cursor: pointer; transition: all 150ms ease; text-align: center; border: 1.5px solid transparent; }
   .btn-primary { background: var(--text); color: #fff; }
@@ -240,7 +240,6 @@
 
       <div class="cta-row">
         <a href="https://apps.apple.com/us/app/ok2eat/id6761730687" class="btn btn-primary" data-cta="ios">Download on the App Store</a>
-        <a href="https://app.ok2eat.com/demo" class="btn btn-secondary" data-cta="web_demo">Try the no-signup demo →</a>
         <button type="button" class="btn btn-android" data-cta="android_waitlist" data-android-toggle>Android — join waitlist</button>
       </div>
 
@@ -341,47 +340,47 @@
   // shared household).
   const PERSONAS = {
     save_money: {
-      eyebrow: "Stop paying for food that goes in the trash",
-      title: "ok2eat helps you waste less — and the dollars add up.",
-      lede: "The average US household throws out around $1,500/yr of food. ok2eat closes the gap by telling you what's worth using tonight, before it spoils.",
+      eyebrow: "Get back the $1,500 you throw away every year",
+      title: "Stop paying for groceries that go in the trash.",
+      lede: "The average US household throws out $1,500 of food a year. Half of that is just forgotten — wedges of cheese pushed to the back, leftovers eclipsed by takeout. ok2eat is the eyes that don't forget. Every item you'd otherwise toss gets used instead.",
       features: [
-        { emoji: "📷", label: "Scan your receipt to load your fridge in seconds", body: "Snap your grocery receipt, ok2eat fills in everything with smart expiry dates. No typing." },
-        { emoji: "🥬", label: "An 'At Risk Now' tile on the dashboard", body: "Glance and see the dollar value of food about to expire this week. Tap it to jump straight to those items." },
-        { emoji: "📅", label: "Calibrated shelf-life data on 1,900+ foods", body: "Hard cheddar lasts 6 months unopened, not 14 days. Salami lasts 2 years. Stop tossing food that's actually still good." },
-        { emoji: "🗑️", label: "Waste tracking (coming this week)", body: "When you do throw something out, it logs the loss so the dashboard can show you exactly what you're losing each month." },
+        { emoji: "📷", label: "Your fridge fills itself in 10 seconds", body: "Snap your grocery receipt at the car. By the time you're inside, every item is in your fridge with a smart expiry date. No typing, no scanning each one." },
+        { emoji: "🥬", label: "A live dollar count of food about to spoil", body: "The dashboard shows you, in real money, what's at risk this week. Tap it to jump straight to those items and use them tonight — before they become trash." },
+        { emoji: "📅", label: "Cheddar lasts 6 months, not 14 days", body: "1,900+ foods now have USDA-calibrated shelf life. Hard cheese, cured meats, frozen vegetables, canned goods — stop tossing food that's actually still good for months." },
+        { emoji: "📊", label: "See what your fridge is actually costing you", body: "Every Toss logs the loss. Month by month, the dashboard shows your real waste in dollars — so you can watch the number drop as you change one habit at a time." },
       ],
     },
     reduce_waste: {
-      eyebrow: "See what's going bad — in time to actually use it",
-      title: "ok2eat puts the most-urgent stuff at the top of the list.",
-      lede: "You don't waste food on purpose. You waste it because you forget it's there. ok2eat is the reminder that runs in the background.",
+      eyebrow: "Stop feeling guilty when you open the fridge",
+      title: "The cilantro doesn't die in the crisper anymore.",
+      lede: "You don't waste food on purpose. You waste it because life is loud and the spinach is quiet. ok2eat is the quiet voice that says: use me tonight. The food you bought actually gets eaten — and the guilt stops piling up.",
       features: [
-        { emoji: "⚡", label: "Eat Me First tab — ranked by urgency", body: "Open the app and the first thing you see is what's closest to spoiling. No scrolling, no guessing." },
-        { emoji: "🌙", label: "Smart Cook Night push at 6pm", body: "A daily nudge with 3 recipes built around what's about to expire. So the cilantro doesn't die in the crisper again." },
-        { emoji: "🍱", label: "Save leftovers as a cooked item (next update)", body: "After you cook, ok2eat asks 'save leftovers?' — tap yes and a 4-day-shelf Cooked row appears. Tuesday's chili surfaces Wednesday." },
-        { emoji: "📧", label: "A daily email digest of what to use", body: "Skim it with your coffee. One-tap into the app if anything catches your eye." },
+        { emoji: "⚡", label: "Open the app and immediately see what's about to spoil", body: "Eat Me First is the home screen. Items ranked by urgency, top of the list, every time. No scrolling, no surprises, no 'oh no, the strawberries.'" },
+        { emoji: "🌙", label: "At 6pm, three dinner ideas built around what's at risk tonight", body: "Smart Cook Night sends a daily push at dinner-time. The recipes use the items closest to spoiling — so the choice to cook becomes the choice to not waste." },
+        { emoji: "🍱", label: "Tuesday's chili shows up Wednesday — not next week", body: "After you mark something used, ok2eat asks if there are leftovers. Tap save and a 'Cooked …' row joins your fridge, good for 4 days. Leftovers stop being forgotten." },
+        { emoji: "📧", label: "A 30-second morning digest of what's worth using today", body: "One email per day with your top 5 expiring items and 3 dinner ideas. Skim with coffee, plan your day. No more 'I should cook' nagging." },
       ],
     },
     stop_buying_dupes: {
-      eyebrow: "Know what's already in your fridge before you shop",
-      title: "ok2eat is a search bar for your fridge.",
-      lede: "You don't need a third jar of dijon mustard. ok2eat shows you what's already there, so the grocery list reflects what you're actually missing.",
+      eyebrow: "Never buy a third jar of mustard again",
+      title: "Your fridge becomes searchable.",
+      lede: "Most of what you 'need at the store' is already at home. You just can't see it without taking everything out. ok2eat is a search bar for your fridge — type the thing, see what you have, only buy what's actually missing. Grocery bills shrink by 20% without changing anything else.",
       features: [
-        { emoji: "🔍", label: "Search your fridge from the aisle", body: "Open ok2eat at the store and type 'mustard' — see exactly how many jars you have and when each one expires." },
-        { emoji: "📝", label: "Shopping lists that know what you have", body: "Build the list from a recipe — ok2eat pre-checks ingredients you already have in stock. Only buy what's actually missing." },
-        { emoji: "🏠", label: "Shared lists for the whole household", body: "Anyone with the link can add to the list — no app required for them. Whoever's at the store sees what changed in real time." },
-        { emoji: "📷", label: "Receipt scan to keep the fridge state honest", body: "After every grocery run, snap the receipt — ok2eat updates inventory automatically. The search bar stays accurate." },
+        { emoji: "🔍", label: "Search your fridge from the grocery aisle", body: "Open ok2eat at the store, type 'mustard' — see exactly how many jars are home and how long they'll last. The pantry stops being a black box." },
+        { emoji: "📝", label: "Shopping lists that already know what's in stock", body: "Build the list from a recipe and ok2eat pre-checks ingredients you have. The list is what you're actually missing — not what the recipe assumes you don't have." },
+        { emoji: "🏠", label: "Everyone in the house sees the same fridge", body: "Share a list with your household — anyone can add to it from a browser, no app needed. Whoever's at the store sees changes in real time. No more 'did you get milk?' texts." },
+        { emoji: "📷", label: "Receipt scan keeps the inventory honest", body: "After every grocery run, snap the receipt — ok2eat updates the fridge automatically. The search bar stays accurate. The duplicates stop." },
       ],
     },
     cook_from_what_i_have: {
-      eyebrow: "Recipes built around what's actually in your fridge",
-      title: "Stop staring. ok2eat tells you what to cook tonight.",
-      lede: "Tap an item — get three recipes that use it plus what's about to expire alongside it. No more 8pm 'idk' followed by takeout.",
+      eyebrow: "End the 8pm 'idk, what do you want?' loop",
+      title: "Dinner decisions in 30 seconds.",
+      lede: "You don't need new recipes. You need recipes built around what's actually in your fridge — that also happen to use the food about to go bad. Tap an item, get three dinners. The staring-into-the-fridge era ends tonight.",
       features: [
-        { emoji: "🍳", label: "Tap any expiring item → get recipes that use it", body: "ok2eat looks at your top 5 most-urgent items and generates 3 recipe ideas built around them. Adjustable to your dietary preferences." },
-        { emoji: "📚", label: "Browse a recipe library that matches your inventory", body: "The Plan tab shows you which recipes you already have most of the ingredients for. In-stock badges, sorted by match." },
-        { emoji: "💾", label: "Save the recipes you like for next time", body: "Heart the keepers — they live in the Saved tab. Pulls back up next time the same ingredients show up." },
-        { emoji: "🌙", label: "6pm 'Smart Cook Night' suggestion", body: "Daily push at 6pm with 3 dinner ideas — based on what's expiring in your actual fridge that day." },
+        { emoji: "🍳", label: "Tap any item → three recipes that use it plus the next 4 urgent things", body: "ok2eat reads your fridge, picks the most-urgent items, and generates dinner ideas built around them. Respects your dietary prefs. Scaled to your household." },
+        { emoji: "📚", label: "Browse recipes sorted by what you can make right now", body: "The Plan tab is a recipe library, but with in-stock badges. The ones at the top need almost nothing from the store. The 'add to cart' loop disappears." },
+        { emoji: "💾", label: "Heart the winners — they come back when the ingredients do", body: "Save recipes you actually liked. Next time the same items show up in your fridge, ok2eat pulls them up first. Your house-favorites become a real list." },
+        { emoji: "🌙", label: "A 6pm push so dinner is decided before you're hungry", body: "Smart Cook Night arrives at 6pm with 3 dinner ideas built around tonight's most-urgent items. No more 'figure it out at 8pm.' The decision is already done." },
       ],
     },
   };
