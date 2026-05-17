@@ -1078,6 +1078,182 @@ function needsReorder(item) {
   return qtyNum <= 1 || days <= 7;
 }
 
+// ─── Order chooser ────────────────────────────────────────────────────────────
+// v1.22 #247 — From the Item detail "Order more" button. Two paths:
+//   1. Shop online → opens the existing ReorderSheet (Instacart/Amazon/Walmart
+//      affiliate links).
+//   2. Add to shopping list → opens AddItemToListSheet, which loads the
+//      household's lists + lets the user pick one or create a new one.
+function OrderChooserSheet({ item, visible, onClose, onChooseOnline, onChooseList }) {
+  if (!item) return null;
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <TouchableOpacity style={s.modalOverlay} activeOpacity={1} onPress={onClose}>
+        <TouchableOpacity activeOpacity={1} style={s.modalSheet}>
+          <View style={s.sheetHandle} />
+          <Text style={[s.bold, { fontSize: 18, marginBottom: 4 }]}>Order more {item.name}</Text>
+          <Text style={{ color: T.textSoft, fontSize: 13, marginBottom: 20 }}>Pick a path</Text>
+          <TouchableOpacity
+            onPress={() => { onClose(); setTimeout(onChooseOnline, 200); }}
+            style={{ flexDirection: "row", alignItems: "center", padding: 14, marginBottom: 10, backgroundColor: "rgba(37,99,235,0.06)", borderWidth: 1, borderColor: "rgba(37,99,235,0.25)", borderRadius: 14, gap: 12 }}
+          >
+            <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: "rgba(37,99,235,0.12)", alignItems: "center", justifyContent: "center" }}>
+              <Text style={{ fontSize: 18 }}>🛒</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[s.bold, { fontSize: 15, color: "#2563EB" }]}>Shop online</Text>
+              <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 1 }}>Instacart, Amazon, Walmart</Text>
+            </View>
+            <Text style={{ color: "#2563EB", fontSize: 16 }}>›</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => { onClose(); setTimeout(onChooseList, 200); }}
+            style={{ flexDirection: "row", alignItems: "center", padding: 14, marginBottom: 8, backgroundColor: "rgba(37,99,235,0.06)", borderWidth: 1, borderColor: "rgba(37,99,235,0.25)", borderRadius: 14, gap: 12 }}
+          >
+            <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: "rgba(37,99,235,0.12)", alignItems: "center", justifyContent: "center" }}>
+              <Text style={{ fontSize: 18 }}>📝</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[s.bold, { fontSize: 15, color: "#2563EB" }]}>Add to shopping list</Text>
+              <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 1 }}>Existing list or create new</Text>
+            </View>
+            <Text style={{ color: "#2563EB", fontSize: 16 }}>›</Text>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+  );
+}
+
+// ─── Add-to-list sub-sheet ────────────────────────────────────────────────────
+// v1.22 #247 — Self-contained. Resolves the user's household, loads active
+// lists, lets the user pick one or type a new list name, then inserts a
+// shopping_list_items row with name = item.name. Mirrors the existing
+// match-recipe add-to-list pattern but skinned down to a single-item add.
+function AddItemToListSheet({ item, visible, onClose, onAdded }) {
+  const [lists, setLists] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [targetListId, setTargetListId] = useState(null);
+  const [newListName, setNewListName] = useState("");
+  const [creatingNew, setCreatingNew] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!visible || !item) return;
+    setError(null); setNewListName(""); setCreatingNew(false); setTargetListId(null); setLists([]);
+    setLoading(true);
+    (async () => {
+      try {
+        const { data: hh, error: hhErr } = await supabase.rpc("ensure_household_for_user");
+        if (hhErr) throw hhErr;
+        const { data: rows, error: lErr } = await supabase
+          .from("shopping_lists")
+          .select("id, name, created_at")
+          .eq("household_id", hh)
+          .is("archived_at", null)
+          .order("created_at", { ascending: false });
+        if (lErr) throw lErr;
+        const all = rows || [];
+        setLists(all);
+        if (all.length > 0) setTargetListId(all[0].id);
+        else { setCreatingNew(true); setNewListName(`${item.name} list`); }
+      } catch (e) {
+        setError(e?.message || "Couldn't load your lists.");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [visible, item]);
+
+  async function handleAdd() {
+    if (adding || !item) return;
+    setAdding(true); setError(null);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data: hh } = await supabase.rpc("ensure_household_for_user");
+      let listId = targetListId;
+      if (creatingNew) {
+        const name = (newListName || "").trim() || `${item.name} list`;
+        const { data: newList, error: createErr } = await supabase
+          .from("shopping_lists")
+          .insert({ household_id: hh, name, created_by: user?.id || null })
+          .select("id")
+          .single();
+        if (createErr) throw createErr;
+        listId = newList.id;
+      }
+      if (!listId) throw new Error("Pick a list or create a new one.");
+      const { error: insErr } = await supabase
+        .from("shopping_list_items")
+        .insert({ household_id: hh, list_id: listId, name: item.name, created_by: user?.id || null });
+      if (insErr) throw insErr;
+      track("item_added_to_shopping_list", { source: "item_detail_order", name: item.name, category: item.category, created_new_list: creatingNew });
+      onAdded?.(item.name);
+      onClose();
+    } catch (e) {
+      setError(e?.message || "Couldn't add to list.");
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  if (!item) return null;
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <TouchableOpacity style={s.modalOverlay} activeOpacity={1} onPress={onClose}>
+        <TouchableOpacity activeOpacity={1} style={[s.modalSheet, { maxHeight: "75%" }]}>
+          <View style={s.sheetHandle} />
+          <Text style={[s.bold, { fontSize: 18, marginBottom: 4 }]}>Add {item.name} to a list</Text>
+          {loading && <View style={{ paddingVertical: 30, alignItems: "center" }}><ActivityIndicator color={T.accent} /></View>}
+          {!loading && lists.length > 0 && (
+            <>
+              <Text style={[s.sectionLabel, { marginTop: 14, marginBottom: 6, paddingHorizontal: 0, fontSize: 10 }]}>EXISTING LIST</Text>
+              <ScrollView style={{ maxHeight: 200 }} keyboardShouldPersistTaps="handled">
+                {lists.map(l => (
+                  <TouchableOpacity
+                    key={l.id}
+                    onPress={() => { setTargetListId(l.id); setCreatingNew(false); }}
+                    style={{ paddingVertical: 12, paddingHorizontal: 12, borderRadius: 10, marginBottom: 4, backgroundColor: (!creatingNew && targetListId === l.id) ? "rgba(22,163,74,0.10)" : "transparent", borderWidth: 1, borderColor: (!creatingNew && targetListId === l.id) ? T.accent : T.border }}
+                  >
+                    <Text style={{ color: T.text, fontSize: 15, fontWeight: (!creatingNew && targetListId === l.id) ? "700" : "500" }}>{l.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </>
+          )}
+          {!loading && (
+            <>
+              <Text style={[s.sectionLabel, { marginTop: 14, marginBottom: 6, paddingHorizontal: 0, fontSize: 10 }]}>{lists.length > 0 ? "OR CREATE NEW" : "NEW LIST"}</Text>
+              <TouchableOpacity
+                onPress={() => { setCreatingNew(true); if (!newListName) setNewListName(`${item.name} list`); }}
+                style={{ paddingVertical: 12, paddingHorizontal: 12, borderRadius: 10, backgroundColor: creatingNew ? "rgba(22,163,74,0.10)" : "transparent", borderWidth: 1, borderColor: creatingNew ? T.accent : T.border }}
+              >
+                <TextInput
+                  style={{ color: T.text, fontSize: 15, padding: 0 }}
+                  value={newListName}
+                  onChangeText={(t) => { setNewListName(t); setCreatingNew(true); }}
+                  placeholder="New list name"
+                  placeholderTextColor={T.muted}
+                  onFocus={() => setCreatingNew(true)}
+                />
+              </TouchableOpacity>
+            </>
+          )}
+          {error && <Text style={{ color: T.danger, fontSize: 12, marginTop: 10 }}>{error}</Text>}
+          <TouchableOpacity
+            onPress={handleAdd}
+            disabled={adding}
+            style={{ backgroundColor: T.accent, paddingVertical: 13, borderRadius: 12, alignItems: "center", marginTop: 16, opacity: adding ? 0.6 : 1 }}
+          >
+            <Text style={{ color: "#FFFFFF", fontSize: 15, fontWeight: "700" }}>{adding ? "Adding…" : `Add ${item.name}`}</Text>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+  );
+}
+
 // ─── Item Detail Modal ────────────────────────────────────────────────────────
 function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse }) {
   const [editing, setEditing] = useState(false);
@@ -1091,8 +1267,23 @@ function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse
   const [nutritionGrade, setNutritionGrade] = useState(null);
   const [ingredients, setIngredients] = useState(null);
   const [showReorder, setShowReorder] = useState(false);
+  // v1.22 #247 — three-way action row at the top of item detail. The Order
+  // button opens a chooser (online vs shopping list). Toss tracks waste then
+  // deletes. Remove (legacy data-cleanup path) moves to a quieter footer link.
+  const [showOrderChooser, setShowOrderChooser] = useState(false);
+  const [showAddToList, setShowAddToList] = useState(false);
+  // v1.22 #243 — container state for the edit-mode "Move to" chips. Lets
+  // users transfer an item between fridge / pantry / freezer without
+  // deleting + re-adding. Defaults to the item's current container; on save,
+  // we persist any change through onUpdate.
+  const [container, setContainer] = useState("fridge");
 
   const categories = ["Dairy", "Protein", "Produce", "Dry Goods", "Beverages", "Other"];
+  const CONTAINERS = [
+    { key: "fridge",  label: "Fridge",  emoji: "🧊" },
+    { key: "pantry",  label: "Pantry",  emoji: "🥫" },
+    { key: "freezer", label: "Freezer", emoji: "❄️" },
+  ];
   const emojiMap = { Dairy: "🥛", Protein: "🍗", Produce: "🥬", "Dry Goods": "🥣", Beverages: "🍶", Other: "📦" };
 
   useEffect(() => {
@@ -1100,6 +1291,8 @@ function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse
       setName(item.name); setExpiryDate(item.expiryDate ? item.expiryDate.split("T")[0] : "");
       setQuantity(String(item.quantity || 1)); setUnit(item.unit || "");
       setCategory(item.category || "Other");
+      // v1.22 #243 — initialize container picker from the row.
+      setContainer(item.container || "fridge");
       setNutrition(null); setNutritionGrade(null); setIngredients(null); setEditing(false);
       if (item.barcode) {
         setLoadingNutrition(true);
@@ -1124,14 +1317,72 @@ function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse
     // them to the smart emoji so the DB row matches what the UI shows.
     const trimmedName = name.trim();
     const updates = { name: trimmedName, category, emoji: inferEmoji(trimmedName, emojiMap[category] || item.emoji), quantity: safeQty, unit: (unit || "").trim() || null, expiry_date: expiryDate ? new Date(expiryDate).toISOString() : item.expiryDate };
+    // v1.22 #243 — if the user moved the item to a different container,
+    // persist both `container` (canonical, v1.0.8+) and `section` (legacy
+    // mirror — older clients still read it). Track for analytics.
+    if (container && container !== (item.container || "fridge")) {
+      updates.container = container;
+      updates.section = container === "pantry" ? "cupboard" : container;
+      try {
+        track("item_container_moved", {
+          name: trimmedName,
+          category,
+          from: item.container || "fridge",
+          to: container,
+        });
+      } catch (_e) { /* never block the save */ }
+    }
     await onUpdate(item.id, updates); setEditing(false);
   }
 
   function handleDelete() {
-    Alert.alert("Remove Item", `Remove ${item.name} from your fridge?`, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Remove", style: "destructive", onPress: () => { onDelete(item.id); onClose(); } }
-    ]);
+    // v1.22 #247 — data-cleanup path. Use Toss for items that actually went
+    // bad so we get the waste tracking; this stays for "I scanned the wrong
+    // thing" / housekeeping deletes that shouldn't pollute waste analytics.
+    const containerLabel = (item.container || "fridge").toLowerCase();
+    Alert.alert(
+      "Remove Item",
+      `Remove ${item.name} from your ${containerLabel}? Use Toss instead if it went bad — that tracks the waste.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Remove", style: "destructive", onPress: () => { onDelete(item.id); onClose(); } },
+      ],
+    );
+  }
+
+  // v1.22 #247 — Toss: this item went bad. Fires a rich PostHog event so
+  // a future Dashboard widget can compute $ wasted / month / category, then
+  // deletes the row. Separate from handleDelete so waste analytics aren't
+  // polluted by data-cleanup deletes (mis-scans, accidental adds, etc.).
+  function handleToss() {
+    const days = daysUntil(item.expiryDate);
+    Alert.alert(
+      "Toss this item?",
+      `Mark ${item.name} as wasted. We'll track it so you can see your monthly waste.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Toss it",
+          style: "destructive",
+          onPress: () => {
+            try {
+              track("item_tossed", {
+                name: item.name,
+                category: item.category || null,
+                container: item.container || null,
+                days_until_expiry: days,
+                expired: days < 0,
+                quantity: item.quantity || null,
+                unit: item.unit || null,
+                surface: "item_detail",
+              });
+            } catch (_e) { /* analytics never blocks the action */ }
+            onDelete(item.id);
+            onClose();
+          },
+        },
+      ],
+    );
   }
 
   return (
@@ -1175,11 +1426,49 @@ function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse
             })()}
           </View>
           <View style={{ paddingHorizontal: 16 }}>
+            {/* v1.22 #247 — Three-way action row: Use (green) | Order (blue) |
+                Toss (red). Replaces the old standalone Use Item button + the
+                conditional Reorder section. Each opens its own flow.
+                  Use   → existing handleUse via parent (track item_used)
+                  Order → OrderChooserSheet (Shop online vs Add to list)
+                  Toss  → handleToss (track item_tossed with rich props,
+                          then delete) — distinct from Remove which is for
+                          data-cleanup deletes without waste tracking. */}
             {!editing && (
-              <TouchableOpacity style={{ backgroundColor: "rgba(22,163,74,0.12)", borderWidth: 1.5, borderColor: T.accent, borderRadius: 14, padding: 16, marginBottom: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 }} onPress={() => { onClose(); setTimeout(() => onShowUse(item), 350); }}>
-                <Text style={{ fontSize: 20 }}>🍽</Text>
-                <View><Text style={[s.bold, { color: T.accent, fontSize: 15 }]}>Use Item</Text><Text style={{ color: T.textSoft, fontSize: 12, marginTop: 1 }}>Track how much you used</Text></View>
-              </TouchableOpacity>
+              <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+                {(() => {
+                  const ACTION_HEIGHT = 76;
+                  const Cell = ({ bg, border, color, emoji, label, sub, onPress }) => (
+                    <TouchableOpacity
+                      onPress={onPress}
+                      style={{ flex: 1, minHeight: ACTION_HEIGHT, backgroundColor: bg, borderWidth: 1.5, borderColor: border, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 8, alignItems: "center", justifyContent: "center" }}
+                    >
+                      <Text style={{ fontSize: 22, marginBottom: 4 }}>{emoji}</Text>
+                      <Text style={[s.bold, { color, fontSize: 13 }]} numberOfLines={1}>{label}</Text>
+                      <Text style={{ color: T.textSoft, fontSize: 10, marginTop: 1, textAlign: "center" }} numberOfLines={1}>{sub}</Text>
+                    </TouchableOpacity>
+                  );
+                  return (
+                    <>
+                      <Cell
+                        bg="rgba(22,163,74,0.12)"  border={T.accent}  color={T.accent}
+                        emoji="🍽" label="Use" sub="Track usage"
+                        onPress={() => { onClose(); setTimeout(() => onShowUse(item), 350); }}
+                      />
+                      <Cell
+                        bg="rgba(37,99,235,0.10)"  border="rgba(37,99,235,0.45)"  color="#2563EB"
+                        emoji="🛒" label="Order" sub="Reorder or list"
+                        onPress={() => setShowOrderChooser(true)}
+                      />
+                      <Cell
+                        bg="rgba(220,38,38,0.10)"  border="rgba(220,38,38,0.45)"  color={T.danger}
+                        emoji="🗑" label="Toss" sub="Went bad"
+                        onPress={handleToss}
+                      />
+                    </>
+                  );
+                })()}
+              </View>
             )}
             {/* Mark-as-opened (only for packaged items not yet opened) */}
             {!editing && item.expiryOpenedDays && !item.isOpened && (
@@ -1227,17 +1516,44 @@ function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse
                 </View>
               </TouchableOpacity>
             )}
-            {!editing && needsReorder(item) && (
-              <TouchableOpacity style={{ backgroundColor: "rgba(255,153,0,0.08)", borderWidth: 1.5, borderColor: "rgba(255,153,0,0.3)", borderRadius: 14, padding: 16, marginBottom: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 }} onPress={() => setShowReorder(true)}>
-                <Text style={{ fontSize: 20 }}>🛒</Text>
-                <View><Text style={[s.bold, { color: "#FF9900", fontSize: 15 }]}>Reorder</Text><Text style={{ color: T.textSoft, fontSize: 12, marginTop: 1 }}>{daysUntil(item.expiryDate) <= 7 ? "Expiring soon — restock" : "Running low — restock"}</Text></View>
-              </TouchableOpacity>
-            )}
+            {/* v1.22 #247 — The standalone "Reorder" section was removed; the
+                Order action in the 3-column row above covers it (and adds
+                Add-to-shopping-list as a peer path). needsReorder is still
+                exported for the Dashboard / EatMeFirst surfaces that use it. */}
             <View style={[s.card, { padding: 16, marginBottom: 12 }]}>
               <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 12, paddingHorizontal: 0 }]}>DETAILS</Text>
               <View style={{ marginBottom: 12 }}>
                 <Text style={s.inputLabel}>Category</Text>
                 {editing ? <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>{categories.map(c => (<TouchableOpacity key={c} onPress={() => setCategory(c)} style={[s.chip, category === c && s.chipActive, { marginRight: 0 }]}><Text style={[s.chipText, category === c && s.chipTextActive]}>{c}</Text></TouchableOpacity>))}</View> : <Text style={{ color: T.text, fontSize: 15 }}>{item.category}</Text>}
+              </View>
+              {/* v1.22 #243 — Container picker in edit mode lets users move
+                  an item between Fridge / Pantry / Freezer without delete+re-
+                  add. View mode shows the current container as a labeled
+                  field so it's visible without entering edit. */}
+              <View style={{ marginBottom: 12 }}>
+                <Text style={s.inputLabel}>Container</Text>
+                {editing ? (
+                  <View style={{ flexDirection: "row", gap: 6 }}>
+                    {CONTAINERS.map(c => {
+                      const active = container === c.key;
+                      return (
+                        <TouchableOpacity
+                          key={c.key}
+                          onPress={() => setContainer(c.key)}
+                          style={[s.chip, active && s.chipActive, { marginRight: 0, flexDirection: "row", alignItems: "center", gap: 4 }]}
+                        >
+                          <Text style={{ fontSize: 13 }}>{c.emoji}</Text>
+                          <Text style={[s.chipText, active && s.chipTextActive]}>{c.label}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <Text style={{ color: T.text, fontSize: 15 }}>
+                    {(CONTAINERS.find(c => c.key === (item.container || "fridge")) || CONTAINERS[0]).emoji}{" "}
+                    {(CONTAINERS.find(c => c.key === (item.container || "fridge")) || CONTAINERS[0]).label}
+                  </Text>
+                )}
               </View>
               <View style={{ flexDirection: "row", gap: 10 }}>
                 <View style={{ flex: 0.6 }}>
@@ -1265,17 +1581,33 @@ function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse
             {!loadingNutrition && !nutrition && item.barcode && <View style={[s.card, { padding: 16, marginBottom: 12 }]}><Text style={{ color: T.textSoft, fontSize: 13, textAlign: "center" }}>No nutrition data available for this product.</Text></View>}
             {!item.barcode && <View style={[s.card, { padding: 16, marginBottom: 12 }]}><Text style={{ color: T.textSoft, fontSize: 13, textAlign: "center" }}>Scan a barcode when adding items to see nutrition facts.</Text></View>}
             {ingredients && <View style={[s.card, { padding: 14, marginBottom: 12 }]}><Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 8, paddingHorizontal: 0 }]}>INGREDIENTS</Text><Text style={{ color: T.textSoft, fontSize: 12, lineHeight: 18 }}>{ingredients}</Text></View>}
-            {/* v1.22 #242 — label uses the actual container, not hardcoded
-                "Fridge". Onion lives in Pantry; button now says "Remove from
-                Pantry". Cap first letter for sentence case. */}
-            <TouchableOpacity onPress={handleDelete} style={[s.btnSecondary, { borderColor: T.danger + "55", marginBottom: 32 }]}>
-              <Text style={{ color: T.danger, fontSize: 15, fontWeight: "600" }}>
-                🗑  Remove from {(item.container || "fridge").charAt(0).toUpperCase() + (item.container || "fridge").slice(1)}
+            {/* v1.22 #247 — Demoted from a big red CTA to a quiet text link.
+                Toss (in the top action row) is the right path when an item
+                actually went bad — it tracks waste analytics. This stays for
+                data-cleanup (wrong scan / accidental add) where we DON'T
+                want to pollute waste numbers. Container label dynamic. */}
+            <TouchableOpacity onPress={handleDelete} style={{ paddingVertical: 14, marginBottom: 32, alignItems: "center" }}>
+              <Text style={{ color: T.textSoft, fontSize: 12, textDecorationLine: "underline" }}>
+                Remove from {(item.container || "fridge").charAt(0).toUpperCase() + (item.container || "fridge").slice(1)} (no waste tracking)
               </Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
         <ReorderSheet item={item} visible={showReorder} onClose={() => setShowReorder(false)} />
+        {/* v1.22 #247 — Order chooser: Shop online vs Add to shopping list. */}
+        <OrderChooserSheet
+          item={item}
+          visible={showOrderChooser}
+          onClose={() => setShowOrderChooser(false)}
+          onChooseOnline={() => setShowReorder(true)}
+          onChooseList={() => setShowAddToList(true)}
+        />
+        <AddItemToListSheet
+          item={item}
+          visible={showAddToList}
+          onClose={() => setShowAddToList(false)}
+          onAdded={(name) => { /* close handled by sheet; toast handled at App level via item_added_to_shopping_list event */ }}
+        />
       </SafeAreaView>
     </Modal>
   );

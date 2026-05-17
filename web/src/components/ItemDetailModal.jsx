@@ -25,6 +25,16 @@ export default function ItemDetailModal({ open, onClose, item, onUpdated, onRemo
   // many units they used (in the item's unit, e.g. "oz"). Defaults to 1.
   const [useOpen, setUseOpen] = useState(false);
   const [useAmount, setUseAmount] = useState(1);
+  // v1.22 #247 — three-way action row state. Order opens an inline chooser
+  // (online retailers vs add-to-shopping-list). Toss tracks waste then deletes.
+  const [orderOpen, setOrderOpen] = useState(false);
+  const [addListOpen, setAddListOpen] = useState(false);
+  const [addListLists, setAddListLists] = useState([]);
+  const [addListLoading, setAddListLoading] = useState(false);
+  const [addListTargetId, setAddListTargetId] = useState(null);
+  const [addListNewName, setAddListNewName] = useState("");
+  const [addListCreatingNew, setAddListCreatingNew] = useState(false);
+  const [addListBusy, setAddListBusy] = useState(false);
 
   useEffect(() => {
     if (item) {
@@ -36,6 +46,8 @@ export default function ItemDetailModal({ open, onClose, item, onUpdated, onRemo
       setExpiryDate(item.expiryDate ? item.expiryDate.slice(0, 10) : "");
       setEditing(false); setErr(null); setBusy(false);
       setUseOpen(false); setUseAmount(1);
+      setOrderOpen(false); setAddListOpen(false); setAddListLists([]);
+      setAddListTargetId(null); setAddListNewName(""); setAddListCreatingNew(false);
     }
   }, [item]);
 
@@ -136,6 +148,115 @@ export default function ItemDetailModal({ open, onClose, item, onUpdated, onRemo
         expiry_date: newExpiry,
       });
     } catch {}
+  }
+
+  // v1.22 #247 — Toss: this item went bad. Fires rich PostHog event so a
+  // future Dashboard widget can compute $ wasted / month / category, then
+  // deletes. Separate from handleDelete (data cleanup, no waste tracking).
+  async function handleToss() {
+    if (!window.confirm(`Mark ${item.name} as wasted? We'll track it so you can see your monthly waste.`)) return;
+    setBusy(true); setErr(null);
+    try {
+      track("item_tossed", {
+        name: item.name,
+        category: item.category || null,
+        container: item.container || null,
+        days_until_expiry: daysUntil(item.expiryDate),
+        expired: daysUntil(item.expiryDate) < 0,
+        quantity: item.quantity || null,
+        unit: item.unit || null,
+        surface: "item_detail",
+      });
+    } catch (_e) { /* never block */ }
+    try {
+      const { error } = await supabase.from("fridge_items").delete().eq("id", item.id);
+      if (error) throw error;
+      onRemoved?.(item.id);
+      onClose?.();
+    } catch (e) {
+      setErr(e?.message || "Couldn't toss item.");
+      setBusy(false);
+    }
+  }
+
+  // v1.22 #247 — open the configured retailer search for this item. Same
+  // affiliate-link pattern as iOS ReorderSheet. Order matters per payout
+  // research — Instacart first (best grocery payout), then Amazon, Walmart.
+  function handleOrderOnline(retailerId) {
+    const q = encodeURIComponent(item.name);
+    const urls = {
+      instacart: `https://www.instacart.com/store/search?k=${q}&utm_source=ok2eat&utm_medium=affiliate`,
+      amazon:    `https://www.amazon.com/s?k=${q}&tag=ok2eat-20`,
+      walmart:   `https://www.walmart.com/search?q=${q}&utm_source=ok2eat&utm_medium=affiliate`,
+    };
+    const url = urls[retailerId];
+    if (!url) return;
+    try { track("reorder_tapped", { retailer: retailerId, item_category: item.category, surface: "web_item_detail" }); } catch (_e) {}
+    window.open(url, "_blank", "noopener,noreferrer");
+    setOrderOpen(false);
+  }
+
+  // v1.22 #247 — Add-to-shopping-list flow. Loads the user's household lists
+  // when the panel opens, then on confirm inserts a row in the chosen list
+  // (or creates a new list first).
+  async function handleOpenAddToList() {
+    setOrderOpen(false);
+    setAddListOpen(true);
+    setAddListLoading(true);
+    setAddListLists([]);
+    setAddListTargetId(null);
+    setAddListNewName("");
+    setAddListCreatingNew(false);
+    setErr(null);
+    try {
+      const { data: hh, error: hhErr } = await supabase.rpc("ensure_household_for_user");
+      if (hhErr) throw hhErr;
+      const { data: rows, error: lErr } = await supabase
+        .from("shopping_lists")
+        .select("id, name, created_at")
+        .eq("household_id", hh)
+        .is("archived_at", null)
+        .order("created_at", { ascending: false });
+      if (lErr) throw lErr;
+      const all = rows || [];
+      setAddListLists(all);
+      if (all.length > 0) setAddListTargetId(all[0].id);
+      else { setAddListCreatingNew(true); setAddListNewName(`${item.name} list`); }
+    } catch (e) {
+      setErr(e?.message || "Couldn't load your lists.");
+    } finally {
+      setAddListLoading(false);
+    }
+  }
+
+  async function handleConfirmAddToList() {
+    if (addListBusy) return;
+    setAddListBusy(true); setErr(null);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data: hh } = await supabase.rpc("ensure_household_for_user");
+      let listId = addListTargetId;
+      if (addListCreatingNew) {
+        const name = (addListNewName || "").trim() || `${item.name} list`;
+        const { data: newList, error: createErr } = await supabase
+          .from("shopping_lists")
+          .insert({ household_id: hh, name, created_by: user?.id || null })
+          .select("id").single();
+        if (createErr) throw createErr;
+        listId = newList.id;
+      }
+      if (!listId) throw new Error("Pick a list or create a new one.");
+      const { error: insErr } = await supabase
+        .from("shopping_list_items")
+        .insert({ household_id: hh, list_id: listId, name: item.name, created_by: user?.id || null });
+      if (insErr) throw insErr;
+      track("item_added_to_shopping_list", { source: "item_detail_order", name: item.name, category: item.category, created_new_list: addListCreatingNew, surface: "web" });
+      setAddListOpen(false);
+    } catch (e) {
+      setErr(e?.message || "Couldn't add to list.");
+    } finally {
+      setAddListBusy(false);
+    }
   }
 
   async function handleUndoOpen() {
@@ -283,14 +404,117 @@ export default function ItemDetailModal({ open, onClose, item, onUpdated, onRemo
 
         {!editing && (
           <div className="space-y-2 pt-2">
-            {!useOpen && (
-              <button
-                onClick={() => { setUseAmount(1); setUseOpen(true); }}
-                disabled={busy}
-                className="w-full px-4 py-2.5 rounded-full bg-accent text-white text-sm font-semibold hover:bg-accent/90 disabled:opacity-50"
-              >
-                Use this item
-              </button>
+            {/* v1.22 #247 — Three-way action row: Use (green) | Order (blue) |
+                Toss (red). Replaces the single "Use this item" CTA. Each
+                opens its own flow; the inline use-amount + order chooser +
+                add-to-list panels render below. */}
+            {!useOpen && !orderOpen && !addListOpen && (
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={() => { setUseAmount(1); setUseOpen(true); }}
+                  disabled={busy}
+                  className="flex flex-col items-center justify-center gap-1 py-3 rounded-xl border-2 border-accent bg-accent/10 text-accent text-xs font-bold disabled:opacity-50 hover:bg-accent/20 transition"
+                >
+                  <span className="text-xl" aria-hidden="true">🍽</span>
+                  <span>Use</span>
+                  <span className="text-[10px] font-normal text-textSoft">Track usage</span>
+                </button>
+                <button
+                  onClick={() => setOrderOpen(true)}
+                  disabled={busy}
+                  className="flex flex-col items-center justify-center gap-1 py-3 rounded-xl border-2 text-xs font-bold disabled:opacity-50 transition"
+                  style={{ borderColor: "rgba(37,99,235,0.55)", background: "rgba(37,99,235,0.08)", color: "#2563EB" }}
+                >
+                  <span className="text-xl" aria-hidden="true">🛒</span>
+                  <span>Order</span>
+                  <span className="text-[10px] font-normal text-textSoft">Reorder or list</span>
+                </button>
+                <button
+                  onClick={handleToss}
+                  disabled={busy}
+                  className="flex flex-col items-center justify-center gap-1 py-3 rounded-xl border-2 border-danger/55 bg-danger/10 text-danger text-xs font-bold disabled:opacity-50 hover:bg-danger/20 transition"
+                >
+                  <span className="text-xl" aria-hidden="true">🗑</span>
+                  <span>Toss</span>
+                  <span className="text-[10px] font-normal text-textSoft">Went bad</span>
+                </button>
+              </div>
+            )}
+
+            {/* Order chooser: Shop online vs Add to shopping list */}
+            {orderOpen && !addListOpen && (
+              <div className="rounded-xl border border-border bg-card p-3 space-y-2">
+                <p className="text-xs text-textSoft mb-1">Order more {item.name}</p>
+                <div className="grid grid-cols-1 gap-2">
+                  {[
+                    { id: "instacart", label: "Instacart", subtitle: "Best grocery payout" },
+                    { id: "amazon",    label: "Amazon",    subtitle: "Pantry + non-grocery" },
+                    { id: "walmart",   label: "Walmart",   subtitle: "Grocery + everyday" },
+                  ].map(r => (
+                    <button
+                      key={r.id}
+                      onClick={() => handleOrderOnline(r.id)}
+                      className="flex items-center justify-between rounded-lg border border-border bg-bg px-3 py-2.5 text-sm font-semibold text-text hover:border-accent transition"
+                    >
+                      <span>🛒 {r.label}</span>
+                      <span className="text-[11px] font-normal text-textSoft">{r.subtitle}</span>
+                    </button>
+                  ))}
+                  <button
+                    onClick={handleOpenAddToList}
+                    className="flex items-center justify-between rounded-lg border border-accent bg-accent/10 px-3 py-2.5 text-sm font-semibold text-accent hover:bg-accent/20 transition"
+                  >
+                    <span>📝 Add to shopping list</span>
+                    <span className="text-[11px] font-normal text-textSoft">Existing or new</span>
+                  </button>
+                </div>
+                <button onClick={() => setOrderOpen(false)} className="w-full text-xs text-textSoft hover:underline pt-1">Cancel</button>
+              </div>
+            )}
+
+            {/* Add to list panel */}
+            {addListOpen && (
+              <div className="rounded-xl border border-border bg-card p-3 space-y-2">
+                <p className="text-xs text-textSoft">Add {item.name} to a list</p>
+                {addListLoading && <p className="text-xs text-textSoft py-3 text-center">Loading…</p>}
+                {!addListLoading && addListLists.length > 0 && (
+                  <div className="space-y-1 max-h-40 overflow-y-auto">
+                    {addListLists.map(l => {
+                      const active = !addListCreatingNew && addListTargetId === l.id;
+                      return (
+                        <button
+                          key={l.id}
+                          onClick={() => { setAddListTargetId(l.id); setAddListCreatingNew(false); }}
+                          className={`w-full text-left px-3 py-2 rounded-lg border text-sm font-medium transition ${
+                            active ? "border-accent bg-accent/10 text-accent" : "border-border bg-bg text-text hover:border-accent/60"
+                          }`}
+                        >{l.name}</button>
+                      );
+                    })}
+                  </div>
+                )}
+                {!addListLoading && (
+                  <div>
+                    <p className="text-[10px] text-textSoft uppercase tracking-widest font-bold mb-1 mt-2">{addListLists.length > 0 ? "Or new list" : "New list"}</p>
+                    <input
+                      type="text"
+                      placeholder="New list name"
+                      value={addListNewName}
+                      onChange={(e) => { setAddListNewName(e.target.value); setAddListCreatingNew(true); }}
+                      onFocus={() => setAddListCreatingNew(true)}
+                      className={`w-full px-3 py-2 rounded-lg border text-sm bg-bg ${addListCreatingNew ? "border-accent" : "border-border"}`}
+                    />
+                  </div>
+                )}
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={handleConfirmAddToList}
+                    disabled={addListBusy}
+                    className="flex-1 px-3 py-2 rounded-lg bg-accent text-white text-sm font-bold hover:opacity-90 disabled:opacity-50"
+                  >{addListBusy ? "Adding…" : `Add ${item.name}`}</button>
+                  <button onClick={() => { setAddListOpen(false); }} className="px-3 py-2 rounded-lg border border-border text-textSoft text-sm">Cancel</button>
+                </div>
+              </div>
             )}
 
             {useOpen && (
@@ -351,11 +575,15 @@ export default function ItemDetailModal({ open, onClose, item, onUpdated, onRemo
                 onClick={() => setEditing(true)}
                 className="flex-1 px-4 py-2.5 rounded-full border border-border text-textSoft text-sm font-medium hover:bg-card"
               >Edit</button>
+              {/* v1.22 #247 — Demoted from a destructive Delete pill. Use Toss
+                  (in the action row above) for items that actually went bad —
+                  it tracks waste. This stays for data-cleanup deletes (wrong
+                  scan, accidental add) that shouldn't pollute waste analytics. */}
               <button
                 onClick={handleDelete}
                 disabled={busy}
-                className="px-4 py-2.5 rounded-full border border-danger/40 text-danger text-sm font-medium hover:bg-danger/10 disabled:opacity-50"
-              >Delete</button>
+                className="px-4 py-2.5 rounded-full text-textSoft text-xs hover:underline disabled:opacity-50"
+              >Remove (no waste tracking)</button>
             </div>
           </div>
         )}
