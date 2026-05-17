@@ -83,7 +83,10 @@ export default function ItemDetailModal({ open, onClose, item, onUpdated, onRemo
   }
 
   async function handleDelete() {
-    if (!window.confirm(`Remove ${item.name} from your fridge? This can't be undone.`)) return;
+    // v1.22 #242 — confirm copy uses the actual container, not hardcoded
+    // "fridge". Onion in Pantry now reads "Remove Onion from your pantry?".
+    const containerLabel = (item.container || "fridge").toLowerCase();
+    if (!window.confirm(`Remove ${item.name} from your ${containerLabel}? This can't be undone.`)) return;
     setBusy(true); setErr(null);
     try {
       const { error } = await supabase.from("fridge_items").delete().eq("id", item.id);

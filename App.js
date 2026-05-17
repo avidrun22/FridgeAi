@@ -543,7 +543,18 @@ function inferEmoji(name, fallback) {
   const n = name.toLowerCase().trim();
   // Skip inference if the stored emoji is already non-default (anything other
   // than the 6 category defaults). Preserve user-edited or AI-suggested emojis.
-  const defaultEmojis = ["🧀", "🍗", "🥬", "🥣", "🍶", "📦"];
+  //
+  // v1.22 #244 — added 🥛 to the default-emoji set. AddModal's local emojiMap
+  // historically picked 🥛 for the Dairy chip (because milk reads as "dairy"
+  // more universally in a tiny category-chip context than cheese). That value
+  // then got persisted to fridge_items.emoji, and since 🥛 wasn't in the
+  // defaultEmojis list inferEmoji preserved it forever — so cheddar cheese
+  // rendered with a milk glass instead of 🧀. Counting 🥛 as a "category
+  // default" lets the existing FOOD_EMOJI_RULES upgrade legacy rows at view
+  // time. (Real milk products still match the `/milk/` rule and resolve to 🥛
+  // anyway, so the only behavior change is upgrades for cheese/yogurt/butter
+  // that were stored with 🥛 by mistake.)
+  const defaultEmojis = ["🧀", "🥛", "🍗", "🥬", "🥣", "🍶", "📦"];
   if (fallback && !defaultEmojis.includes(fallback)) return fallback;
   for (const [pattern, emoji] of FOOD_EMOJI_RULES) {
     if (pattern.test(n)) return emoji;
@@ -1254,8 +1265,13 @@ function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse
             {!loadingNutrition && !nutrition && item.barcode && <View style={[s.card, { padding: 16, marginBottom: 12 }]}><Text style={{ color: T.textSoft, fontSize: 13, textAlign: "center" }}>No nutrition data available for this product.</Text></View>}
             {!item.barcode && <View style={[s.card, { padding: 16, marginBottom: 12 }]}><Text style={{ color: T.textSoft, fontSize: 13, textAlign: "center" }}>Scan a barcode when adding items to see nutrition facts.</Text></View>}
             {ingredients && <View style={[s.card, { padding: 14, marginBottom: 12 }]}><Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 8, paddingHorizontal: 0 }]}>INGREDIENTS</Text><Text style={{ color: T.textSoft, fontSize: 12, lineHeight: 18 }}>{ingredients}</Text></View>}
+            {/* v1.22 #242 — label uses the actual container, not hardcoded
+                "Fridge". Onion lives in Pantry; button now says "Remove from
+                Pantry". Cap first letter for sentence case. */}
             <TouchableOpacity onPress={handleDelete} style={[s.btnSecondary, { borderColor: T.danger + "55", marginBottom: 32 }]}>
-              <Text style={{ color: T.danger, fontSize: 15, fontWeight: "600" }}>🗑  Remove from Fridge</Text>
+              <Text style={{ color: T.danger, fontSize: 15, fontWeight: "600" }}>
+                🗑  Remove from {(item.container || "fridge").charAt(0).toUpperCase() + (item.container || "fridge").slice(1)}
+              </Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -5571,7 +5587,12 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
     onAdd({
       name: name.trim(),
       category,
-      emoji: emojiMap[category],
+      // v1.22 #244 — run the name through inferEmoji at save time so cheddar
+      // cheese gets 🧀 instead of the Dairy category default 🥛. Previously
+      // we stored emojiMap[category] verbatim; inferEmoji's defaultEmojis
+      // guard then preserved 🥛 forever even though the cheese rule would
+      // have produced 🧀.
+      emoji: inferEmoji(name.trim(), emojiMap[category]),
       quantity,
       unit,
       expiryDate: expiryDateIso,
