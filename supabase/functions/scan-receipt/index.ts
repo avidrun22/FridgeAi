@@ -10,8 +10,16 @@ import { callClaude, extractJson } from "../_shared/anthropic.ts";
 
 const DAILY_LIMIT = parseInt(Deno.env.get("SCAN_RECEIPT_DAILY_LIMIT") || "10", 10);
 
+// v1.22 #238 — tightened unit guidance. Old prompt emitted "1 count" or
+// "15 count" for items without an explicit unit on the receipt, which
+// renders as awkward "15 count pizza" in the fridge list. The clarified
+// instructions push Claude to:
+//   - omit unit (just emit the number) when the receipt shows no unit
+//   - use slice/piece for naturally-portioned items even when the receipt
+//     only shows a price
+//   - prefer concrete units (lb/oz/gallon) when visible verbatim
 const PROMPT =
-  'Look at this grocery receipt and extract all food items. Return ONLY a JSON array with no markdown: [{"name":"","quantity":"1","category":"","expiry_days":7}]. Use these categories: Dairy, Protein, Produce, Dry Goods, Beverages, Other. For quantity, include the amount and unit if visible (e.g. "2 lbs"). For expiry_days, estimate based on the food type.';
+  'Look at this grocery receipt and extract all food items. Return ONLY a JSON array with no markdown: [{"name":"","quantity":"1","category":"","expiry_days":7}]. Use these categories: Dairy, Protein, Produce, Dry Goods, Beverages, Other. For quantity: include the amount and unit if visible on the receipt (e.g. "2 lbs", "1 gallon", "12 oz"). If only a number is visible with no unit, return just the number (e.g. "3"). NEVER append "count" or "ct" — that\'s implicit. For naturally-sliceable items like pizza, cake, bread, pie — use "slice" if the receipt indicates a portion (e.g. "1 slice"). For expiry_days, estimate based on the food type.';
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });

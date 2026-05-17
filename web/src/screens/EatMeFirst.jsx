@@ -45,6 +45,40 @@ function urgencyScore(item) {
   return d + spoil;
 }
 
+// v1.22 #236 — pre-generation filters for the EatMeFirst recipe modal,
+// mirrored from App.js EMF_*_OPTIONS. Renders as 3 horizontally-scrollable
+// chip rows above the recipe cards. Selection alone doesn't trigger a
+// fetch; user taps "Update results" to spend a credit and re-generate.
+const EMF_CUISINE_OPTIONS = [
+  { key: "italian",        emoji: "🍝", label: "Italian" },
+  { key: "mexican",        emoji: "🌮", label: "Mexican" },
+  { key: "chinese",        emoji: "🥡", label: "Chinese" },
+  { key: "japanese",       emoji: "🍣", label: "Japanese" },
+  { key: "thai",           emoji: "🌶️", label: "Thai" },
+  { key: "indian",         emoji: "🍛", label: "Indian" },
+  { key: "korean",         emoji: "🍱", label: "Korean" },
+  { key: "vietnamese",     emoji: "🍜", label: "Vietnamese" },
+  { key: "mediterranean",  emoji: "🫒", label: "Mediterranean" },
+  { key: "middle_eastern", emoji: "🧆", label: "Middle Eastern" },
+  { key: "french",         emoji: "🥐", label: "French" },
+  { key: "american",       emoji: "🍔", label: "American" },
+];
+const EMF_PROTEIN_OPTIONS = [
+  { key: "chicken",  emoji: "🍗", label: "Chicken" },
+  { key: "beef",     emoji: "🥩", label: "Beef" },
+  { key: "pork",     emoji: "🥓", label: "Pork" },
+  { key: "fish",     emoji: "🐟", label: "Fish" },
+  { key: "shrimp",   emoji: "🦐", label: "Shrimp" },
+  { key: "egg",      emoji: "🥚", label: "Egg" },
+  { key: "tofu",     emoji: "🌱", label: "Tofu" },
+  { key: "beans",    emoji: "🫘", label: "Beans" },
+];
+const EMF_MAX_INGREDIENTS_OPTIONS = [
+  { key: 5,  label: "≤ 5 ingredients" },
+  { key: 8,  label: "≤ 8 ingredients" },
+  { key: 12, label: "≤ 12 ingredients" },
+];
+
 function urgencyBadge(days) {
   // 2026-05-15 — split "Expired" (truly past) from "Use today" (day-0, still
   // safe). The whole "Eat Me First" pitch is: act on this before it goes
@@ -66,7 +100,10 @@ export default function EatMeFirst({ user }) {
 
   // Recipe modal — opens when user taps "Get recipes" on a row, or the
   // header "Top 5 together" CTA.
-  const [recipeModal, setRecipeModal] = useState(null); // {leadItem, items, recipes, loading, error}
+  const [recipeModal, setRecipeModal] = useState(null); // {leadItem, items, recipes, loading, error, filters}
+  // v1.22 #236 — filter selection. Persisted across modal opens within a
+  // session. "Update results" only appears when pending != applied.
+  const [pendingFilters, setPendingFilters] = useState({ cuisine: null, protein: null, maxIngredients: null });
 
   // v1.22 #187 web parity — track which recipes in the open modal the user
   // has saved this session, keyed by recipe index. Value is the
@@ -137,7 +174,13 @@ export default function EatMeFirst({ user }) {
     return d > 0 && d <= 3;
   }).length;
 
-  async function fetchRecipes({ leadItem, contextItems }) {
+  // v1.22 #236 — fetchRecipes accepts optional filters that flow to the
+  // generate-recipes Edge Function. Filters default to pendingFilters;
+  // callers can pass `filters: {}` to ignore selection. Applied filters are
+  // stored on recipeModal so the chip bar can render the "Update results"
+  // CTA only when pending differs from what was last fetched.
+  async function fetchRecipes({ leadItem, contextItems, filters }) {
+    const activeFilters = filters !== undefined ? filters : pendingFilters;
     // v1.22 #187 — reset save / add-to-list per-card state when opening a
     // fresh recipe set, so we don't show a stale filled-heart on
     // index 0 from a previous lead.
@@ -145,11 +188,14 @@ export default function EatMeFirst({ user }) {
     setSavingIdx(null);
     setAddingIdx(null);
     setRecipeToast(null);
-    setRecipeModal({ leadItem, items: contextItems, recipes: [], loading: true, error: null });
+    setRecipeModal({ leadItem, items: contextItems, recipes: [], loading: true, error: null, filters: activeFilters });
     track("eat_me_first_recipes_requested", {
       lead_item: leadItem?.name || null,
       context_count: contextItems.length,
       surface: leadItem ? "row" : "header_top5",
+      cuisine: activeFilters?.cuisine || null,
+      protein: activeFilters?.protein || null,
+      max_ingredients: activeFilters?.maxIngredients || null,
     });
     try {
       // Send the lead item first so Claude knows what to anchor on, then the
@@ -159,9 +205,11 @@ export default function EatMeFirst({ user }) {
         ...(leadItem ? [leadItem.name] : []),
         ...contextItems.map(i => i.name).filter(n => n && n !== leadItem?.name),
       ].slice(0, 8);
-      const { data, error } = await supabase.functions.invoke("generate-recipes", {
-        body: { items: names },
-      });
+      const body = { items: names };
+      if (activeFilters?.cuisine) body.cuisine = activeFilters.cuisine;
+      if (activeFilters?.protein) body.protein = activeFilters.protein;
+      if (activeFilters?.maxIngredients) body.max_ingredients = activeFilters.maxIngredients;
+      const { data, error } = await supabase.functions.invoke("generate-recipes", { body });
       if (error) throw error;
       setRecipeModal(m => m && { ...m, recipes: data?.recipes || [], loading: false });
     } catch (e) {
@@ -512,6 +560,76 @@ export default function EatMeFirst({ user }) {
                 {recipeModal.error}
               </div>
             )}
+
+            {/* v1.22 #236 — Pre-generation filter chips. Cuisine + protein +
+                ingredient cap. Selection alone doesn't fetch; "Update results"
+                appears only when pending differs from what was generated. */}
+            {!recipeModal.loading && (() => {
+              const applied = recipeModal.filters || {};
+              const dirty =
+                (pendingFilters.cuisine || null) !== (applied.cuisine || null) ||
+                (pendingFilters.protein || null) !== (applied.protein || null) ||
+                (pendingFilters.maxIngredients || null) !== (applied.maxIngredients || null);
+              const Row = ({ label, options, currentKey, onPick }) => (
+                <div className="mb-2">
+                  <p className="text-textSoft text-[10px] font-bold tracking-widest uppercase mb-1.5">{label}</p>
+                  <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+                    <button
+                      type="button"
+                      onClick={() => onPick(null)}
+                      className={`px-2.5 py-1 rounded-full border text-xs font-semibold whitespace-nowrap flex-shrink-0 transition ${
+                        currentKey === null
+                          ? "bg-text text-white border-text"
+                          : "bg-surface text-textSoft border-border hover:border-text/40"
+                      }`}
+                    >
+                      Any
+                    </button>
+                    {options.map(opt => {
+                      const active = currentKey === opt.key;
+                      return (
+                        <button
+                          type="button"
+                          key={String(opt.key)}
+                          onClick={() => onPick(opt.key)}
+                          className={`px-2.5 py-1 rounded-full border text-xs font-semibold whitespace-nowrap flex items-center gap-1 flex-shrink-0 transition ${
+                            active
+                              ? "bg-accent text-white border-accent"
+                              : "bg-surface text-text border-border hover:border-accent/60"
+                          }`}
+                        >
+                          {opt.emoji ? <span aria-hidden="true">{opt.emoji}</span> : null}
+                          <span>{opt.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+              return (
+                <div className="pb-3 mb-3 border-b border-border">
+                  <Row label="Cuisine" options={EMF_CUISINE_OPTIONS} currentKey={pendingFilters.cuisine}
+                    onPick={k => setPendingFilters(p => ({ ...p, cuisine: k }))} />
+                  <Row label="Protein" options={EMF_PROTEIN_OPTIONS} currentKey={pendingFilters.protein}
+                    onPick={k => setPendingFilters(p => ({ ...p, protein: k }))} />
+                  <Row label="Ingredients" options={EMF_MAX_INGREDIENTS_OPTIONS} currentKey={pendingFilters.maxIngredients}
+                    onPick={k => setPendingFilters(p => ({ ...p, maxIngredients: k }))} />
+                  {dirty && (
+                    <button
+                      type="button"
+                      onClick={() => fetchRecipes({
+                        leadItem: recipeModal.leadItem,
+                        contextItems: recipeModal.items,
+                        filters: pendingFilters,
+                      })}
+                      className="mt-2 w-full py-2 rounded-lg bg-accent text-white text-sm font-bold hover:opacity-90 transition"
+                    >
+                      Update results
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
 
             <div className="space-y-3">
               {(recipeModal.recipes || []).map((r, i) => {

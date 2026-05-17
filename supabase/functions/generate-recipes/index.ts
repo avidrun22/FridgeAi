@@ -106,7 +106,16 @@ Deno.serve(async (req) => {
   const userId = await getUserId(req);
   if (!userId) return json({ error: "unauthenticated" }, 401);
 
-  let body: { items?: string[]; servings?: number };
+  // v1.22 #236 — optional pre-generation filters from EatMeFirst modal.
+  // All three are HINTS, not hard constraints — the prompt asks Claude to
+  // honor them but stay flexible if the inventory doesn't fit cleanly.
+  let body: {
+    items?: string[];
+    servings?: number;
+    cuisine?: string;          // e.g. "italian", "mexican", "thai"
+    protein?: string;          // e.g. "chicken", "beef", "tofu", "beans"
+    max_ingredients?: number;  // cap ingredient count (5, 8, etc.)
+  };
   try {
     body = await req.json();
   } catch {
@@ -128,6 +137,27 @@ Deno.serve(async (req) => {
   const overrideServings = Number.isFinite(Number(body?.servings))
     ? Number(body!.servings)
     : null;
+
+  // v1.22 #236 — sanitize filter params. Cuisine + protein are slug-ish
+  // lowercase strings; strip non-letters and length-cap. Anything weird
+  // becomes null, which the prompt then omits.
+  const safeSlug = (s: unknown): string | null => {
+    if (typeof s !== "string") return null;
+    const c = s.trim().toLowerCase().replace(/[^a-z_]/g, "");
+    return c.length > 0 && c.length <= 30 ? c : null;
+  };
+  const cuisineFilter = safeSlug(body?.cuisine);
+  const proteinFilter = safeSlug(body?.protein);
+  const rawMaxIng = Number(body?.max_ingredients);
+  const maxIngredients = Number.isFinite(rawMaxIng) && rawMaxIng >= 3 && rawMaxIng <= 20
+    ? Math.round(rawMaxIng)
+    : null;
+
+  // Human phrasing for the prompt. underscore_separated slugs become spaces
+  // ("middle_eastern" → "Middle Eastern"). Protein slugs are already single
+  // words today, so a passthrough lowercase is fine.
+  const cuisineLabel = cuisineFilter ? cuisineFilter.replace(/_/g, " ") : null;
+  const proteinLabel = proteinFilter;
 
   let rl;
   try {
@@ -158,10 +188,31 @@ Deno.serve(async (req) => {
   }
   const preamble = buildPromptPreamble(prefs, overrideServings);
 
+  // v1.22 #236 — build filter clauses inline. Each is optional; omitted
+  // filters add nothing to the prompt. Phrased as preferences ("prefer") not
+  // demands so Claude stays creative when constraints clash with inventory.
+  const filterClauses: string[] = [];
+  if (cuisineLabel) {
+    filterClauses.push(
+      `Prefer ${cuisineLabel} cuisine — flavor profile, techniques, and pantry staples typical of that tradition.`,
+    );
+  }
+  if (proteinLabel) {
+    filterClauses.push(
+      `Center the dishes around ${proteinLabel} as the main protein when possible.`,
+    );
+  }
+  if (maxIngredients) {
+    filterClauses.push(
+      `Keep ingredient lists to roughly ${maxIngredients} items or fewer per recipe (pantry staples like salt/pepper/oil don't count).`,
+    );
+  }
+  const filterBlock = filterClauses.length > 0 ? " " + filterClauses.join(" ") : "";
+
   try {
     const prompt =
       `${preamble} I have these ingredients on hand: ${cleaned.join(", ")}. ` +
-      `Suggest 3 recipes that use as many of them as possible. ` +
+      `Suggest 3 recipes that use as many of them as possible.${filterBlock} ` +
       // v1.21 — emoji guidance. Earlier model picks were occasionally
       // unrelated (e.g. onion 🧅 for "Pan-Seared Chicken"), confusing
       // users who scanned the card grid. Pin the emoji to the dish's
@@ -185,6 +236,11 @@ Deno.serve(async (req) => {
         servings: overrideServings ?? prefs.householdSize,
         dietary: prefs.dietary,
         allergens: prefs.allergens,
+        // v1.22 #236 — echo back the filters that were applied so the
+        // client can show "Italian · chicken · ≤5 ingredients" context.
+        cuisine: cuisineFilter,
+        protein: proteinFilter,
+        max_ingredients: maxIngredients,
       },
     });
   } catch (e) {

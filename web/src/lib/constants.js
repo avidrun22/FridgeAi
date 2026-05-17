@@ -129,6 +129,8 @@ export const RETAILERS = [
 export const UNIT_OPTIONS = [
   "",
   "count",
+  // v1.22 #238 — sliceable / portionable so pizzas/cakes/breads aren't stuck with "count"
+  "slice", "piece", "serving",
   "oz", "lb", "g", "kg",
   "fl oz", "cup", "pt", "qt", "gallon", "ml", "L",
   "pack", "box", "jar", "can", "bottle", "carton", "bag",

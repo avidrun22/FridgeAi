@@ -420,10 +420,16 @@ function rowToItem(row) {
   };
 }
 
-// Display helper: "2 lbs", "1 dozen", or just "2" if no unit
+// Display helper: "2 lbs", "1 dozen", or just "2" if no unit.
+// v1.22 #238 — "count" is treated as a synonym for "no unit". Scan-receipt
+// and a few legacy paths attach "count" to numeric quantities, which renders
+// as "15 count" for a pizza — confusing and verbose. Count is already implicit
+// when there's no other unit, so we drop it from display. The DB value stays
+// as "count" so explicit picks survive a round-trip; only the rendering drops it.
 function formatQty(item) {
   const q = item?.quantity;
-  const u = (item?.unit || "").trim();
+  const uRaw = (item?.unit || "").trim();
+  const u = uRaw.toLowerCase() === "count" ? "" : uRaw;
   if (q === undefined || q === null || q === "") return u || "—";
   return u ? `${q} ${u}` : String(q);
 }
@@ -2628,8 +2634,51 @@ function localMatchIngredient(ingredientText, fridgeItems) {
   return null;
 }
 
+// v1.22 #236 — pre-generation filter options for the EatMeFirst recipe modal.
+// These render as horizontally-scrollable chip rows above the recipe cards.
+// All optional — leaving everything null reproduces the original "let Claude
+// decide" behavior.
+//
+// Cuisine mirrors the v1.19 Plan-tab CUISINE_PICKER_OPTIONS so the user sees
+// consistent vocabulary across surfaces. Protein is curated to the most-
+// common mains. maxIngredients is a "≤ N" cap, useful for weeknight cooking.
+const EMF_CUISINE_OPTIONS = [
+  { key: "italian",        emoji: "🍝", label: "Italian" },
+  { key: "mexican",        emoji: "🌮", label: "Mexican" },
+  { key: "chinese",        emoji: "🥡", label: "Chinese" },
+  { key: "japanese",       emoji: "🍣", label: "Japanese" },
+  { key: "thai",           emoji: "🌶️", label: "Thai" },
+  { key: "indian",         emoji: "🍛", label: "Indian" },
+  { key: "korean",         emoji: "🍱", label: "Korean" },
+  { key: "vietnamese",     emoji: "🍜", label: "Vietnamese" },
+  { key: "mediterranean",  emoji: "🫒", label: "Mediterranean" },
+  { key: "middle_eastern", emoji: "🧆", label: "Middle Eastern" },
+  { key: "french",         emoji: "🥐", label: "French" },
+  { key: "american",       emoji: "🍔", label: "American" },
+];
+const EMF_PROTEIN_OPTIONS = [
+  { key: "chicken",  emoji: "🍗", label: "Chicken" },
+  { key: "beef",     emoji: "🥩", label: "Beef" },
+  { key: "pork",     emoji: "🥓", label: "Pork" },
+  { key: "fish",     emoji: "🐟", label: "Fish" },
+  { key: "shrimp",   emoji: "🦐", label: "Shrimp" },
+  { key: "egg",      emoji: "🥚", label: "Egg" },
+  { key: "tofu",     emoji: "🌱", label: "Tofu" },
+  { key: "beans",    emoji: "🫘", label: "Beans" },
+];
+const EMF_MAX_INGREDIENTS_OPTIONS = [
+  { key: 5,  label: "≤ 5 ingredients" },
+  { key: 8,  label: "≤ 8 ingredients" },
+  { key: 12, label: "≤ 12 ingredients" },
+];
+
 function EatMeFirstScreen({ items, householdId }) {
-  const [recipeModal, setRecipeModal] = useState(null); // { leadItem, items, recipes, loading, error }
+  const [recipeModal, setRecipeModal] = useState(null); // { leadItem, items, recipes, loading, error, filters }
+  // v1.22 #236 — filter selection state, persisted across modal opens within
+  // a session so refining and re-opening doesn't reset. Each field is null
+  // when no filter is active. The "Update results" CTA inside the modal
+  // re-fetches with whatever's currently selected.
+  const [pendingFilters, setPendingFilters] = useState({ cuisine: null, protein: null, maxIngredients: null });
   // v1.19 — when the user taps into a recipe card the modal switches to a
   // detail view. selectedRecipeIdx = null → list view (cards). Integer →
   // show that recipe's full detail (instructions + inline match + add-to-
@@ -2680,7 +2729,14 @@ function EatMeFirstScreen({ items, householdId }) {
     viewedRef.current = true;
   }, [items, expiredCount, soonCount]);
 
-  async function fetchRecipes({ leadItem, contextItems }) {
+  // v1.22 #236 — fetchRecipes accepts optional filters that flow through to
+  // the generate-recipes Edge Function. Filters default to the current
+  // pendingFilters state; callers can override (e.g. initial open ignores
+  // any selected filters by passing `filters: {}`). Applied filters are
+  // stashed on the recipeModal so we can render context badges + know what
+  // the displayed cards were generated with.
+  async function fetchRecipes({ leadItem, contextItems, filters }) {
+    const activeFilters = filters !== undefined ? filters : pendingFilters;
     // v1.19 — reset detail mode whenever a fresh fetch kicks off, so a stale
     // selectedRecipeIdx from a previous modal opening can't point at nothing.
     setSelectedRecipeIdx(null);
@@ -2689,11 +2745,14 @@ function EatMeFirstScreen({ items, householdId }) {
     setAddToListSuccess(false);
     setSavedRecipeMap({});
     setSavingRecipeIdx(null);
-    setRecipeModal({ leadItem, items: contextItems, recipes: [], loading: true, error: null });
+    setRecipeModal({ leadItem, items: contextItems, recipes: [], loading: true, error: null, filters: activeFilters });
     track("eat_me_first_recipes_requested", {
       lead_item: leadItem?.name || null,
       context_count: contextItems.length,
       surface: leadItem ? "row" : "header_top5",
+      cuisine: activeFilters?.cuisine || null,
+      protein: activeFilters?.protein || null,
+      max_ingredients: activeFilters?.maxIngredients || null,
     });
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -2702,10 +2761,15 @@ function EatMeFirstScreen({ items, householdId }) {
         ...(leadItem ? [leadItem.name] : []),
         ...contextItems.map(i => i.name).filter(n => n && n !== leadItem?.name),
       ].slice(0, 8);
+      const body = { items: names };
+      // Only include filter fields when set, so Edge Function defaults apply.
+      if (activeFilters?.cuisine) body.cuisine = activeFilters.cuisine;
+      if (activeFilters?.protein) body.protein = activeFilters.protein;
+      if (activeFilters?.maxIngredients) body.max_ingredients = activeFilters.maxIngredients;
       const res = await fetch(`${SUPABASE_URL}/functions/v1/generate-recipes`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ items: names }),
+        body: JSON.stringify(body),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
@@ -3097,6 +3161,87 @@ function EatMeFirstScreen({ items, householdId }) {
                   <Text style={{ color: T.danger, fontSize: 13 }}>{recipeModal.error}</Text>
                 </View>
               )}
+
+              {/* v1.22 #236 — Pre-generation filter chips (cuisine / protein /
+                  ingredient cap). Only shown in list view. State lives on
+                  EatMeFirstScreen as `pendingFilters`. Selection alone
+                  doesn't trigger a fetch — the user taps "Update results"
+                  to spend a credit and re-generate. The "Update results"
+                  button only appears when the pending filters differ from
+                  what was last fetched (recipeModal.filters).
+                  Compact horizontal-scroll rows so the chip bar doesn't
+                  eat too much vertical space on the recipe sheet. */}
+              {selectedRecipeIdx === null && recipeModal && !recipeModal.loading && (() => {
+                const applied = recipeModal.filters || {};
+                const dirty =
+                  (pendingFilters.cuisine || null) !== (applied.cuisine || null) ||
+                  (pendingFilters.protein || null) !== (applied.protein || null) ||
+                  (pendingFilters.maxIngredients || null) !== (applied.maxIngredients || null);
+                const chipBase = {
+                  paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14,
+                  borderWidth: 1, marginRight: 6, flexDirection: "row", alignItems: "center", gap: 4,
+                };
+                const renderRow = (label, options, currentKey, onPick) => (
+                  <View style={{ marginBottom: 8 }}>
+                    <Text style={{ color: T.textSoft, fontSize: 10, fontWeight: "700", letterSpacing: 0.5, marginBottom: 4, textTransform: "uppercase" }}>
+                      {label}
+                    </Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      <TouchableOpacity
+                        onPress={() => onPick(null)}
+                        style={[chipBase, {
+                          backgroundColor: currentKey === null ? T.text : T.surface,
+                          borderColor: currentKey === null ? T.text : T.border,
+                        }]}
+                      >
+                        <Text style={{ color: currentKey === null ? "#FFFFFF" : T.textSoft, fontSize: 12, fontWeight: "600" }}>Any</Text>
+                      </TouchableOpacity>
+                      {options.map(opt => {
+                        const active = currentKey === opt.key;
+                        return (
+                          <TouchableOpacity
+                            key={String(opt.key)}
+                            onPress={() => onPick(opt.key)}
+                            style={[chipBase, {
+                              backgroundColor: active ? T.accent : T.surface,
+                              borderColor: active ? T.accent : T.border,
+                            }]}
+                          >
+                            {opt.emoji ? <Text style={{ fontSize: 12 }}>{opt.emoji}</Text> : null}
+                            <Text style={{ color: active ? "#FFFFFF" : T.text, fontSize: 12, fontWeight: "600" }}>
+                              {opt.label}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                );
+                return (
+                  <View style={{ paddingBottom: 6, marginBottom: 10, borderBottomWidth: 1, borderBottomColor: T.border }}>
+                    {renderRow("Cuisine", EMF_CUISINE_OPTIONS, pendingFilters.cuisine,
+                      key => setPendingFilters(p => ({ ...p, cuisine: key })))}
+                    {renderRow("Protein", EMF_PROTEIN_OPTIONS, pendingFilters.protein,
+                      key => setPendingFilters(p => ({ ...p, protein: key })))}
+                    {renderRow("Ingredients", EMF_MAX_INGREDIENTS_OPTIONS, pendingFilters.maxIngredients,
+                      key => setPendingFilters(p => ({ ...p, maxIngredients: key })))}
+                    {dirty && (
+                      <TouchableOpacity
+                        onPress={() => fetchRecipes({
+                          leadItem: recipeModal.leadItem,
+                          contextItems: recipeModal.items,
+                          filters: pendingFilters,
+                        })}
+                        style={{ backgroundColor: T.accent, paddingVertical: 10, borderRadius: 8, alignItems: "center", marginTop: 4 }}
+                      >
+                        <Text style={{ color: "#FFFFFF", fontSize: 13, fontWeight: "700" }}>
+                          Update results
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })()}
 
               {/* LIST VIEW — collapsed cards. Each is a TouchableOpacity that
                   opens the detail view. No instructions on this screen. */}
@@ -3941,9 +4086,16 @@ async function parseReceiptImage(base64) {
 // US weight, metric weight, US volume, metric volume, packaged containers,
 // and the grouped units last. Anything stored in fridge_items.unit that
 // doesn't match a chip stays as-is — UnitPicker shows the raw value.
+//
+// v1.22 #238 — added slice/piece/serving so pizzas, cakes, breads, etc. can
+// be picked from the dropdown instead of being stuck with "count". These were
+// already in UNIT_GROUPS for the standalone UnitPicker but not surfaced in
+// the bulk-add picker.
 const UNIT_OPTIONS = [
   "",
   "count",
+  // sliceable / countable units (v1.22 #238)
+  "slice", "piece", "serving",
   // weight (US then metric)
   "oz", "lb", "g", "kg",
   // volume (US then metric)
@@ -3953,6 +4105,36 @@ const UNIT_OPTIONS = [
   // grouped
   "bunch", "dozen",
 ];
+
+// v1.22 #238 — smart unit defaulting for sliceable/portionable items.
+// When a receipt scan returns just a number with no unit (or unit="count"
+// because Claude inferred one), names matching these patterns get a more
+// natural unit. "15 slices" reads better than "15 count" for a pizza.
+//
+// Why receipt scan triggers this most: a receipt that says "PIZZA 15" or
+// "WHOLE WHEAT 12 SLC" comes back as quantity="15" or "15 slc". Our regex
+// extracts amount + unit, but "slc"/"slices" aren't normalized. And when
+// Claude can't parse a unit at all, it sometimes emits "1 count".
+//
+// Pattern → unit pairs. First match wins. Test against lowercased name.
+const SLICEABLE_UNIT_RULES = [
+  { pattern: /\b(pizza|pie|tart|quiche|cake|loaf|cheesecake)\b/, unit: "slice" },
+  { pattern: /\b(bread|baguette|focaccia|toast)\b/,             unit: "slice" },
+  { pattern: /\b(bagel|donut|doughnut|muffin|croissant|scone|cupcake|cookie|brownie|biscuit|roll)\b/, unit: "piece" },
+  { pattern: /\b(sandwich|wrap|burrito|burger|hot ?dog|taco|quesadilla)\b/, unit: "piece" },
+];
+
+function smartUnitFor(name, currentUnit) {
+  // Only override empty units or the generic "count" — don't clobber an
+  // explicit "lb"/"oz"/"gallon" Claude may have correctly extracted.
+  const cu = (currentUnit || "").trim().toLowerCase();
+  if (cu && cu !== "count" && cu !== "ct" && cu !== "ea" && cu !== "each") return currentUnit;
+  const n = (name || "").toLowerCase();
+  for (const rule of SLICEABLE_UNIT_RULES) {
+    if (rule.pattern.test(n)) return rule.unit;
+  }
+  return currentUnit;
+}
 
 function UnitPicker({ value, onChange }) {
   const [open, setOpen] = useState(false);
@@ -4105,7 +4287,11 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
         const qStr = String(item.quantity || "1").trim();
         const qMatch = qStr.match(/^([\d.]+)\s*(.*)$/);
         const amount = qMatch ? qMatch[1] : qStr;
-        const unit = qMatch && qMatch[2] ? qMatch[2].trim() : "";
+        const rawUnit = qMatch && qMatch[2] ? qMatch[2].trim() : "";
+        // v1.22 #238 — for sliceable items where Claude returned "count" or
+        // nothing, infer "slice" / "piece" from the name. "15 count" pizza
+        // becomes "15 slices"; "1 bread" becomes "1 slice"; etc.
+        const unit = smartUnitFor(item.name, rawUnit);
         return {
           id: Date.now() + Math.random(),
           name: item.name.trim(),

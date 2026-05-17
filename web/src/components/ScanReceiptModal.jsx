@@ -7,6 +7,7 @@ import {
   EXPIRY_DAYS_BY_CATEGORY, OPENED_DAYS_MAP, isPackagedCategory,
   inferEmoji,
 } from "../lib/constants.js";
+import { smartUnitFor } from "../lib/helpers.js";
 
 // v1.16 — Receipt scan for the web app. Mirrors the iOS receipt-scan flow:
 // user uploads a JPEG/PNG of a grocery receipt, the scan-receipt Edge
@@ -213,12 +214,16 @@ export default function ScanReceiptModal({ open, onClose, onAdded, householdId, 
         // the receipt scan. We treat that as the USDA snapshot; the visible
         // expiry can later be shortened by the user without losing this.
         const usdaDate = expiryDate.slice(0, 10);
+        // v1.22 #238 — smart unit defaulting for sliceable items so pizza /
+        // bread / cake save with "slice" instead of NULL (which then renders
+        // as just a number).
+        const smartUnit = smartUnitFor(it.name, null);
         return {
           name: it.name,
           category: it.category,
           emoji: inferEmoji(it.name, CATEGORY_EMOJI[it.category] || "📦"),
           quantity: 1,
-          unit: null,
+          unit: smartUnit || null,
           added_date: now.toISOString(),
           expiry_date: expiryDate,
           user_id: user.id,

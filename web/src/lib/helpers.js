@@ -45,11 +45,36 @@ export function expiryLabel(days) {
 }
 
 // "1 oz" / "1 dozen" / "1" — matches the iOS formatQty helper.
+// v1.22 #238 — "count" is implicit when there's no other unit, so we drop it
+// from display. "15 count pizza" → "15". DB value stays as "count" so explicit
+// picks survive; only rendering trims it.
 export function formatQty(item) {
   const q = item?.quantity;
-  const u = (item?.unit || "").trim();
+  const uRaw = (item?.unit || "").trim();
+  const u = uRaw.toLowerCase() === "count" ? "" : uRaw;
   if (q === undefined || q === null || q === "") return u || "—";
   return u ? `${q} ${u}` : String(q);
+}
+
+// v1.22 #238 — smart unit defaulting for sliceable / portionable items.
+// Mirrors smartUnitFor() in App.js. Called from web's receipt-scan parser
+// when a returned item has unit="count" / "" — names matching these patterns
+// get a more natural unit. "15 count pizza" → "15 slices".
+const SLICEABLE_UNIT_RULES = [
+  { pattern: /\b(pizza|pie|tart|quiche|cake|loaf|cheesecake)\b/, unit: "slice" },
+  { pattern: /\b(bread|baguette|focaccia|toast)\b/,             unit: "slice" },
+  { pattern: /\b(bagel|donut|doughnut|muffin|croissant|scone|cupcake|cookie|brownie|biscuit|roll)\b/, unit: "piece" },
+  { pattern: /\b(sandwich|wrap|burrito|burger|hot ?dog|taco|quesadilla)\b/, unit: "piece" },
+];
+
+export function smartUnitFor(name, currentUnit) {
+  const cu = (currentUnit || "").trim().toLowerCase();
+  if (cu && cu !== "count" && cu !== "ct" && cu !== "ea" && cu !== "each") return currentUnit;
+  const n = (name || "").toLowerCase();
+  for (const rule of SLICEABLE_UNIT_RULES) {
+    if (rule.pattern.test(n)) return rule.unit;
+  }
+  return currentUnit;
 }
 
 // Map a fridge_items row from Supabase into the shape the UI expects.
