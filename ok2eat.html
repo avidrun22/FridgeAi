@@ -724,22 +724,6 @@
     color: inherit;
   }
 
-  /* v1.22 #250 — screenshot thumbnail at the top of each card.
-     Uses the App Store screenshots (already designed + branded).
-     object-position: top so the headline portion is visible when
-     the card is short. */
-  .feature-screenshot {
-    display: block;
-    width: 100%;
-    height: 220px;
-    object-fit: cover;
-    object-position: top;
-    border-radius: 14px;
-    margin-bottom: 18px;
-    background: var(--bg);
-    border: 1px solid var(--border);
-  }
-
   .feature-card:hover {
     border-color: rgba(62, 114, 29, 0.4);
     transform: translateY(-4px);
@@ -1366,8 +1350,8 @@
        remains independently clickable to /demo for visitors who want to
        skip straight to the interactive demo. -->
   <a href="/quiz.html" class="demo-cta-card" data-event="hero_quiz_card_clicked">
-    <span class="demo-cta-title">Not sure where to start? Take the 60-second quiz ↓</span>
-    <span class="demo-cta-sub">Three questions. We'll show you the parts of ok2eat that fit your goal — saving money, wasting less, or just deciding what to cook tonight.</span>
+    <span class="demo-cta-title">What could ok2eat save you? →</span>
+    <span class="demo-cta-sub">Three questions. 60 seconds. We'll show you exactly how much time and money ok2eat can give you back.</span>
   </a>
 
   <!-- v1.19 — Mockup refreshed to show the Eat Me First tab (the headline
@@ -1486,34 +1470,35 @@
   <p class="section-sub">ok2eat is built around one question — what should you eat first, before it goes bad? Every feature below answers that, or makes the answer faster.</p>
 
   <div class="features-grid">
-    <!-- v1.22 #250 — each feature card is now an anchor to the live /demo
-         on app.ok2eat.com. The 5 cards that correspond to App Store
-         screenshots (Eat Me First, USDA expiry, Receipt Scan, Dashboard,
-         Recipes) show those screenshots as portrait thumbnails. The rest
-         keep the emoji icon. All cards fire a PostHog event so we can
-         see which features are pulling clicks. -->
+    <!-- v1.22 #250 follow-up — reverted the screenshot thumbnails. The
+         existing App Store screenshots showed stale copy (v1.16 / 660
+         foods) which contradicted the 1,900+ claim in the text below.
+         Cards stay as anchors to /demo so clicks still land in the
+         interactive demo; PostHog event tracking preserved. Re-add
+         screenshots later with fresh captures that match the current
+         catalog/version. -->
     <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_eat_me_first_clicked">
-      <img class="feature-screenshot" src="/screenshots/features/01_eat_me_first.png" alt="Eat Me First screen — 8 items ranked by urgency, with use-by labels" loading="lazy">
+      <span class="feature-icon">🔥</span>
       <div class="feature-title">Eat Me First <span style="font-size:11px;background:var(--green);color:#fff;padding:2px 8px;border-radius:99px;margin-left:6px;vertical-align:middle;letter-spacing:0.05em;">NEW</span></div>
       <div class="feature-desc">A new top-level tab that ranks your fridge by urgency. The thing closest to spoiling sits at the top. Tap any item to get three recipes that use it — plus the four next-most-urgent things alongside it — so dinner uses what's about to go bad instead of what you'd have to buy.</div>
     </a>
     <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_usda_expiry_clicked">
-      <img class="feature-screenshot" src="/screenshots/features/06_dual_date.png" alt="Item detail showing both the printed date and the USDA shelf-life window" loading="lazy">
+      <span class="feature-icon">⏰</span>
       <div class="feature-title">USDA-backed expiry dates</div>
       <div class="feature-desc">Per-item shelf life from the <strong>USDA FoodKeeper</strong> dataset plus <strong>USDA FoodData Central</strong>, FDA, FSIS, and Cooperative Extension publications — <strong>1,900+ foods</strong> with their own typical fridge, freezer, and pantry windows. ok2eat stores both the printed date and the USDA window, so you stop tossing cheddar at 14 days when it actually lasts six months.</div>
     </a>
     <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_receipt_scan_clicked">
-      <img class="feature-screenshot" src="/screenshots/features/04_receipt_scan.png" alt="Receipt scan screen — a grocery receipt being parsed into fridge items" loading="lazy">
+      <span class="feature-icon">📸</span>
       <div class="feature-title">Receipt Scanning</div>
       <div class="feature-desc">Snap your grocery receipt and ok2eat fills your fridge for you in seconds. Every line gets smart expiry dates from FoodKeeper plus a smart container default — bread to pantry, ice cream to freezer, no manual sorting.</div>
     </a>
     <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_dashboard_clicked">
-      <img class="feature-screenshot" src="/screenshots/features/03_dashboard.png" alt="Dashboard tab showing money saved, items rescued, and at-risk-now tile" loading="lazy">
+      <span class="feature-icon">📊</span>
       <div class="feature-title">Impact Dashboard <span style="font-size:11px;background:var(--green);color:#fff;padding:2px 8px;border-radius:99px;margin-left:6px;vertical-align:middle;letter-spacing:0.05em;">NEW</span></div>
       <div class="feature-desc">Lifetime money saved, pounds of food rescued, CO₂ avoided. Live numbers, recalculated every time you mark something used. The average US household wastes $1,866 of food a year — yours doesn't have to.</div>
     </a>
     <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_recipes_clicked">
-      <img class="feature-screenshot" src="/screenshots/features/02_recipe_modal.png" alt="Recipe sheet for an expiring ingredient, with dietary-aware ingredient list" loading="lazy">
+      <span class="feature-icon">🥗</span>
       <div class="feature-title">Recipes that respect your diet <span style="font-size:11px;background:var(--green);color:#fff;padding:2px 8px;border-radius:99px;margin-left:6px;vertical-align:middle;letter-spacing:0.05em;">NEW</span></div>
       <div class="feature-desc">Set dietary preferences (vegetarian, vegan, gluten-free, dairy-free, nut-free, low-carb, keto) and allergies (peanut, tree nut, shellfish, fish, egg, milk, soy, wheat, sesame) once. Every recipe respects them. Ingredient amounts scale to your household size.</div>
     </a>

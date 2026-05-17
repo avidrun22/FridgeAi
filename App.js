@@ -35,7 +35,7 @@ TextInput.defaultProps.maxFontSizeMultiplier = 1.3;
 const ANDROID_TOP_INSET = Platform.OS === "android" ? (StatusBar.currentHeight || 24) : 0;
 
 // ─── Analytics ───────────────────────────────────────────────────────────────
-const posthog = new PostHog("phc_szxhjw2eQmYYhNGicX3kmNXxdz47Sj7evqx5Quqw8dTY", { host: "https://app.posthog.com" });
+const posthog = new PostHog("phc_szxhjw2eQmYYhNGicX3kmNXxdz47Sj7evqx5Quqw8dTY", { host: "https://e.ok2eat.com" });
 
 // App version + build number — read at module load from expo-constants. Same
 // source as the in-app update modal (see APP_VERSION below). Hoisted up here

@@ -63,8 +63,16 @@
   }(document, window.posthog || []);
 
   // 2) Initialize. Same project key as iOS + web app.
+  //
+  // v1.22 — api_host points at our PostHog Managed Proxy (Cloudflare edge →
+  // PostHog ingestion) so ad-blockers don't drop events. The DNS lives at
+  // e.ok2eat.com (CNAME to cf-prod-us-proxy.proxyhog.com). ui_host stays on
+  // us.posthog.com so toolbar links / "view recording" deep-links land in
+  // the real PostHog UI. Privacy policy updated 2026-05-17 to disclose
+  // Cloudflare as a subprocessor.
   posthog.init("phc_szxhjw2eQmYYhNGicX3kmNXxdz47Sj7evqx5Quqw8dTY", {
-    api_host: "https://us.i.posthog.com",
+    api_host: "https://e.ok2eat.com",
+    ui_host: "https://us.posthog.com",
     capture_pageview: true,
     capture_pageleave: true,
     autocapture: false, // keep the dashboard clean — explicit events only

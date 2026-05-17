@@ -22,7 +22,12 @@
 import posthog from "posthog-js";
 
 const POSTHOG_PROJECT_KEY = "phc_szxhjw2eQmYYhNGicX3kmNXxdz47Sj7evqx5Quqw8dTY";
-const POSTHOG_HOST = "https://us.i.posthog.com"; // ingestion endpoint
+// v1.22 — Route ingestion through our PostHog Managed Proxy (Cloudflare
+// edge in front of PostHog). The proxy lives at e.ok2eat.com via CNAME →
+// cf-prod-us-proxy.proxyhog.com. Bypasses ad-blockers since requests
+// look first-party. Privacy policy updated 2026-05-17 to disclose
+// Cloudflare as a subprocessor.
+const POSTHOG_HOST = "https://e.ok2eat.com"; // ingestion via managed proxy
 
 // App version for the web client. Surfaced via Vite at build time — set in
 // vite.config when we deploy. Falls back to "web" if the env var isn't
@@ -42,6 +47,10 @@ export function initAnalytics() {
   try {
     posthog.init(POSTHOG_PROJECT_KEY, {
       api_host: POSTHOG_HOST,
+      // ui_host points back at the real PostHog UI so toolbar links and
+      // "view recording" deep-links land in the dashboard (api_host is the
+      // ingestion proxy at e.ok2eat.com).
+      ui_host: "https://us.posthog.com",
       capture_pageview: true,
       capture_pageleave: true,
       autocapture: false, // explicit events only — keeps the dashboard clean
