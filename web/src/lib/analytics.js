@@ -51,6 +51,12 @@ export function initAnalytics() {
       // "view recording" deep-links land in the dashboard (api_host is the
       // ingestion proxy at e.ok2eat.com).
       ui_host: "https://us.posthog.com",
+      // Pin SDK behavior to the defaults as of this date. PostHog recommends
+      // this when fronting ingestion with a managed proxy — it freezes init
+      // semantics so a future `npm update posthog-js` can't silently flip
+      // autocapture / session recording / person_profiles on us. Bump
+      // deliberately after reviewing the changelog when we want to opt in.
+      defaults: "2026-01-30",
       capture_pageview: true,
       capture_pageleave: true,
       autocapture: false, // explicit events only — keeps the dashboard clean

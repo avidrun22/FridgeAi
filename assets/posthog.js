@@ -73,6 +73,10 @@
   posthog.init("phc_szxhjw2eQmYYhNGicX3kmNXxdz47Sj7evqx5Quqw8dTY", {
     api_host: "https://e.ok2eat.com",
     ui_host: "https://us.posthog.com",
+    // Pin SDK behavior to the defaults as of this date. PostHog recommends
+    // this when fronting ingestion with a managed proxy so a future load of
+    // a newer array.js from the CDN can't silently change defaults on us.
+    defaults: "2026-01-30",
     capture_pageview: true,
     capture_pageleave: true,
     autocapture: false, // keep the dashboard clean — explicit events only
