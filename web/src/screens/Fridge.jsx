@@ -25,6 +25,9 @@ export default function Fridge({ user }) {
   // v1.16 — search + category filter for the active container
   const [searchQuery, setSearchQuery] = useState("");
   const [filter, setFilter] = useState("All"); // "All" | "Dairy" | "Protein" | … | "expiring" | "expired"
+  // v1.22 #235 (sky21__) — Fridge sort. Mirrors App.js. "added" default
+  // matches existing behavior (newest first from created_at DESC query).
+  const [sortBy, setSortBy] = useState("added");
 
   async function refetch() {
     try {
@@ -119,6 +122,19 @@ export default function Fridge({ user }) {
   const visible = searchTerm
     ? categoryFiltered.filter(i => (i.name || "").toLowerCase().includes(searchTerm))
     : categoryFiltered;
+  // v1.22 #235 — apply user-selected sort. Items array is small enough
+  // for an in-place slice+sort per render.
+  const sorted = (() => {
+    const arr = visible.slice();
+    if (sortBy === "expiring") {
+      arr.sort((a, b) => daysUntil(a.expiryDate) - daysUntil(b.expiryDate));
+    } else if (sortBy === "longest") {
+      arr.sort((a, b) => daysUntil(b.expiryDate) - daysUntil(a.expiryDate));
+    } else if (sortBy === "az") {
+      arr.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    }
+    return arr;
+  })();
 
   return (
     <Layout user={user}>
@@ -293,8 +309,29 @@ export default function Fridge({ user }) {
           </div>
         )}
 
+        {/* v1.22 #235 — Sort chip. Tap cycles through the 4 sort modes.
+            Hidden when there's 1 or fewer items (nothing to sort). */}
+        {visible.length > 1 && (
+          <div className="flex justify-end mb-2">
+            <button
+              type="button"
+              onClick={() => {
+                const order = ["added", "expiring", "longest", "az"];
+                const next = order[(order.indexOf(sortBy) + 1) % order.length];
+                setSortBy(next);
+                try { track("fridge_sort_changed", { from: sortBy, to: next }); } catch {}
+              }}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-bg border border-border text-text text-xs font-semibold hover:border-accent/40 transition"
+              aria-label={`Sort: ${sortBy}. Tap to change.`}
+            >
+              <span className="text-textSoft">↕</span>
+              <span>{sortBy === "added" ? "Recently added" : sortBy === "expiring" ? "Expires soonest" : sortBy === "longest" ? "Expires latest" : "A→Z"}</span>
+            </button>
+          </div>
+        )}
+
         <div className="space-y-2">
-          {visible.map(it => {
+          {sorted.map(it => {
             const days = daysUntil(it.expiryDate);
             const color = expiryColor(days);
             return (
@@ -307,7 +344,11 @@ export default function Fridge({ user }) {
                   {inferEmoji(it.name, it.emoji || CATEGORY_EMOJI[it.category] || "📦")}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-text font-semibold truncate">{it.name}</p>
+                  {/* v1.22 #237 (sky21__) — let brand-prefixed names
+                      use 2 lines so receipt-scan duplicates with the
+                      same prefix become distinguishable. Tailwind
+                      line-clamp-2 enforces the cap. */}
+                  <p className="text-text font-semibold line-clamp-2">{it.name}</p>
                   <p className="text-textSoft text-xs mt-0.5">
                     {formatQty(it)} · {it.category}
                     {it.isOpened && <span className="ml-1 text-warn">· opened</span>}

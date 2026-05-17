@@ -1475,6 +1475,12 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
   // name substring across the active container.
   const [searchQuery, setSearchQuery] = useState("");
 
+  // v1.22 #235 (sky21__) — Fridge sort. Default "added" matches the
+  // previous behavior (newest first). Other options: "expiring" (soonest
+  // first), "longest" (latest first), "az" (alphabetical). Persists per
+  // session only; reset on app relaunch is fine.
+  const [sortBy, setSortBy] = useState("added");
+
   // v1.15 — expiring_soon_viewed. Fires once per fridge load when items are
   // present and at least one is within 3 days of expiring. This is the moment
   // the value prop is delivered ("hey, your bell peppers are about to go bad")
@@ -1564,6 +1570,20 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
   const filtered = q
     ? categoryFiltered.filter(i => (i.name || "").toLowerCase().includes(q))
     : categoryFiltered;
+  // v1.22 #235 — apply user-selected sort. Items array isn't huge so the
+  // .slice() copy + sort is fine perf-wise (typical fridges: <50 items).
+  const sorted = (() => {
+    const arr = filtered.slice();
+    if (sortBy === "expiring") {
+      arr.sort((a, b) => daysUntil(a.expiryDate) - daysUntil(b.expiryDate));
+    } else if (sortBy === "longest") {
+      arr.sort((a, b) => daysUntil(b.expiryDate) - daysUntil(a.expiryDate));
+    } else if (sortBy === "az") {
+      arr.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    }
+    // "added" → leave alone (already in created_at DESC from the query)
+    return arr;
+  })();
   const expired = sectionItems.filter(i => daysUntil(i.expiryDate) <= 0).length;
   const expiringSoon = sectionItems.filter(i => { const d = daysUntil(i.expiryDate); return d > 0 && d <= 3; }).length;
 
@@ -1717,7 +1737,30 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
           <View style={{ alignItems: "center", padding: 48 }}><ActivityIndicator color={T.accent} size="large" /><Text style={{ color: T.textSoft, marginTop: 12 }}>Loading your fridge...</Text></View>
         ) : (
           <>
-            <Text style={s.sectionLabel}>{filter === "expiring" ? "// EXPIRING SOON" : filter === "expired" ? "// EXPIRED — REMOVE OR DISCARD" : "// CONTENTS · TAP TO VIEW DETAILS"}</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginTop: 4, marginBottom: 4 }}>
+              <Text style={[s.sectionLabel, { paddingHorizontal: 0, marginTop: 0 }]}>{filter === "expiring" ? "// EXPIRING SOON" : filter === "expired" ? "// EXPIRED — REMOVE OR DISCARD" : "// CONTENTS · TAP TO VIEW DETAILS"}</Text>
+              {/* v1.22 #235 — Sort dropdown. Compact chip row to the right
+                  of the section label. Tap cycles through the 4 options
+                  (added → expiring → longest → az → added). Visible label
+                  shows the active sort. */}
+              {filtered.length > 1 && (
+                <TouchableOpacity
+                  onPress={() => {
+                    const order = ["added", "expiring", "longest", "az"];
+                    const next = order[(order.indexOf(sortBy) + 1) % order.length];
+                    setSortBy(next);
+                    track("fridge_sort_changed", { from: sortBy, to: next });
+                  }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: T.bg, borderWidth: 1, borderColor: T.border }}
+                >
+                  <Ionicons name="swap-vertical" size={12} color={T.textSoft} />
+                  <Text style={{ color: T.text, fontSize: 11, fontWeight: "600" }}>
+                    {sortBy === "added" ? "Recently added" : sortBy === "expiring" ? "Expires soonest" : sortBy === "longest" ? "Expires latest" : "A→Z"}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
             {filtered.length === 0 && (
               q ? (
                 <View style={{ alignItems: "center", padding: 48 }}>
@@ -1764,7 +1807,7 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
                 </View>
               )
             )}
-            {filtered.map(item => {
+            {sorted.map(item => {
               const days = daysUntil(item.expiryDate); const color = expiryColor(days);
               const isSelected = selectedIds.has(item.id);
               return (
@@ -1797,7 +1840,12 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, l
                       <Text style={{ fontSize: 32, width: 44, textAlign: "center" }}>{inferEmoji(item.name, item.emoji)}</Text>
                     )}
                     <View style={{ flex: 1, marginLeft: 12 }}>
-                      <Text style={s.itemName} numberOfLines={1}>{item.name}</Text>
+                      {/* v1.22 #237 (sky21__) — allow 2 lines on name so
+                          brand-prefixed receipt-scan items become
+                          distinguishable. "Black Swan RD Eat Healthy
+                          Chicken Breast 250g" vs the 500g variant were
+                          rendering identically when truncated to 1 line. */}
+                      <Text style={s.itemName} numberOfLines={2}>{item.name}</Text>
                       <Text style={s.itemMeta}>{item.category} · {formatQty(item)}</Text>
                       {item.barcode && <Text style={[s.monoText, { color: T.muted, fontSize: 10, marginTop: 2 }]}>#{item.barcode}</Text>}
                     </View>
@@ -6100,11 +6148,15 @@ function PlanScreen({ items, householdId, onOpenRecipeId, onOpenSavedRecipe, lis
     }
     const url = `https://ok2eat.com/lists?t=${token}`;
     try {
-      const result = await Share.share({
-        message: `Shopping list: ${list.name}\n${url}`,
-        url, // iOS-specific
-        title: list.name,
-      });
+      // v1.22 #232 — Platform-aware share to fix iMessage duplicate
+      // link preview. iOS attaches `url` as a separate URL preview, so
+      // having the same URL ALSO in `message` produces TWO previews.
+      // Android ignores the `url` field entirely, so the URL has to be
+      // in message to render at all.
+      const result = await Share.share(Platform.OS === "ios"
+        ? { message: `Shopping list: ${list.name}`, url, title: list.name }
+        : { message: `Shopping list: ${list.name}\n${url}`, title: list.name }
+      );
       if (result.action === Share.sharedAction) {
         track("shopping_list_shared", { list_id: list.id, activity: result.activityType || null });
         setShareToast("Link shared");
@@ -6866,11 +6918,11 @@ function PlanScreen({ items, householdId, onOpenRecipeId, onOpenSavedRecipe, lis
                         const recipeId = openSavedRecipe.id;
                         const url = `https://ok2eat.com/recipes/${encodeURIComponent(recipeId)}?utm_source=share&utm_medium=ios_app&utm_campaign=recipe_share`;
                         try {
-                          const result = await Share.share({
-                            message: `${openSavedRecipe.name} — recipe from ok2eat\n${url}`,
-                            url,
-                            title: openSavedRecipe.name,
-                          });
+                          // v1.22 #232 — see shareList() above for rationale.
+                          const result = await Share.share(Platform.OS === "ios"
+                            ? { message: `${openSavedRecipe.name} — recipe from ok2eat`, url, title: openSavedRecipe.name }
+                            : { message: `${openSavedRecipe.name} — recipe from ok2eat\n${url}`, title: openSavedRecipe.name }
+                          );
                           if (result.action === Share.sharedAction) {
                             track("recipe_shared", { name: openSavedRecipe.name, recipe_id: recipeId, source: "saved_sheet" });
                           }
@@ -8785,11 +8837,13 @@ export default function App() {
                     const recipeId = deepLinkRecipe.id;
                     const url = `https://ok2eat.com/recipes/${encodeURIComponent(recipeId)}?utm_source=share&utm_medium=ios_app&utm_campaign=recipe_share`;
                     try {
-                      const result = await Share.share({
-                        message: `${deepLinkRecipe.name} — recipe from ok2eat\n${url}`,
-                        url, // iOS-specific; Android/web ignore
-                        title: deepLinkRecipe.name,
-                      });
+                      // v1.22 #232 — Platform-aware: iOS uses url field
+                      // (avoids iMessage duplicate preview), Android puts
+                      // URL in message body since url field is ignored.
+                      const result = await Share.share(Platform.OS === "ios"
+                        ? { message: `${deepLinkRecipe.name} — recipe from ok2eat`, url, title: deepLinkRecipe.name }
+                        : { message: `${deepLinkRecipe.name} — recipe from ok2eat\n${url}`, title: deepLinkRecipe.name }
+                      );
                       if (result.action === Share.sharedAction) {
                         track("recipe_shared", { name: deepLinkRecipe.name, recipe_id: recipeId });
                       }
