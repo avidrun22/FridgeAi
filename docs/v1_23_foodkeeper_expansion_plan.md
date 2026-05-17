@@ -1,9 +1,16 @@
 # v1.23+ — Expand the generic foods catalog
 
-> **Status:** plan draft, awaiting Greg's go-ahead.
-> Continues #192 (extended_shelf_life Phase 2 — already at ~858 rows) and
-> resolves Greg's #245 ask: "Cheddar cheese not in our catalog → search misses
-> it. Expand. Priority: categorization → expiration → nutrition."
+> **Status:** Phase 0 (migration) DONE 2026-05-17. Phase 1-3 commands ready
+> for Greg's terminal. Target: load 25% of the 5K backlog goal (~1,250 new
+> rows) focused on perishables, where wrong shelf life hurts trust most.
+>
+> Decisions locked with Greg 2026-05-17:
+> - Source tag: "USDA FDC" (7th value alongside existing 6: USDA FoodKeeper,
+>   Extension, Manufacturer, FDA, FSIS, NCHFP)
+> - Budget: ~$5 Haiku for Phase 3 shelf-life enrichment
+> - Display: USDA names as-is, display_name column added for future backfill
+> - Staging: 50 → review → 500 → review → rest
+> - Scope: Phase 1 + Phase 2 in this expansion, hitting ~1,250 new rows.
 
 ## Why this matters now
 
