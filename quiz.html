@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>What can ok2eat do for you? — 60-second quiz</title>
+<meta name="description" content="Answer three quick questions and we'll show you how ok2eat helps with your specific goal — saving money on groceries, wasting less food, stopping double-purchases, or cooking from what you already have.">
+<meta name="theme-color" content="#F0EADC">
+<meta property="og:title" content="What can ok2eat do for you? — 60-second quiz">
+<meta property="og:description" content="Three questions. We'll show you the parts of ok2eat that fit your goal best.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://ok2eat.com/quiz.html">
+<link rel="canonical" href="https://ok2eat.com/quiz.html">
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,700;12..96,800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="/assets/posthog.js" defer></script>
+<style>
+  :root {
+    --bg: #F0EADC;
+    --surface: #FFFFFF;
+    --text: #2C3329;
+    --text-soft: #5A6359;
+    --muted: #8F968D;
+    --green: #3E721D;
+    --green-light: #A6D388;
+    --green-bg: rgba(62, 114, 29, 0.08);
+    --warn: #E08E0B;
+    --danger: #B23A3A;
+    --border: #E2DCCB;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--text); font-family: 'Bricolage Grotesque', system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; line-height: 1.5; }
+  body { min-height: 100vh; display: flex; flex-direction: column; }
+  nav { display: flex; align-items: center; justify-content: space-between; padding: 18px 32px; border-bottom: 1px solid var(--border); }
+  .nav-logo { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; color: var(--text); text-decoration: none; font-size: 18px; }
+  .nav-logo svg { width: 28px; height: 28px; }
+  .nav-back { color: var(--text-soft); text-decoration: none; font-size: 14px; }
+  .nav-back:hover { color: var(--text); }
+
+  main { flex: 1; display: flex; align-items: center; justify-content: center; padding: 48px 20px; }
+  .quiz-card { width: 100%; max-width: 640px; background: var(--surface); border-radius: 18px; padding: 40px 32px; box-shadow: 0 4px 32px rgba(0,0,0,0.04); border: 1px solid var(--border); }
+  @media (min-width: 720px) {
+    .quiz-card { padding: 56px 56px; }
+  }
+
+  .progress { display: flex; gap: 8px; margin-bottom: 28px; }
+  .progress-dot { flex: 1; height: 4px; background: var(--border); border-radius: 2px; transition: background 200ms ease; }
+  .progress-dot.is-active { background: var(--green); }
+  .progress-dot.is-done   { background: var(--green-light); }
+
+  .step-eyebrow { font-size: 12px; font-weight: 600; color: var(--green); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+  .step-title { font-size: 26px; line-height: 1.25; font-weight: 700; color: var(--text); margin-bottom: 6px; letter-spacing: -0.01em; }
+  .step-sub { font-size: 14px; color: var(--text-soft); margin-bottom: 24px; }
+
+  .options { display: flex; flex-direction: column; gap: 10px; }
+  .option { display: flex; align-items: flex-start; gap: 12px; padding: 16px 18px; background: #FBF8F0; border: 1.5px solid var(--border); border-radius: 12px; cursor: pointer; transition: all 150ms ease; text-align: left; font-family: inherit; font-size: 15px; color: var(--text); }
+  .option:hover { border-color: var(--green-light); background: #F5F1E5; transform: translateY(-1px); }
+  .option:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+  .option-emoji { font-size: 22px; line-height: 1; margin-top: 2px; flex: 0 0 auto; }
+  .option-body { flex: 1; }
+  .option-label { font-weight: 600; }
+  .option-sub { font-size: 13px; color: var(--text-soft); margin-top: 2px; }
+
+  .step-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 24px; }
+  .step-back { background: none; border: none; color: var(--text-soft); font-size: 14px; cursor: pointer; padding: 8px 0; font-family: inherit; }
+  .step-back:hover { color: var(--text); }
+  .step-back[hidden] { display: none; }
+
+  /* Result page */
+  .result-eyebrow { font-size: 13px; font-weight: 600; color: var(--green); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+  .result-title { font-size: 30px; line-height: 1.2; font-weight: 700; color: var(--text); margin-bottom: 12px; letter-spacing: -0.01em; }
+  .result-lede { font-size: 16px; color: var(--text-soft); margin-bottom: 28px; }
+  .feature-list { display: flex; flex-direction: column; gap: 14px; margin-bottom: 28px; }
+  .feature { display: flex; gap: 14px; align-items: flex-start; padding: 14px 16px; background: var(--green-bg); border-radius: 10px; border-left: 3px solid var(--green); }
+  .feature-emoji { font-size: 22px; line-height: 1; flex: 0 0 auto; margin-top: 1px; }
+  .feature-body strong { color: var(--text); font-weight: 600; display: block; margin-bottom: 2px; }
+  .feature-body span { font-size: 14px; color: var(--text-soft); }
+
+  .cta-row { display: flex; flex-direction: column; gap: 10px; margin-bottom: 24px; }
+  @media (min-width: 600px) {
+    .cta-row { flex-direction: row; flex-wrap: wrap; }
+    .cta-row > * { flex: 1 1 calc(33% - 7px); min-width: 0; }
+  }
+  .btn { display: inline-flex; align-items: center; justify-content: center; padding: 14px 20px; border-radius: 12px; font-family: inherit; font-size: 15px; font-weight: 600; text-decoration: none; cursor: pointer; transition: all 150ms ease; text-align: center; border: 1.5px solid transparent; }
+  .btn-primary { background: var(--text); color: #fff; }
+  .btn-primary:hover { background: #1B221A; transform: translateY(-1px); }
+  .btn-secondary { background: transparent; color: var(--text); border-color: var(--border); }
+  .btn-secondary:hover { border-color: var(--text-soft); transform: translateY(-1px); }
+  .btn-android { background: transparent; color: var(--green); border-color: var(--green); }
+  .btn-android:hover { background: var(--green-bg); transform: translateY(-1px); }
+
+  .email-capture { margin-top: 24px; padding: 20px; background: #FBF8F0; border-radius: 12px; border: 1px solid var(--border); }
+  .email-capture-label { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+  .email-capture-sub { font-size: 13px; color: var(--text-soft); margin-bottom: 12px; }
+  .email-capture-form { display: flex; gap: 8px; flex-wrap: wrap; }
+  .email-capture-form input { flex: 1; min-width: 200px; padding: 11px 14px; border-radius: 9px; border: 1.5px solid var(--border); font-family: inherit; font-size: 14px; background: #fff; color: var(--text); }
+  .email-capture-form input:focus { outline: none; border-color: var(--green); }
+  .email-capture-form button { padding: 11px 18px; border-radius: 9px; border: none; background: var(--green); color: #fff; font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .email-capture-form button:disabled { opacity: 0.6; cursor: not-allowed; }
+  .email-capture-msg { font-size: 13px; margin-top: 10px; min-height: 16px; }
+  .email-capture-msg.is-success { color: var(--green); }
+  .email-capture-msg.is-error   { color: var(--danger); }
+
+  .quiz-foot { text-align: center; margin-top: 18px; font-size: 13px; color: var(--muted); }
+  .quiz-foot a { color: var(--text-soft); text-decoration: underline; text-underline-offset: 2px; }
+  .step[hidden] { display: none; }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="avocado" viewBox="0 0 36 36">
+    <rect width="36" height="36" rx="8" fill="#F0EADC"/>
+    <path fill="#3E721D" d="M35 5.904c2.394 6.042-1.438 20.543-10.5 26.5-9.06 5.957-20.395 3.573-23.097-6.443-1.669-6.186 2.79-10.721 11.851-16.677C22.315 3.327 32.64-.053 35 5.904z"/>
+    <path fill="#A6D388" d="M19.815 26.578c-5.757 4.013-13.482 3.097-16.29-.934C.718 21.613 4 14.474 9.757 10.463c5.755-4.011 20.258-9.264 23.068-5.234 2.807 4.03-4.825 16.175-13.01 21.349"/>
+    <path fill="#662113" d="M11.162 12.488c3.48-2.332 7.382-1.495 9.798.995 1.433 1.477-.88 5.382-4.359 7.714-3.478 2.33-7.769 1.763-8.239.731-1.44-3.157-.677-7.109 2.8-9.44z"/>
+  </symbol>
+</svg>
+
+<nav>
+  <a href="/" class="nav-logo"><svg><use href="#avocado"/></svg> ok2eat</a>
+  <a href="/" class="nav-back">← Back to site</a>
+</nav>
+
+<main>
+  <div class="quiz-card">
+
+    <div class="progress" aria-hidden="true">
+      <div class="progress-dot is-active" data-dot="1"></div>
+      <div class="progress-dot" data-dot="2"></div>
+      <div class="progress-dot" data-dot="3"></div>
+    </div>
+
+    <!-- ── Step 1: primary goal ───────────────────────────────────────── -->
+    <section class="step" data-step="1">
+      <p class="step-eyebrow">Question 1 of 3</p>
+      <h1 class="step-title">What's your #1 frustration with food at home?</h1>
+      <p class="step-sub">Pick the one that bugs you most — we'll personalize from there.</p>
+      <div class="options" role="radiogroup" aria-label="Primary goal">
+        <button class="option" data-persona="save_money">
+          <span class="option-emoji">💸</span>
+          <span class="option-body">
+            <span class="option-label">Spending too much on groceries</span>
+            <span class="option-sub">A lot of what I buy ends up in the trash.</span>
+          </span>
+        </button>
+        <button class="option" data-persona="reduce_waste">
+          <span class="option-emoji">🌱</span>
+          <span class="option-body">
+            <span class="option-label">Throwing out too much food</span>
+            <span class="option-sub">It bothers me when food goes bad before I get to it.</span>
+          </span>
+        </button>
+        <button class="option" data-persona="stop_buying_dupes">
+          <span class="option-emoji">🛒</span>
+          <span class="option-body">
+            <span class="option-label">Buying things I already had</span>
+            <span class="option-sub">I find a third half-used jar of mustard and want to scream.</span>
+          </span>
+        </button>
+        <button class="option" data-persona="cook_from_what_i_have">
+          <span class="option-emoji">🍳</span>
+          <span class="option-body">
+            <span class="option-label">Not knowing what to cook</span>
+            <span class="option-sub">I open the fridge, stare, close it, order delivery.</span>
+          </span>
+        </button>
+      </div>
+    </section>
+
+    <!-- ── Step 2: cooking frequency ──────────────────────────────────── -->
+    <section class="step" data-step="2" hidden>
+      <p class="step-eyebrow">Question 2 of 3</p>
+      <h1 class="step-title">How often do you cook at home?</h1>
+      <p class="step-sub">Roughly. We use this to suggest the right cadence for reminders.</p>
+      <div class="options" role="radiogroup" aria-label="Cooking frequency">
+        <button class="option" data-frequency="rare">
+          <span class="option-emoji">🥡</span>
+          <span class="option-body">
+            <span class="option-label">Rarely</span>
+            <span class="option-sub">1-2 nights a week. Mostly takeout or eat out.</span>
+          </span>
+        </button>
+        <button class="option" data-frequency="sometimes">
+          <span class="option-emoji">🍝</span>
+          <span class="option-body">
+            <span class="option-label">A few nights a week</span>
+            <span class="option-sub">3-4 nights. Mix of cooking and ordering.</span>
+          </span>
+        </button>
+        <button class="option" data-frequency="often">
+          <span class="option-emoji">👩‍🍳</span>
+          <span class="option-body">
+            <span class="option-label">Most nights</span>
+            <span class="option-sub">5+ nights a week. I cook for myself / my family.</span>
+          </span>
+        </button>
+      </div>
+      <div class="step-actions">
+        <button type="button" class="step-back" data-back>← Back</button>
+      </div>
+    </section>
+
+    <!-- ── Step 3: household size ─────────────────────────────────────── -->
+    <section class="step" data-step="3" hidden>
+      <p class="step-eyebrow">Question 3 of 3</p>
+      <h1 class="step-title">How many people are you feeding?</h1>
+      <p class="step-sub">Tells us whether to prioritize solo features or shared-household ones.</p>
+      <div class="options" role="radiogroup" aria-label="Household size">
+        <button class="option" data-household="1">
+          <span class="option-emoji">🙋</span>
+          <span class="option-body"><span class="option-label">Just me</span></span>
+        </button>
+        <button class="option" data-household="2">
+          <span class="option-emoji">👫</span>
+          <span class="option-body"><span class="option-label">Two of us</span></span>
+        </button>
+        <button class="option" data-household="3-4">
+          <span class="option-emoji">👨‍👩‍👧</span>
+          <span class="option-body"><span class="option-label">A small family (3-4)</span></span>
+        </button>
+        <button class="option" data-household="5+">
+          <span class="option-emoji">👨‍👩‍👧‍👦</span>
+          <span class="option-body"><span class="option-label">A bigger household (5+)</span></span>
+        </button>
+      </div>
+      <div class="step-actions">
+        <button type="button" class="step-back" data-back>← Back</button>
+      </div>
+    </section>
+
+    <!-- ── Step 4: personalized result ────────────────────────────────── -->
+    <section class="step" data-step="4" hidden>
+      <p class="result-eyebrow" data-result-eyebrow>Your ok2eat</p>
+      <h1 class="result-title" data-result-title>Here's how we can help</h1>
+      <p class="result-lede" data-result-lede></p>
+
+      <div class="feature-list" data-feature-list></div>
+
+      <div class="cta-row">
+        <a href="https://apps.apple.com/us/app/ok2eat/id6761730687" class="btn btn-primary" data-cta="ios">Download on the App Store</a>
+        <a href="https://app.ok2eat.com/demo" class="btn btn-secondary" data-cta="web_demo">Try the no-signup demo →</a>
+        <button type="button" class="btn btn-android" data-cta="android_waitlist" data-android-toggle>Android — join waitlist</button>
+      </div>
+
+      <div data-android-waitlist hidden>
+        <form class="email-capture-form" data-android-form>
+          <input type="email" name="email" placeholder="you@example.com" required autocomplete="email" aria-label="Email for Android waitlist">
+          <button type="submit">Notify me</button>
+        </form>
+        <p class="email-capture-msg" data-android-msg aria-live="polite"></p>
+      </div>
+
+      <div class="email-capture">
+        <p class="email-capture-label">Want updates as we ship features for your goal?</p>
+        <p class="email-capture-sub">Optional. One short email per week — same digest, no extra list.</p>
+        <form class="email-capture-form" data-quiz-email-form>
+          <input type="email" name="email" placeholder="you@example.com" required autocomplete="email" aria-label="Email for ok2eat updates">
+          <button type="submit">Subscribe</button>
+        </form>
+        <p class="email-capture-msg" data-quiz-email-msg aria-live="polite"></p>
+      </div>
+
+      <p class="quiz-foot">
+        Already a user? <a href="https://app.ok2eat.com">Log in</a> ·
+        <a href="/" data-cta="back_home">Back to homepage</a>
+      </p>
+    </section>
+
+  </div>
+</main>
+
+<script>
+(function () {
+  const SUPABASE_URL = "https://qemarhvgeuzhlwybmbie.supabase.co";
+  const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlbWFyaHZnZXV6aGx3eWJtYmllIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2Njc2NTgsImV4cCI6MjA5MDI0MzY1OH0.ejYeJkucIwAWZ7Rf0hcmpIENSnnmXMh4V_nhjXlDQk4";
+  const ANDROID_ENDPOINT = SUPABASE_URL + "/functions/v1/subscribe-android-waitlist";
+
+  const answers = { persona: null, frequency: null, household: null };
+  let currentStep = 1;
+
+  function track(name, props) {
+    if (window.posthog && window.posthog.capture) {
+      try { window.posthog.capture(name, Object.assign({}, props || {})); } catch (_) {}
+    }
+  }
+
+  function showStep(n) {
+    document.querySelectorAll(".step").forEach(s => {
+      s.hidden = (parseInt(s.dataset.step, 10) !== n);
+    });
+    // Progress dots — only steps 1-3 are tracked.
+    document.querySelectorAll(".progress-dot").forEach(d => {
+      const dn = parseInt(d.dataset.dot, 10);
+      d.classList.toggle("is-active", dn === n && n <= 3);
+      d.classList.toggle("is-done", dn < n);
+    });
+    currentStep = n;
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  // Step 1 — persona pick.
+  document.querySelectorAll('.step[data-step="1"] .option').forEach(btn => {
+    btn.addEventListener("click", () => {
+      answers.persona = btn.dataset.persona;
+      track("quiz_q1_answered", { persona: answers.persona });
+      showStep(2);
+    });
+  });
+
+  // Step 2 — cooking frequency.
+  document.querySelectorAll('.step[data-step="2"] .option').forEach(btn => {
+    btn.addEventListener("click", () => {
+      answers.frequency = btn.dataset.frequency;
+      track("quiz_q2_answered", Object.assign({}, answers));
+      showStep(3);
+    });
+  });
+
+  // Step 3 — household size → triggers result render.
+  document.querySelectorAll('.step[data-step="3"] .option').forEach(btn => {
+    btn.addEventListener("click", () => {
+      answers.household = btn.dataset.household;
+      track("quiz_completed", Object.assign({}, answers));
+      renderResult();
+      showStep(4);
+    });
+  });
+
+  // Back buttons.
+  document.querySelectorAll("[data-back]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      if (currentStep > 1) showStep(currentStep - 1);
+    });
+  });
+
+  // ── Personalized result builder ────────────────────────────────────
+  // Each persona has its own headline, lede, and a curated feature list.
+  // The household answer modifies the feature mix (1-2 leans solo; 3+ leans
+  // shared household).
+  const PERSONAS = {
+    save_money: {
+      eyebrow: "Stop paying for food that goes in the trash",
+      title: "ok2eat helps you waste less — and the dollars add up.",
+      lede: "The average US household throws out around $1,500/yr of food. ok2eat closes the gap by telling you what's worth using tonight, before it spoils.",
+      features: [
+        { emoji: "📷", label: "Scan your receipt to load your fridge in seconds", body: "Snap your grocery receipt, ok2eat fills in everything with smart expiry dates. No typing." },
+        { emoji: "🥬", label: "An 'At Risk Now' tile on the dashboard", body: "Glance and see the dollar value of food about to expire this week. Tap it to jump straight to those items." },
+        { emoji: "📅", label: "Calibrated shelf-life data on 1,900+ foods", body: "Hard cheddar lasts 6 months unopened, not 14 days. Salami lasts 2 years. Stop tossing food that's actually still good." },
+        { emoji: "🗑️", label: "Waste tracking (coming this week)", body: "When you do throw something out, it logs the loss so the dashboard can show you exactly what you're losing each month." },
+      ],
+    },
+    reduce_waste: {
+      eyebrow: "See what's going bad — in time to actually use it",
+      title: "ok2eat puts the most-urgent stuff at the top of the list.",
+      lede: "You don't waste food on purpose. You waste it because you forget it's there. ok2eat is the reminder that runs in the background.",
+      features: [
+        { emoji: "⚡", label: "Eat Me First tab — ranked by urgency", body: "Open the app and the first thing you see is what's closest to spoiling. No scrolling, no guessing." },
+        { emoji: "🌙", label: "Smart Cook Night push at 6pm", body: "A daily nudge with 3 recipes built around what's about to expire. So the cilantro doesn't die in the crisper again." },
+        { emoji: "🍱", label: "Save leftovers as a cooked item (next update)", body: "After you cook, ok2eat asks 'save leftovers?' — tap yes and a 4-day-shelf Cooked row appears. Tuesday's chili surfaces Wednesday." },
+        { emoji: "📧", label: "A daily email digest of what to use", body: "Skim it with your coffee. One-tap into the app if anything catches your eye." },
+      ],
+    },
+    stop_buying_dupes: {
+      eyebrow: "Know what's already in your fridge before you shop",
+      title: "ok2eat is a search bar for your fridge.",
+      lede: "You don't need a third jar of dijon mustard. ok2eat shows you what's already there, so the grocery list reflects what you're actually missing.",
+      features: [
+        { emoji: "🔍", label: "Search your fridge from the aisle", body: "Open ok2eat at the store and type 'mustard' — see exactly how many jars you have and when each one expires." },
+        { emoji: "📝", label: "Shopping lists that know what you have", body: "Build the list from a recipe — ok2eat pre-checks ingredients you already have in stock. Only buy what's actually missing." },
+        { emoji: "🏠", label: "Shared lists for the whole household", body: "Anyone with the link can add to the list — no app required for them. Whoever's at the store sees what changed in real time." },
+        { emoji: "📷", label: "Receipt scan to keep the fridge state honest", body: "After every grocery run, snap the receipt — ok2eat updates inventory automatically. The search bar stays accurate." },
+      ],
+    },
+    cook_from_what_i_have: {
+      eyebrow: "Recipes built around what's actually in your fridge",
+      title: "Stop staring. ok2eat tells you what to cook tonight.",
+      lede: "Tap an item — get three recipes that use it plus what's about to expire alongside it. No more 8pm 'idk' followed by takeout.",
+      features: [
+        { emoji: "🍳", label: "Tap any expiring item → get recipes that use it", body: "ok2eat looks at your top 5 most-urgent items and generates 3 recipe ideas built around them. Adjustable to your dietary preferences." },
+        { emoji: "📚", label: "Browse a recipe library that matches your inventory", body: "The Plan tab shows you which recipes you already have most of the ingredients for. In-stock badges, sorted by match." },
+        { emoji: "💾", label: "Save the recipes you like for next time", body: "Heart the keepers — they live in the Saved tab. Pulls back up next time the same ingredients show up." },
+        { emoji: "🌙", label: "6pm 'Smart Cook Night' suggestion", body: "Daily push at 6pm with 3 dinner ideas — based on what's expiring in your actual fridge that day." },
+      ],
+    },
+  };
+
+  function renderResult() {
+    const persona = answers.persona || "reduce_waste";
+    const p = PERSONAS[persona];
+
+    document.querySelector("[data-result-eyebrow]").textContent = p.eyebrow;
+    document.querySelector("[data-result-title]").textContent   = p.title;
+    document.querySelector("[data-result-lede]").textContent    = p.lede;
+
+    const listEl = document.querySelector("[data-feature-list]");
+    listEl.innerHTML = "";
+    p.features.forEach(f => {
+      const wrap = document.createElement("div");
+      wrap.className = "feature";
+      wrap.innerHTML =
+        '<div class="feature-emoji">' + f.emoji + '</div>' +
+        '<div class="feature-body"><strong></strong><span></span></div>';
+      wrap.querySelector("strong").textContent = f.label;
+      wrap.querySelector("span").textContent   = f.body;
+      listEl.appendChild(wrap);
+    });
+
+    // If 3+ household, prepend a household-aware note
+    if (answers.household === "3-4" || answers.household === "5+") {
+      const note = document.createElement("div");
+      note.className = "feature";
+      note.style.background = "rgba(224,142,11,0.08)";
+      note.style.borderLeftColor = "var(--warn)";
+      note.innerHTML =
+        '<div class="feature-emoji">👨‍👩‍👧</div>' +
+        '<div class="feature-body"><strong>Built for shared households</strong>' +
+        '<span>One fridge, multiple cooks. ok2eat keeps everyone on the same page — shared inventory, shared shopping lists, no double-buying.</span></div>';
+      listEl.prepend(note);
+    }
+  }
+
+  // CTA click tracking (incl. back-to-home).
+  document.querySelectorAll("[data-cta]").forEach(el => {
+    el.addEventListener("click", () => {
+      track("quiz_cta_clicked", Object.assign({}, answers, { cta: el.dataset.cta }));
+    });
+  });
+
+  // Android waitlist toggle on result page.
+  const androidWrap   = document.querySelector("[data-android-waitlist]");
+  const androidToggle = document.querySelector("[data-android-toggle]");
+  const androidForm   = document.querySelector("[data-android-form]");
+  const androidMsg    = document.querySelector("[data-android-msg]");
+  if (androidToggle && androidWrap && androidForm) {
+    androidToggle.addEventListener("click", () => {
+      androidWrap.hidden = false;
+      setTimeout(() => { const i = androidForm.querySelector("input"); if (i) i.focus(); }, 30);
+      track("android_waitlist_opened", { source: "/quiz.html", persona: answers.persona });
+    });
+    androidForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const input = androidForm.querySelector("input[type=email]");
+      const button = androidForm.querySelector("button[type=submit]");
+      const email = (input.value || "").trim().toLowerCase();
+      if (!email) return;
+      button.disabled = true; button.textContent = "Adding…";
+      if (androidMsg) { androidMsg.textContent = ""; androidMsg.className = "email-capture-msg"; }
+      try {
+        const res = await fetch(ANDROID_ENDPOINT, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + ANON_KEY,
+            "apikey": ANON_KEY,
+          },
+          body: JSON.stringify({ email, source: "/quiz.html", persona: answers.persona }),
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json().catch(() => ({}));
+        if (androidMsg) {
+          androidMsg.textContent = data.already_on_list
+            ? "✓ You're already on the list — we'll email you when Android launches."
+            : "✓ You're on the list. We'll email you when Android launches.";
+          androidMsg.className = "email-capture-msg is-success";
+        }
+        input.value = ""; button.textContent = "On the list";
+        track("android_waitlist_signup", { source: "/quiz.html", persona: answers.persona });
+      } catch (err) {
+        if (androidMsg) {
+          androidMsg.textContent = "Couldn't save your email — try again or write to hello@ok2eat.com.";
+          androidMsg.className = "email-capture-msg is-error";
+        }
+        button.disabled = false; button.textContent = "Notify me";
+      }
+    });
+  }
+
+  // Quiz-result email capture (persona-tagged updates list).
+  // Routes through the same /functions/v1/subscribe-android-waitlist endpoint
+  // for now — re-uses the existing waitlist table with a persona tag. We can
+  // wire a dedicated quiz-subscribers Edge Function later if volume warrants.
+  const qForm = document.querySelector("[data-quiz-email-form]");
+  const qMsg  = document.querySelector("[data-quiz-email-msg]");
+  if (qForm) {
+    qForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const input = qForm.querySelector("input[type=email]");
+      const button = qForm.querySelector("button[type=submit]");
+      const email = (input.value || "").trim().toLowerCase();
+      if (!email) return;
+      button.disabled = true; button.textContent = "Saving…";
+      if (qMsg) { qMsg.textContent = ""; qMsg.className = "email-capture-msg"; }
+      // Fire the PostHog event with persona — Greg can segment later.
+      track("quiz_email_capture", Object.assign({}, answers, { email_provided: true }));
+      try {
+        const res = await fetch(ANDROID_ENDPOINT, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + ANON_KEY,
+            "apikey": ANON_KEY,
+          },
+          body: JSON.stringify({ email, source: "/quiz.html", persona: answers.persona, list: "quiz_updates" }),
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        if (qMsg) {
+          qMsg.textContent = "✓ Subscribed. Watch for short weekly updates.";
+          qMsg.className = "email-capture-msg is-success";
+        }
+        input.value = ""; button.textContent = "Subscribed";
+      } catch (err) {
+        if (qMsg) {
+          qMsg.textContent = "Couldn't save your email — try again or write to hello@ok2eat.com.";
+          qMsg.className = "email-capture-msg is-error";
+        }
+        button.disabled = false; button.textContent = "Subscribe";
+      }
+    });
+  }
+
+  // Fire quiz_started on first interaction so we measure abandon-after-view.
+  track("quiz_started", {});
+})();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>What we've been up to this week — ok2eat</title>
+<meta name="description" content="A short update from Greg on what shipped in ok2eat this week: a much bigger food catalog with per-item shelf life, smarter search, and a handful of new ways to use the app that are landing in the next iOS update.">
+<meta name="theme-color" content="#F0EADC">
+<meta property="og:title" content="What we've been up to this week">
+<meta property="og:description" content="A short update from Greg on what shipped in ok2eat this week: a much bigger food catalog with per-item shelf life, smarter search, and a handful of new ways to use the app that are landing in the next iOS update.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://ok2eat.com/blog/whats-new-this-week.html">
+<meta property="article:published_time" content="2026-05-17">
+<meta property="article:author" content="Greg">
+<link rel="canonical" href="https://ok2eat.com/blog/whats-new-this-week.html">
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'%3E%3Crect width='36' height='36' rx='8' fill='%23F0EADC'/%3E%3Cpath fill='%233E721D' d='M35 5.904c2.394 6.042-1.438 20.543-10.5 26.5-9.06 5.957-20.395 3.573-23.097-6.443-1.669-6.186 2.79-10.721 11.851-16.677C22.315 3.327 32.64-.053 35 5.904z'/%3E%3Cpath fill='%23A6D388' d='M19.815 26.578c-5.757 4.013-13.482 3.097-16.29-.934C.718 21.613 4 14.474 9.757 10.463c5.755-4.011 20.258-9.264 23.068-5.234 2.807 4.03-4.825 16.175-13.01 21.349'/%3E%3Cpath fill='%23662113' d='M11.162 12.488c3.48-2.332 7.382-1.495 9.798.995 1.433 1.477-.88 5.382-4.359 7.714-3.478 2.33-7.769 1.763-8.239.731-1.44-3.157-.677-7.109 2.8-9.44z'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,700;12..96,800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/blog/styles.css">
+  <script src="/assets/posthog.js" defer></script>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="avocado" viewBox="0 0 36 36">
+    <rect width="36" height="36" rx="8" fill="#F0EADC"/>
+    <path fill="#3E721D" d="M35 5.904c2.394 6.042-1.438 20.543-10.5 26.5-9.06 5.957-20.395 3.573-23.097-6.443-1.669-6.186 2.79-10.721 11.851-16.677C22.315 3.327 32.64-.053 35 5.904z"/>
+    <path fill="#A6D388" d="M19.815 26.578c-5.757 4.013-13.482 3.097-16.29-.934C.718 21.613 4 14.474 9.757 10.463c5.755-4.011 20.258-9.264 23.068-5.234 2.807 4.03-4.825 16.175-13.01 21.349"/>
+    <path fill="#662113" d="M11.162 12.488c3.48-2.332 7.382-1.495 9.798.995 1.433 1.477-.88 5.382-4.359 7.714-3.478 2.33-7.769 1.763-8.239.731-1.44-3.157-.677-7.109 2.8-9.44z"/>
+  </symbol>
+</svg>
+
+<nav>
+  <a href="/" class="nav-logo"><svg><use href="#avocado"/></svg> ok2eat</a>
+  <ul class="nav-links">
+    <li><a href="/#features">Features</a></li>
+    <li><a href="/#how">How it works</a></li>
+    <li><a href="/shelf-life/">Shelf life</a></li>
+    <li><a href="/blog/" class="is-active">Blog</a></li>
+    <li><a href="/#support">Support</a></li>
+    <li><a href="https://app.ok2eat.com">Log in</a></li>
+    <li><a href="https://apps.apple.com/us/app/ok2eat/id6761730687" class="nav-cta">Download</a></li>
+  </ul>
+</nav>
+
+<main>
+  <article>
+    <p class="article-meta">May 17, 2026 · 3 min read</p>
+    <h1 class="article-title">What we've been up to <span style="color:var(--green);">this week</span></h1>
+    <p class="article-author">By Greg, founder of ok2eat</p>
+
+    <div class="article-body">
+
+      <p>I want to start sending these more often — a short note every week on what changed in ok2eat and why. This is the first one. If you'd rather get them by email instead of checking back, the <a href="/#support">daily digest signup</a> is the same list.</p>
+
+      <p>Two themes this week: the food catalog got a lot bigger, and search got a lot smarter. Both of those are already live for everyone — iOS, web, the Android beta — because they live in our database, not in the app code. So you'll feel them the next time you open the app, no update needed.</p>
+
+      <h2>1,200+ more foods, with shelf life that's actually accurate</h2>
+
+      <p>When you add an item to your fridge, ok2eat searches a catalog of foods to find shelf-life data. Until this week that catalog had about 660 entries from the USDA FoodKeeper dataset. Good baseline, but full of gaps — hard cheeses, cured meats, frozen vegetables, canned goods, dried beans. Type "cheddar" and the closest match was generic "cheese," which set the expiry to 14 days.</p>
+
+      <p>This week we loaded an additional 1,200+ items from <a href="https://fdc.nal.usda.gov/">USDA FoodData Central</a> — the same dataset nutritionists and food labels use. Then we enriched each one with calibrated fridge / freezer / pantry days using AI, double-checking against the existing FoodKeeper baseline. The differences are pretty stark:</p>
+
+      <ul>
+        <li><strong>Hard cheddar</strong> — was 14 days, now <strong>6 months</strong> unopened (28 days once opened).</li>
+        <li><strong>Salami, hard cured</strong> — was 3 days, now <strong>2 years</strong> unopened.</li>
+        <li><strong>Frozen vegetables</strong> — was 5 days, now <strong>8-12 months</strong> in the freezer.</li>
+        <li><strong>Canned tuna</strong> — was 3 days, now <strong>2 years</strong> unopened (2-3 days once opened).</li>
+        <li><strong>Bacon, cured pork strips</strong> — correctly stays at 14 days fridge, 4 months freezer (we used to wrongly group these with hard-cured meats).</li>
+      </ul>
+
+      <p>The point of this isn't a longer catalog for its own sake. It's that the urgency signals in the app — "use this in 2 days," the daily email digest, the 6pm Smart Cook Night push — only work if the dates are roughly right. If we tell you your wedge of parmesan is expiring tomorrow when it's actually got six more months in it, you stop trusting the warnings. We were doing that on a lot of common items. Now we're not.</p>
+
+      <h2>Natural-language search</h2>
+
+      <p>The USDA stores names in inverted form: "Cheese, swiss," "Milk, whole," "Chicken, breast, raw." Nobody types like that. You type "swiss cheese" or "whole milk" — and until today, you got nothing useful back. The app would fall back to fuzzy matching and you'd see a soup of branded SKUs at the top instead of a clean generic.</p>
+
+      <p>Fixed. Search now splits your query into words and matches them in any order across the food's name, subtitle, and synonyms. "Swiss cheese," "cheese swiss," and "Cheese, swiss" all return the same clean generic at the top of the results. Same for "whole milk," "chicken breast," "raw spinach," and every other inverted USDA name.</p>
+
+      <p>While we were in there, we also added deduplication: the top results used to sometimes show two or three near-identical rows for the same generic (e.g. two "Cheese, swiss" variants competing for the top slot). Now each generic shows up once, and the rest of the slots fill with related variety — cheddar / swiss / parmesan / gouda / ricotta instead of five flavors of one cheese.</p>
+
+      <h2>Coming in the next iOS update</h2>
+
+      <p>A handful of in-app changes are sitting with Apple for review right now and should land within a week. The notable ones:</p>
+
+      <ul>
+        <li><strong>Save leftovers as cooked.</strong> When you mark something as used, the app asks if you have leftovers — tap Save and a "Cooked …" row appears in your fridge with a 4-day expiry. So that Tuesday-night batch of chili shows up in Eat Me First on Wednesday, instead of getting forgotten.</li>
+        <li><strong>Use / Order / Toss action row.</strong> Open any item and you'll see three clear actions instead of buried buttons. Toss logs the waste so the Dashboard can show you what you're losing month-over-month — which is the foundation for a money-saved-vs-wasted view we're building next.</li>
+        <li><strong>Move between containers.</strong> Realized something belongs in the freezer? Transfer it without re-adding — the expiry window updates to the freezer days automatically.</li>
+        <li><strong>Sort your fridge by expiry, and a tappable At Risk Now tile</strong> on the Dashboard that jumps you straight to whatever's most urgent.</li>
+      </ul>
+
+      <h2>What we're working on next</h2>
+
+      <p>The next focus is helping you see <em>how much you're saving</em>. The pieces are there now — waste tracking, expiry data, container-aware shelf life — and they add up to a Dashboard that shows you, per month, the dollar value of food you ate versus food you threw out. That's the metric I want ok2eat to actually move for people. More on that next week.</p>
+
+      <p>If any of this is useful or confusing, hit reply on the digest — I read every one same-day.</p>
+
+      <h2>Try it</h2>
+
+      <p>If you've never used ok2eat, <a href="https://apps.apple.com/us/app/ok2eat/id6761730687">it's free on iOS</a> and there's a <a href="https://app.ok2eat.com">web version</a> that works on any browser. Android is in active development — <a href="/#hero">join the waitlist</a> on the homepage and we'll email you the moment it launches. Or if you want to see what ok2eat is about before signing up for anything, <a href="https://app.ok2eat.com/demo">try the no-signup demo</a>.</p>
+
+      <p>Not sure where to start? <a href="/quiz.html">Take the 60-second quiz</a> — three questions, and we'll point you at the parts of ok2eat that fit your goal best.</p>
+
+      <p style="margin-top:32px;padding-top:20px;border-top:1px solid #E2DCCB;font-size:13px;color:#6B8264;font-style:italic;">Reply to any of our emails with anything broken or confusing — read same day. — Greg</p>
+    </div>
+  </article>
+</main>
+
+</body>
+</html>

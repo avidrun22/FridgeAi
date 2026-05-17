@@ -1143,7 +1143,7 @@
   "@type": "MobileApplication",
   "name": "ok2eat",
   "alternateName": "ok2eat: Eat First, Waste Less",
-  "description": "ok2eat tells you what to eat first — before it goes bad. Snap a grocery receipt and your fridge fills itself in 10 seconds. The Eat Me First tab ranks every item by urgency. Tap any item to get three recipes that use it (plus the four next-most-urgent things alongside it), respecting your dietary preferences and scaled to your household. Backed by USDA FoodKeeper data plus FDA, FSIS, and Cooperative Extension publications — 950+ foods. Free for iOS and web.",
+  "description": "ok2eat tells you what to eat first — before it goes bad. Snap a grocery receipt and your fridge fills itself in 10 seconds. The Eat Me First tab ranks every item by urgency. Tap any item to get three recipes that use it (plus the four next-most-urgent things alongside it), respecting your dietary preferences and scaled to your household. Backed by USDA FoodKeeper, USDA FoodData Central, FDA, FSIS, and Cooperative Extension publications — 1,900+ foods with per-item shelf-life ranges. Share shopping lists and recipes with your household. Free for iOS and web.",
   "url": "https://ok2eat.com",
   "applicationCategory": "FoodAndDrinkApplication",
   "operatingSystem": "iOS 17.0+; Web (any modern browser)",
@@ -1163,7 +1163,7 @@
   ],
   "featureList": [
     "Eat Me First — fridge ranked by urgency, three recipes per item",
-    "Per-item expiry windows for 950+ foods, sourced from USDA FoodKeeper plus FDA, FSIS, and Cooperative Extension publications (printed date + USDA window)",
+    "Per-item expiry windows for 1,900+ foods, sourced from USDA FoodKeeper, USDA FoodData Central, FDA, FSIS, and Cooperative Extension publications (printed date + USDA window)",
     "Receipt scanning to bulk-add groceries with smart container defaults",
     "Dietary preferences + allergen filtering (vegetarian, vegan, gluten-free, peanut, tree nut, etc.)",
     "Household-scaled recipe portions",
@@ -1181,7 +1181,7 @@
     "email": "support@ok2eat.com",
     "logo": "https://ok2eat.com/icon-512.png"
   },
-  "softwareVersion": "1.19",
+  "softwareVersion": "1.21",
   "datePublished": "2026-05-11",
   "inLanguage": "en-US"
 }
@@ -1303,7 +1303,7 @@
 <div class="hero">
   <div class="hero-glow"></div>
   <svg class="hero-mark"><use href="#avocado"/></svg>
-  <div class="hero-badge">v1.19 · iOS + web</div>
+  <div class="hero-badge">v1.21 · iOS + web</div>
   <h1>What to eat first — <span>before it goes bad.</span></h1>
   <p class="hero-sub">Open your fridge. There's leftover chicken, half a bag of spinach, three yogurts, and that cilantro you forgot about. Which is going bad first? Most apps make you scroll. ok2eat just tells you — in the new Eat Me First tab — plus three recipes that use whatever's closest to spoiling. Free.</p>
   <!-- v1.19 — Hero CTAs wrapped in a single data-android-waitlist root
@@ -1337,6 +1337,14 @@
   </div>
 
   <p style="margin-top: 20px; font-size: 13px; color: var(--muted); font-style: italic; max-width: 480px;">I built ok2eat after years of opening the fridge, staring at it, closing it, and ordering takeout. Turns out "what do we have to eat?" is the most-asked question in every household. — Greg</p>
+
+  <!-- v1.22 — Qualifier quiz entry. 60-second 3-question funnel that lands
+       the visitor on a persona-tailored landing state with the relevant
+       feature highlights + CTA. Doubles as a research tool: every answer
+       fires a PostHog event so we learn what people want. -->
+  <p style="margin-top: 14px; font-size: 14px; color: var(--text-soft); text-align: center;">
+    Not sure if ok2eat is for you? <a href="/quiz.html" data-event="hero_quiz_link_clicked" style="color: var(--green); font-weight: 600; text-decoration: underline; text-underline-offset: 3px;">Take the 60-second quiz →</a>
+  </p>
 
   <!-- v1.20 — Inline demo CTA card. Visitors who skip the three hero
        buttons get a second prompt anchored to the mockup. Links to the
@@ -1471,7 +1479,7 @@
     <div class="feature-card">
       <span class="feature-icon">⏰</span>
       <div class="feature-title">USDA-backed expiry dates</div>
-      <div class="feature-desc">Per-item shelf life from the <strong>USDA FoodKeeper</strong> dataset plus FDA, FSIS, and Cooperative Extension publications — 950+ foods with their own typical fridge, freezer, and pantry windows. ok2eat stores both the printed date and the USDA window, so you stop throwing out yogurt that's still good.</div>
+      <div class="feature-desc">Per-item shelf life from the <strong>USDA FoodKeeper</strong> dataset plus <strong>USDA FoodData Central</strong>, FDA, FSIS, and Cooperative Extension publications — <strong>1,900+ foods</strong> with their own typical fridge, freezer, and pantry windows. ok2eat stores both the printed date and the USDA window, so you stop tossing cheddar at 14 days when it actually lasts six months.</div>
     </div>
     <div class="feature-card">
       <span class="feature-icon">📸</span>

@@ -52,6 +52,10 @@ API_BASE = "https://api.netlify.com/api/v1"
 # silently skipped.
 ASSETS: list[tuple[str, Path, bool]] = [
     ("/index.html", PROJECT_ROOT / "ok2eat.html", True),
+    # v1.22 — Qualifier quiz. 3-question funnel into a persona-tailored
+    # landing state. Promoted from the hero CTA. PostHog events fire on
+    # every answer so we learn what visitors actually want.
+    ("/quiz.html", PROJECT_ROOT / "quiz.html", False),
     ("/.well-known/security.txt", PROJECT_ROOT / ".well-known" / "security.txt", False),
     # v1.1.0 — Universal Links. Apple expects this file at
     # /.well-known/apple-app-site-association with Content-Type: application/json.
