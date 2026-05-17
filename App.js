@@ -760,6 +760,88 @@ function expiryColor(days) { return days <= 1 ? T.danger : days <= 3 ? T.warn : 
 function formatDate(dateStr) { return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric" }); }
 function round1(n) { return Math.round(n * 10) / 10; }
 
+// ─── Recipe share helpers ─────────────────────────────────────────────────────
+// v1.22 #240 — Share has to work for two kinds of recipes:
+//   1. Bank-backed (recipe_bank slug, stable public URL at /recipes/{slug})
+//      → share the URL, recipient gets Universal Link → app or web preview.
+//   2. Ephemeral (Haiku-generated for EatMeFirst, no recipe_bank row, id is
+//      either a uuid or a YYYYMMDD-userid-N cache key) → no public URL exists,
+//      so share the full recipe text instead. Recipient gets ingredients +
+//      instructions inline.
+//
+// `isShareableRecipeId` recognizes the bank shape (lowercase letters/digits/
+// hyphens, no leading date prefix, no uuid pattern). Anything else falls back
+// to text-share. `formatRecipeAsShareText` builds the message body. The
+// formatted text is also what bank-backed shares get as the body next to the
+// url field on iOS (so the recipient sees more than just the title).
+function isShareableRecipeId(id) {
+  if (!id) return false;
+  const s = String(id);
+  // Daily-cache ids: YYYYMMDD-{userid12}-{position}
+  if (/^\d{8}-/.test(s)) return false;
+  // UUID v4 (saved ephemeral row ids)
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)) return false;
+  // Bank slugs look like "lemon-garlic-chicken" — letters/digits/hyphens only
+  return /^[a-z0-9][a-z0-9-]*$/i.test(s);
+}
+
+function formatRecipeAsShareText(recipe) {
+  if (!recipe) return "";
+  const parts = [];
+  parts.push(recipe.name || "Recipe");
+  const meta = [recipe.time, recipe.difficulty].filter(Boolean).join(" · ");
+  if (meta) parts.push(meta);
+  if (recipe.description) parts.push("", recipe.description);
+  const ingredients = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
+  if (ingredients.length) {
+    parts.push("", "INGREDIENTS");
+    for (const ing of ingredients) {
+      if (typeof ing === "string") {
+        parts.push(`• ${ing}`);
+      } else if (ing && typeof ing === "object") {
+        const qty = [ing.amount, ing.unit].filter(Boolean).join(" ");
+        const line = [qty, ing.name || ing.item].filter(Boolean).join(" ");
+        if (line) parts.push(`• ${line}`);
+      }
+    }
+  }
+  const instructions = Array.isArray(recipe.instructions) ? recipe.instructions : [];
+  if (instructions.length) {
+    parts.push("", "INSTRUCTIONS");
+    instructions.forEach((step, i) => { if (step) parts.push(`${i + 1}. ${step}`); });
+  }
+  if (recipe.tip) parts.push("", `Tip: ${recipe.tip}`);
+  parts.push("", "Shared from ok2eat — https://ok2eat.com");
+  return parts.join("\n");
+}
+
+// shareRecipe — single entry-point used by every recipe-share button on iOS+
+// Android. Picks URL-share vs text-share based on whether the recipe has a
+// resolvable public id. Pass `sourceRecipeId` when the recipe came from a
+// saved row that points at a bank slug (user_recipes_saved.source_recipe_id)
+// — that overrides the recipe.id check.
+//
+// Returns the Share.share result (Share.sharedAction / Share.dismissedAction)
+// so callers can fire analytics on success.
+async function shareRecipe(recipe, opts = {}) {
+  if (!recipe) return null;
+  const name = recipe.name || "Recipe";
+  const text = formatRecipeAsShareText(recipe);
+  const bankId = opts.sourceRecipeId || (isShareableRecipeId(recipe.id) ? recipe.id : null);
+  if (bankId) {
+    const url = `https://ok2eat.com/recipes/${encodeURIComponent(bankId)}?utm_source=share&utm_medium=mobile_app&utm_campaign=recipe_share`;
+    // iOS: url goes in the dedicated field so iMessage renders ONE preview.
+    // The message body still carries the full recipe text so AirDrop/Mail/etc.
+    // include it. Android ignores the url field, so we append the URL to the
+    // text body manually.
+    return await Share.share(Platform.OS === "ios"
+      ? { message: `${text}\n\n${url}`, url, title: name }
+      : { message: `${text}\n\n${url}`, title: name });
+  }
+  // Ephemeral — no public URL exists. Pure text share.
+  return await Share.share({ message: text, title: name });
+}
+
 // ─── Unit Groups ──────────────────────────────────────────────────────────────
 const UNIT_GROUPS = [
   { label: "Volume", units: ["tsp", "tbsp", "fl oz", "cup", "pint", "quart", "gallon", "ml", "L"] },
@@ -2935,6 +3017,34 @@ function EatMeFirstScreen({ items, householdId }) {
                   );
                 })()}
               </View>
+              {/* v1.22 #240 — Share button on EatMeFirst recipe detail. These
+                  recipes are Haiku-generated and have no public URL, so the
+                  shareRecipe helper falls back to text-share (full ingredients
+                  + instructions in the message body). Sits left of the heart
+                  per the same convention as the deep-link + saved sheets. */}
+              {selectedRecipeIdx !== null && (() => {
+                const r = recipeModal?.recipes?.[selectedRecipeIdx];
+                if (!r) return null;
+                return (
+                  <TouchableOpacity
+                    onPress={async () => {
+                      try {
+                        const result = await shareRecipe(r);
+                        if (result?.action === Share.sharedAction) {
+                          track("recipe_shared", { name: r.name, source: "eat_me_first_detail" });
+                        }
+                      } catch (e) {
+                        console.warn("share eatmefirst recipe:", e?.message);
+                      }
+                    }}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    accessibilityLabel="Share recipe"
+                    style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: T.bg, alignItems: "center", justifyContent: "center", marginLeft: 8 }}
+                  >
+                    <Ionicons name="share-outline" size={20} color={T.text} />
+                  </TouchableOpacity>
+                );
+              })()}
               {/* v1.21 — Save heart appears in detail view only. EatMeFirst
                   recipes are ephemeral, but user_recipes_saved.recipe_data
                   can store the full JSON, letting users keep one they like
@@ -6907,24 +7017,27 @@ function PlanScreen({ items, householdId, onOpenRecipeId, onOpenSavedRecipe, lis
                       </Text>
                     )}
                   </View>
-                  {/* v1.21 — Share button on the saved-recipe sheet, mirrors
-                      the deep-link sheet placement (left of close). Uses
-                      source_recipe_id when present (bank-slug recipe with a
-                      public URL); falls back to no-share for AI-generated
-                      saved recipes that don't have a stable public ID. */}
-                  {openSavedRecipe && openSavedRecipe.id && !/^\d{8}-/.test(String(openSavedRecipe.id)) && (
+                  {/* v1.22 #240 — Share button on the saved-recipe sheet.
+                      shareRecipe helper picks URL-share (bank-backed recipes
+                      with source_recipe_id or a slug-shaped id) vs text-share
+                      (Haiku-generated ephemeral saves that have no public
+                      URL). Previously this was hidden whenever the id wasn't
+                      a bank slug — meant users could never share a saved AI
+                      recipe. */}
+                  {openSavedRecipe && (
                     <TouchableOpacity
                       onPress={async () => {
-                        const recipeId = openSavedRecipe.id;
-                        const url = `https://ok2eat.com/recipes/${encodeURIComponent(recipeId)}?utm_source=share&utm_medium=ios_app&utm_campaign=recipe_share`;
                         try {
-                          // v1.22 #232 — see shareList() above for rationale.
-                          const result = await Share.share(Platform.OS === "ios"
-                            ? { message: `${openSavedRecipe.name} — recipe from ok2eat`, url, title: openSavedRecipe.name }
-                            : { message: `${openSavedRecipe.name} — recipe from ok2eat\n${url}`, title: openSavedRecipe.name }
-                          );
-                          if (result.action === Share.sharedAction) {
-                            track("recipe_shared", { name: openSavedRecipe.name, recipe_id: recipeId, source: "saved_sheet" });
+                          const result = await shareRecipe(openSavedRecipe, {
+                            sourceRecipeId: openSavedRecipe.source_recipe_id,
+                          });
+                          if (result?.action === Share.sharedAction) {
+                            track("recipe_shared", {
+                              name: openSavedRecipe.name,
+                              recipe_id: openSavedRecipe.source_recipe_id || openSavedRecipe.id || null,
+                              source: "saved_sheet",
+                              has_url: !!(openSavedRecipe.source_recipe_id || isShareableRecipeId(openSavedRecipe.id)),
+                            });
                           }
                         } catch (e) {
                           console.warn("share saved recipe:", e?.message);
@@ -8246,22 +8359,38 @@ export default function App() {
   // Check for App Store update once per session, deferred slightly so it
   // doesn't compete with auth/load on cold start. Soft prompt: user can
   // dismiss and we re-check on the next launch.
+  //
+  // v1.22 #241 — Three guards against the repeated-popup bug Greg hit:
+  //   1. __DEV__ skip — dev clients always run an old "Expo Go-like" version
+  //      string, so the prompt nags every Metro reload.
+  //   2. Session-scoped flag (`updatePromptCheckedRef`) — Fast Refresh /
+  //      auth state changes don't trigger a re-mount of <App/>, but if the
+  //      effect ever does re-run it shouldn't re-fire the modal.
+  //   3. AsyncStorage `app_update_dismissed_version` — once the user taps
+  //      "Maybe later" we remember the version they dismissed and suppress
+  //      until a NEWER one ships. They still get prompted for the next
+  //      release.
   useEffect(() => {
+    if (__DEV__) return;
     let cancelled = false;
     const t = setTimeout(async () => {
       try {
+        const dismissed = await AsyncStorage.getItem("app_update_dismissed_version");
+        if (cancelled) return;
         const resp = await fetch(ITUNES_LOOKUP_URL);
         const data = await resp.json();
         if (cancelled) return;
         if (!data?.results?.length) return;
         const latest = data.results[0].version;
-        if (compareVersions(APP_VERSION, latest) < 0) {
-          setUpdateInfo({
-            current: APP_VERSION,
-            latest,
-            url: data.results[0].trackViewUrl || APP_STORE_URL,
-          });
-        }
+        // Skip if local already >= remote.
+        if (compareVersions(APP_VERSION, latest) >= 0) return;
+        // Skip if the user already dismissed THIS latest version.
+        if (dismissed && compareVersions(dismissed, latest) >= 0) return;
+        setUpdateInfo({
+          current: APP_VERSION,
+          latest,
+          url: data.results[0].trackViewUrl || APP_STORE_URL,
+        });
       } catch {
         // Network or parse error — silently no-op; we'll try again next launch
       }
@@ -8822,30 +8951,25 @@ export default function App() {
                   </Text>
                 )}
               </View>
-              {/* v1.21 — Share button. Sits LEFT of the heart per Greg's spec.
-                  Public URL is https://ok2eat.com/recipes/{id} — same shape
-                  used by the email digest deep-links. iOS recipients with the
-                  app installed get Universal Link → opens the recipe sheet;
-                  everyone else lands on the public recipe page (built in
-                  /recipes/ on the marketing site). Daily-cache recipe IDs
-                  (YYYYMMDD-…-N) are per-user and won't resolve publicly, so
-                  we only show Share for recipes whose `id` looks like a bank
-                  slug (no date prefix). */}
-              {deepLinkRecipe && deepLinkRecipe.id && !/^\d{8}-/.test(String(deepLinkRecipe.id)) && (
+              {/* v1.22 #240 — Share button. shareRecipe helper picks URL-share
+                  vs text-share automatically. For saved ephemeral recipes
+                  opened via this sheet (no source_recipe_id, uuid id), the
+                  helper falls back to sharing the full recipe text. Bank
+                  recipes get the public /recipes/{slug} Universal Link. */}
+              {deepLinkRecipe && (
                 <TouchableOpacity
                   onPress={async () => {
-                    const recipeId = deepLinkRecipe.id;
-                    const url = `https://ok2eat.com/recipes/${encodeURIComponent(recipeId)}?utm_source=share&utm_medium=ios_app&utm_campaign=recipe_share`;
                     try {
-                      // v1.22 #232 — Platform-aware: iOS uses url field
-                      // (avoids iMessage duplicate preview), Android puts
-                      // URL in message body since url field is ignored.
-                      const result = await Share.share(Platform.OS === "ios"
-                        ? { message: `${deepLinkRecipe.name} — recipe from ok2eat`, url, title: deepLinkRecipe.name }
-                        : { message: `${deepLinkRecipe.name} — recipe from ok2eat\n${url}`, title: deepLinkRecipe.name }
-                      );
-                      if (result.action === Share.sharedAction) {
-                        track("recipe_shared", { name: deepLinkRecipe.name, recipe_id: recipeId });
+                      const result = await shareRecipe(deepLinkRecipe, {
+                        sourceRecipeId: deepLinkRecipe.source_recipe_id,
+                      });
+                      if (result?.action === Share.sharedAction) {
+                        track("recipe_shared", {
+                          name: deepLinkRecipe.name,
+                          recipe_id: deepLinkRecipe.source_recipe_id || deepLinkRecipe.id || null,
+                          source: "deep_link_sheet",
+                          has_url: !!(deepLinkRecipe.source_recipe_id || isShareableRecipeId(deepLinkRecipe.id)),
+                        });
                       }
                     } catch (e) {
                       console.warn("share recipe:", e?.message);
@@ -9246,6 +9370,13 @@ export default function App() {
               style={{ backgroundColor: T.accent, paddingHorizontal: 32, paddingVertical: 14, borderRadius: 10, marginBottom: 8, width: "100%", alignItems: "center" }}
               onPress={() => {
                 track("update_prompt_accepted", { from: updateInfo?.current, to: updateInfo?.latest });
+                // v1.22 #241 — Remember the version they dismissed so we
+                // don't re-prompt for the same one. Tapping Update opens
+                // the App Store; once they update locally compareVersions
+                // returns 0 anyway, but record it as belt + suspenders.
+                if (updateInfo?.latest) {
+                  AsyncStorage.setItem("app_update_dismissed_version", updateInfo.latest).catch(() => {});
+                }
                 if (updateInfo?.url) Linking.openURL(updateInfo.url);
                 setUpdateInfo(null);
               }}
@@ -9255,6 +9386,12 @@ export default function App() {
             <TouchableOpacity
               onPress={() => {
                 track("update_prompt_dismissed", { from: updateInfo?.current, to: updateInfo?.latest });
+                // v1.22 #241 — Persist so we suppress until a NEWER version
+                // ships. compareVersions(dismissed, nextLatest) >= 0 stays
+                // true only until Apple has something even newer.
+                if (updateInfo?.latest) {
+                  AsyncStorage.setItem("app_update_dismissed_version", updateInfo.latest).catch(() => {});
+                }
                 setUpdateInfo(null);
               }}
               style={{ paddingVertical: 12 }}

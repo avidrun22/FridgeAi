@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase.js";
 import { rowToItem, daysUntil, formatQty } from "../lib/helpers.js";
 import { CATEGORY_EMOJI, inferEmoji } from "../lib/constants.js";
 import { track } from "../lib/analytics.js";
+import { shareRecipeWeb } from "../lib/recipeShare.js";
 import Layout from "../components/Layout.jsx";
 import Modal from "../components/Modal.jsx";
 
@@ -173,6 +174,32 @@ export default function EatMeFirst({ user }) {
   // shopping-list-from-recipe insert (v1.19). source_recipe_id is null for
   // AI-generated recipes (they're not in recipe_bank), so we save the full
   // JSON blob in recipe_data and let the saved-recipe sheet render it back.
+
+  // v1.22 #240 — Share an EatMeFirst recipe. These are AI-generated and have
+  // no public URL, so shareRecipeWeb falls back to text-share (full ingredients
+  // + instructions in the message body or clipboard).
+  async function shareRecipeFromCard(recipe) {
+    try {
+      const result = await shareRecipeWeb(recipe);
+      if (result.ok) {
+        track("recipe_shared", {
+          name: recipe?.name,
+          surface: `web_${result.surface}`,
+          has_url: !!result.url,
+          source: "eat_me_first",
+        });
+        if (result.surface === "clipboard") {
+          setRecipeToast(result.url ? "Link copied" : "Recipe copied");
+          setTimeout(() => setRecipeToast(null), 2000);
+        }
+      } else if (result.surface === "none") {
+        setRecipeToast("Couldn't share. Try again.");
+        setTimeout(() => setRecipeToast(null), 2500);
+      }
+    } catch (e) {
+      console.warn("[eat-me-first] share failed:", e?.message || e);
+    }
+  }
 
   async function toggleSaveRecipe(recipe, index) {
     if (!user?.id || savingIdx === index) return;
@@ -504,6 +531,17 @@ export default function EatMeFirst({ user }) {
                           {[r.time, r.difficulty].filter(Boolean).join(" · ")}
                         </p>
                       </div>
+                      {/* v1.22 #240 — Share button. Sits LEFT of the heart
+                          per the same convention as iOS App.js. Ephemeral
+                          recipes (no recipe_bank slug) text-share the full
+                          recipe content. */}
+                      <button
+                        onClick={() => shareRecipeFromCard(r)}
+                        aria-label="Share recipe"
+                        className="w-8 h-8 rounded-full bg-bg border border-border flex items-center justify-center flex-shrink-0 hover:opacity-80 transition"
+                      >
+                        <span aria-hidden="true" className="text-sm">📤</span>
+                      </button>
                       <button
                         onClick={() => toggleSaveRecipe(r, i)}
                         disabled={isSaving}

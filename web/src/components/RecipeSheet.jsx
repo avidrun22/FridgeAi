@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase.js";
 import { track } from "../lib/analytics.js";
+import { shareRecipeWeb, isShareableRecipeId } from "../lib/recipeShare.js";
 import Modal from "./Modal.jsx";
 
 // RecipeSheet — full-recipe modal with save/share/add-to-list actions.
@@ -54,10 +55,11 @@ export default function RecipeSheet({
   const meta    = [recipe.time, recipe.difficulty, recipe.meal_type, recipe.cuisine]
     .filter(Boolean).join(" · ");
 
-  // Bank recipes have a stable slug → shareable URL. Daily-cache and
-  // AI-generated recipes don't, so Share is hidden for those.
-  const shareableId   = recipe?.slug || (typeof recipe?.id === "string" && !/^\d{8}-/.test(recipe.id) ? recipe.id : null);
-  const canShare      = !!shareableId;
+  // v1.22 #240 — Share is now always available. Bank recipes share a URL;
+  // ephemeral / AI-generated recipes share the recipe TEXT content (full
+  // ingredients + instructions). shareRecipeWeb picks the right path.
+  const shareableId = recipe?.slug || (isShareableRecipeId(recipe?.id) ? recipe.id : null);
+  const canShare    = true;
 
   async function toggleSave() {
     if (!user?.id || savingHeart) return;
@@ -99,29 +101,21 @@ export default function RecipeSheet({
   }
 
   async function shareRecipe() {
-    if (!canShare) return;
-    const url = `https://ok2eat.com/recipes/${encodeURIComponent(shareableId)}?utm_source=share&utm_medium=web_app&utm_campaign=recipe_share`;
-    const shareData = {
-      title: recipe.name,
-      text:  `${recipe.name} — recipe from ok2eat`,
-      url,
-    };
-    try {
-      if (navigator.share) {
-        await navigator.share(shareData);
-        track("recipe_shared", { name: recipe?.name, recipe_id: shareableId, surface: "web_native" });
-        return;
+    const result = await shareRecipeWeb(recipe, { sourceRecipeId: shareableId });
+    if (result.ok) {
+      track("recipe_shared", {
+        name: recipe?.name,
+        recipe_id: shareableId,
+        surface: `web_${result.surface}`,
+        has_url: !!result.url,
+        source: "recipe_sheet",
+      });
+      if (result.surface === "clipboard") {
+        setToast(result.url ? "Link copied" : "Recipe copied");
+        setTimeout(() => setToast(null), 2000);
       }
-    } catch (_e) {
-      // user canceled — fall through to clipboard
-    }
-    try {
-      await navigator.clipboard.writeText(url);
-      track("recipe_shared", { name: recipe?.name, recipe_id: shareableId, surface: "web_clipboard" });
-      setToast("Link copied");
-      setTimeout(() => setToast(null), 2000);
-    } catch (_e) {
-      setToast("Couldn't copy link.");
+    } else if (result.surface === "none") {
+      setToast("Couldn't share. Try again.");
       setTimeout(() => setToast(null), 2500);
     }
   }

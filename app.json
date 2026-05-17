@@ -2,7 +2,7 @@
   "expo": {
     "name": "ok2eat",
     "slug": "ok2eat",
-    "version": "1.21",
+    "version": "1.22",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.gregorygoldberg.ok2eat",
-      "buildNumber": "24",
+      "buildNumber": "25",
       "associatedDomains": [
         "applinks:ok2eat.com",
         "applinks:app.ok2eat.com"
