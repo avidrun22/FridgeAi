@@ -3178,7 +3178,7 @@ function _fmt$(cents) {
 }
 function _fmtN(n) { return Math.round(n).toLocaleString(); }
 
-function DashboardScreen({ items }) {
+function DashboardScreen({ items, onNavigateToEatMeFirst }) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [lifetimeCents, setLifetimeCents] = useState(0);
@@ -3305,14 +3305,58 @@ function DashboardScreen({ items }) {
           <Text style={{ color: T.text, fontSize: 22, fontWeight: "800" }}>{_fmtN(co2Kg)} kg</Text>
           <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 4 }}>Lifetime, estimated</Text>
         </View>
-        <View style={[s.card, { width: "47%", margin: 8, padding: 14 }]}>
-          <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 4, paddingHorizontal: 0, fontSize: 9 }]}>// AT RISK NOW</Text>
-          <Text style={{ color: atRisk.length > 0 ? T.warn : T.text, fontSize: 22, fontWeight: "800" }}>{atRisk.length}</Text>
-          <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 4 }}>
-            {atRisk.length === 0 ? "Nothing expiring soon" : "Expiring in 3 days"}
-          </Text>
-        </View>
+        {/* v1.22 (sky21__ feedback, #234) — AT RISK NOW tile is now
+            tappable when atRisk > 0. Wraps in TouchableOpacity that calls
+            onNavigateToEatMeFirst → setTab("eatMeFirst"). When 0 items at
+            risk, stays a plain View (nothing to navigate to). */}
+        {atRisk.length > 0 ? (
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={() => {
+              track("dashboard_at_risk_tapped", { count: atRisk.length, surface: "tile" });
+              onNavigateToEatMeFirst?.();
+            }}
+            style={[s.card, { width: "47%", margin: 8, padding: 14, borderColor: "rgba(234,88,12,0.3)", borderWidth: 1 }]}
+          >
+            <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 4, paddingHorizontal: 0, fontSize: 9 }]}>// AT RISK NOW</Text>
+            <Text style={{ color: T.warn, fontSize: 22, fontWeight: "800" }}>{atRisk.length}</Text>
+            <Text style={{ color: T.accent, fontSize: 11, marginTop: 4, fontWeight: "600" }}>
+              Tap to use them first ›
+            </Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={[s.card, { width: "47%", margin: 8, padding: 14 }]}>
+            <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 4, paddingHorizontal: 0, fontSize: 9 }]}>// AT RISK NOW</Text>
+            <Text style={{ color: T.text, fontSize: 22, fontWeight: "800" }}>0</Text>
+            <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 4 }}>Nothing expiring soon</Text>
+          </View>
+        )}
       </View>
+
+      {/* v1.22 #234 — Banner CTA matching web Dashboard.jsx pattern.
+          Only shown when there are at-risk items. The entire card is
+          tappable (not just the inline link), per sky21__ feedback. */}
+      {atRisk.length > 0 && onNavigateToEatMeFirst && (
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => {
+            track("dashboard_at_risk_tapped", { count: atRisk.length, surface: "banner" });
+            onNavigateToEatMeFirst();
+          }}
+          style={{ marginHorizontal: 16, marginTop: 8, padding: 14, borderRadius: 12, borderWidth: 1, borderColor: "rgba(234,88,12,0.3)", backgroundColor: "rgba(234,88,12,0.06)", flexDirection: "row", alignItems: "center", gap: 12 }}
+        >
+          <Text style={{ fontSize: 22 }}>⏳</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={[s.bold, { fontSize: 14 }]}>
+              {atRisk.length} {atRisk.length === 1 ? "item is" : "items are"} expiring in the next 3 days
+            </Text>
+            <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>
+              Tap to open <Text style={{ color: T.accent, fontWeight: "700" }}>Eat Me First</Text> and see what to use.
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={T.muted} />
+        </TouchableOpacity>
+      )}
 
       {topCategories.length > 0 && (
         <View style={[s.card, { margin: 16, padding: 14 }]}>
@@ -8631,7 +8675,7 @@ export default function App() {
         )}
         {/* v1.16 Tier 3 — new headline tabs. */}
         {tab === "eatMeFirst" && <EatMeFirstScreen items={items} householdId={householdId} />}
-        {tab === "dashboard"  && <DashboardScreen  items={items} />}
+        {tab === "dashboard"  && <DashboardScreen  items={items} onNavigateToEatMeFirst={() => setTab("eatMeFirst")} />}
         {tab === "settings"   && (
           <SettingsScreen
             notificationsEnabled={notificationsEnabled}

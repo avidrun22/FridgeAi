@@ -31,19 +31,34 @@ function fmtN(n) {
   return Math.round(n).toLocaleString();
 }
 
-function StatCard({ label, value, hint, tone = "default" }) {
+function StatCard({ label, value, hint, tone = "default", onClick }) {
   const toneClass = {
     default: "text-text",
     accent: "text-accent",
     danger: "text-danger",
     warn: "text-warn",
   }[tone] || "text-text";
+  // v1.22 (sky21__ feedback, #234) — optional onClick makes the card
+  // tap-through. Used for "At Risk Now" → Eat Me First. Renders as a
+  // <button> so keyboard + screen reader users get the interactive
+  // affordance for free; without onClick stays a plain <div>.
+  const interactiveClass = onClick
+    ? "transition cursor-pointer hover:border-accent/40 hover:shadow-sm active:scale-[0.99] text-left w-full"
+    : "";
+  const Tag = onClick ? "button" : "div";
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
+    <Tag
+      onClick={onClick}
+      className={`rounded-xl border border-border bg-card p-4 ${interactiveClass}`}
+      type={onClick ? "button" : undefined}
+    >
       <p className="text-textSoft text-[11px] font-bold uppercase tracking-widest">{label}</p>
       <p className={`text-3xl font-extrabold mt-2 ${toneClass}`}>{value}</p>
       {hint && <p className="text-textSoft text-xs mt-1">{hint}</p>}
-    </div>
+      {onClick && (
+        <p className="text-accent text-xs mt-1 font-semibold">Tap to use them first ›</p>
+      )}
+    </Tag>
   );
 }
 
@@ -216,16 +231,38 @@ export default function Dashboard({ user }) {
           value={`${fmtN(co2Kg)} kg`}
           hint="Lifetime, estimated"
         />
-        <StatCard
-          label="At risk now"
-          value={atRiskCount}
-          hint={
-            atRiskCount === 0
-              ? "Nothing expiring soon — nice."
-              : `${fmt$(atRiskValueCents)} expiring in 3 days`
-          }
-          tone={atRiskCount > 0 ? "warn" : "default"}
-        />
+        {/* v1.22 (sky21__ feedback, #234) — At Risk Now is tappable when
+            count > 0. Anchor wrapper navigates to /eat-me-first via the
+            same client-side routing the rest of the app uses (plain href).
+            When count is 0, stays a non-interactive StatCard. */}
+        {atRiskCount > 0 ? (
+          <a
+            href="/eat-me-first"
+            onClick={() => {
+              try {
+                if (typeof window !== "undefined" && window.posthog) {
+                  window.posthog.capture("dashboard_at_risk_tapped", { count: atRiskCount, surface: "tile" });
+                }
+              } catch {}
+            }}
+            className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-xl"
+          >
+            <StatCard
+              label="At risk now"
+              value={atRiskCount}
+              hint={`${fmt$(atRiskValueCents)} expiring in 3 days`}
+              tone="warn"
+              onClick={() => { /* anchor handles navigation */ }}
+            />
+          </a>
+        ) : (
+          <StatCard
+            label="At risk now"
+            value={atRiskCount}
+            hint="Nothing expiring soon — nice."
+            tone="default"
+          />
+        )}
       </div>
 
       {/* Top saved categories */}
@@ -258,19 +295,32 @@ export default function Dashboard({ user }) {
         </section>
       )}
 
-      {/* Pointer back to Eat Me First when there's at-risk stuff */}
+      {/* v1.22 #234 — Pointer back to Eat Me First. Entire card is now
+          a click target (was previously only the inline "Eat Me First"
+          link). sky21__ feedback. */}
       {atRiskCount > 0 && (
-        <div className="rounded-xl border border-warn/30 bg-warn/5 p-4 flex items-center gap-3">
+        <a
+          href="/eat-me-first"
+          onClick={() => {
+            try {
+              if (typeof window !== "undefined" && window.posthog) {
+                window.posthog.capture("dashboard_at_risk_tapped", { count: atRiskCount, surface: "banner" });
+              }
+            } catch {}
+          }}
+          className="block rounded-xl border border-warn/30 bg-warn/5 p-4 flex items-center gap-3 transition hover:border-warn/50 hover:bg-warn/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
           <div className="text-2xl flex-shrink-0">⏳</div>
           <div className="flex-1 min-w-0">
             <p className="text-text font-semibold text-sm">
               {atRiskCount} {atRiskCount === 1 ? "item is" : "items are"} expiring in the next 3 days
             </p>
             <p className="text-textSoft text-xs mt-0.5">
-              Open <a href="/eat-me-first" className="text-accent font-semibold hover:underline">Eat Me First</a> to see what to use first.
+              Tap to open <span className="text-accent font-semibold">Eat Me First</span> and see what to use first.
             </p>
           </div>
-        </div>
+          <div className="text-muted text-xl flex-shrink-0">›</div>
+        </a>
       )}
 
       <p className="text-muted text-[11px] mt-6">

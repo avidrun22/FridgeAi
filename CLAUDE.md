@@ -60,32 +60,42 @@ v1.16") are SAFE TO LEAVE. They refer to specific shipped versions in
 context. Only the homepage badge + structured data are live-version
 indicators.
 
-## Web ships in lockstep with iOS
+## Three-platform parity — iOS, Android, web
 
-Starting v1.20: every user-facing feature added to `App.js` must ALSO be
-added to `web/src/` in the same version. No more iOS-first / web-later.
-This is a deliberate strategic choice — Greg gets direct user requests
-from non-iOS users, and traffic from the ok2eat.com blog lands on the
-web app, not the App Store. The two clients have to feel like the same
-product.
+Starting **v1.22** (after Android shipped to Google Play internal testing in
+v1.21): every user-facing change touches all THREE clients in the same
+version. No iOS-first, no Android-later, no web-deferred. The product has
+to feel like the same product no matter where the user opens it.
+
+The good news: **iOS and Android share `App.js`**, so most changes are
+"App.js edit + web/src edit". The Android-specific work is occasional
+platform-shimming (status bar insets, system camera vs in-app camera,
+FCM nuances) — most days the only extra cost over iOS is testing on the
+Pixel 9 emulator after Metro reload.
 
 When implementing a feature, the default sequence is:
-1. Backend (Edge Function, migration, schema) — shared by both clients
-2. App.js — iOS UI
-3. web/src/ — web UI mirroring the same flow with React DOM equivalents
-4. Tests both clients before calling the feature done
+1. **Backend** (Edge Function, migration, schema) — shared by all clients
+2. **App.js** — iOS + Android UI (single React Native codebase)
+3. **web/src/** — web UI mirroring the same flow with React DOM equivalents
+4. **Test all three** — iOS Simulator, Pixel 9 emulator, browser — before
+   marking a feature done. Tasks stay `in_progress` until all three pass.
 
-The backends are already shared (same Supabase functions, same tables).
-Translation from iOS to web is mostly:
+Translation from React Native (`App.js`) to web (`web/src/`):
 - `TouchableOpacity` → `<button>` / `<div onClick>`
 - React Native `Modal` → portal / dialog (web uses a custom Modal component)
 - `Ionicons` → `lucide-react` icons
 - `Linking.openURL` → `window.open` / `window.location.href`
 - Inline RN styles → Tailwind classes (web uses Tailwind)
-- `expo-notifications` → no equivalent on web (it's iOS-only territory; web doesn't have push)
+- `expo-notifications` → no equivalent on web (mobile-only; web fallback
+  is the existing email digest, which is already platform-agnostic)
+- `Platform.OS === "android"` blocks — handle inline in App.js; web
+  doesn't see these. Common cases: `ANDROID_TOP_INSET` for status bar,
+  `paddingBottom: 24` for gesture handle clearance.
 
-Android (v1.21+) follows the same rule once it lands. Treat iOS + web +
-Android as three render targets for the same product.
+Treat iOS + Android + web as three render targets for the same product.
+If a v1.22+ commit touches only one or two, it's incomplete — add a TODO
+comment in the missing clients and a TaskList entry to close the gap
+before the version ships.
 
 ## Repo orientation
 
