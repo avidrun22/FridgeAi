@@ -971,7 +971,11 @@ function UseItemModal({ item, visible, onClose, onUse }) {
         <TouchableOpacity activeOpacity={1} style={s.modalSheet}>
           <View style={s.sheetHandle} />
           <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 16 }}>
-            <Text style={{ fontSize: 36 }}>{item.emoji}</Text>
+            {/* v1.22 #244 follow-up — same emoji-default issue as the cheddar
+                cheese bug. Blueberries stored with the Produce default 🥬;
+                run through inferEmoji so the sheet shows the contextual
+                emoji (🫐 for blueberries, 🧀 for cheese, etc.). */}
+            <Text style={{ fontSize: 36 }}>{inferEmoji(item.name, item.emoji)}</Text>
             <View>
               <Text style={[s.bold, { fontSize: 18 }]}>Use this item</Text>
               <Text style={{ color: T.textSoft, fontSize: 13 }}>{item.name}</Text>
@@ -1581,16 +1585,27 @@ function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse
             {!loadingNutrition && !nutrition && item.barcode && <View style={[s.card, { padding: 16, marginBottom: 12 }]}><Text style={{ color: T.textSoft, fontSize: 13, textAlign: "center" }}>No nutrition data available for this product.</Text></View>}
             {!item.barcode && <View style={[s.card, { padding: 16, marginBottom: 12 }]}><Text style={{ color: T.textSoft, fontSize: 13, textAlign: "center" }}>Scan a barcode when adding items to see nutrition facts.</Text></View>}
             {ingredients && <View style={[s.card, { padding: 14, marginBottom: 12 }]}><Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 8, paddingHorizontal: 0 }]}>INGREDIENTS</Text><Text style={{ color: T.textSoft, fontSize: 12, lineHeight: 18 }}>{ingredients}</Text></View>}
-            {/* v1.22 #247 — Demoted from a big red CTA to a quiet text link.
-                Toss (in the top action row) is the right path when an item
-                actually went bad — it tracks waste analytics. This stays for
-                data-cleanup (wrong scan / accidental add) where we DON'T
-                want to pollute waste numbers. Container label dynamic. */}
-            <TouchableOpacity onPress={handleDelete} style={{ paddingVertical: 14, marginBottom: 32, alignItems: "center" }}>
-              <Text style={{ color: T.textSoft, fontSize: 12, textDecorationLine: "underline" }}>
-                Remove from {(item.container || "fridge").charAt(0).toUpperCase() + (item.container || "fridge").slice(1)} (no waste tracking)
-              </Text>
-            </TouchableOpacity>
+            {/* v1.22 #247 follow-up — Delete-without-waste-tracking moved
+                INTO edit mode. Tucked behind the deliberate "Edit" tap so
+                everyday users see Toss (which tracks waste) as the primary
+                destructive action. Edit mode is where you go for data
+                cleanup (mis-scans, accidental adds) — putting the delete
+                here matches Greg's mental model. */}
+            {editing && (
+              <View style={{ marginBottom: 32 }}>
+                <TouchableOpacity
+                  onPress={handleDelete}
+                  style={{ borderWidth: 1.5, borderColor: T.danger + "55", backgroundColor: T.danger + "0D", borderRadius: 12, paddingVertical: 14, alignItems: "center" }}
+                >
+                  <Text style={{ color: T.danger, fontSize: 15, fontWeight: "700" }}>
+                    🗑  Delete this item
+                  </Text>
+                  <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 4, textAlign: "center" }}>
+                    Won't count against your waste — use Toss for items that actually went bad
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         </ScrollView>
         <ReorderSheet item={item} visible={showReorder} onClose={() => setShowReorder(false)} />

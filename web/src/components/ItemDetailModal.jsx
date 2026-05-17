@@ -570,38 +570,49 @@ export default function ItemDetailModal({ open, onClose, item, onUpdated, onRemo
               </button>
             )}
 
+            {/* v1.22 #247 follow-up — view mode no longer shows the
+                data-cleanup delete. It moved to the bottom of edit mode so
+                Toss (waste-tracked) is the obvious destructive action here. */}
             <div className="flex gap-2 pt-1">
               <button
                 onClick={() => setEditing(true)}
                 className="flex-1 px-4 py-2.5 rounded-full border border-border text-textSoft text-sm font-medium hover:bg-card"
               >Edit</button>
-              {/* v1.22 #247 — Demoted from a destructive Delete pill. Use Toss
-                  (in the action row above) for items that actually went bad —
-                  it tracks waste. This stays for data-cleanup deletes (wrong
-                  scan, accidental add) that shouldn't pollute waste analytics. */}
-              <button
-                onClick={handleDelete}
-                disabled={busy}
-                className="px-4 py-2.5 rounded-full text-textSoft text-xs hover:underline disabled:opacity-50"
-              >Remove (no waste tracking)</button>
             </div>
           </div>
         )}
 
         {editing && (
-          <div className="flex gap-2 pt-2">
+          <>
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setEditing(false)}
+                className="px-5 py-2.5 rounded-full border border-border text-sm font-medium text-textSoft hover:bg-card"
+              >Cancel</button>
+              <button
+                onClick={handleSaveEdits}
+                disabled={busy || !name.trim()}
+                className="flex-1 px-5 py-2.5 rounded-full bg-accent text-white text-sm font-semibold hover:bg-accent/90 disabled:opacity-50"
+              >
+                {busy ? "Saving…" : "Save changes"}
+              </button>
+            </div>
+            {/* v1.22 #247 follow-up — Delete-without-waste-tracking lives
+                inside edit mode. Tucked behind the deliberate "Edit" tap so
+                everyday users see Toss (waste-tracked) as the primary
+                destructive action; Delete is here for data cleanup (mis-
+                scans, accidental adds). */}
             <button
-              onClick={() => setEditing(false)}
-              className="px-5 py-2.5 rounded-full border border-border text-sm font-medium text-textSoft hover:bg-card"
-            >Cancel</button>
-            <button
-              onClick={handleSaveEdits}
-              disabled={busy || !name.trim()}
-              className="flex-1 px-5 py-2.5 rounded-full bg-accent text-white text-sm font-semibold hover:bg-accent/90 disabled:opacity-50"
+              onClick={handleDelete}
+              disabled={busy}
+              className="w-full mt-3 px-4 py-3 rounded-xl border-2 border-danger/40 bg-danger/10 text-danger text-sm font-bold hover:bg-danger/20 disabled:opacity-50 transition flex flex-col items-center"
             >
-              {busy ? "Saving…" : "Save changes"}
+              <span>🗑  Delete this item</span>
+              <span className="text-[11px] font-normal text-textSoft mt-1 text-center">
+                Won't count against your waste — use Toss for items that actually went bad
+              </span>
             </button>
-          </div>
+          </>
         )}
       </div>
     </Modal>
