@@ -30,6 +30,23 @@ Things that still need to land in Greg's terminal:
 - `git push` (his SSH key)
 - Anything requiring the iOS Simulator or Xcode
 
+## Repo path on Greg's machines
+
+When handing off commands, never assume `~/Documents/projects/fridgeai-native`
+— different machines, different layouts.
+
+- **Mac Mini (`Gregorys-Mac-mini`, hostname `logenbot@...`)** — repo lives at
+  `~/fridgeai-native` (directly in home). This is the autonomous-agent host
+  where the Telegram bot, scheduled tasks, and most `eas` / `supabase` /
+  `python` commands run.
+- If unsure on a given session, ask Greg to run `find ~ -maxdepth 5 -name
+  fridgeai-native -type d 2>/dev/null` once and reuse the path he confirms.
+
+Any deploy / submit / build snippet in chat should `cd` to the confirmed path,
+not a guessed one. A failed `cd` continues silently in zsh and the rest of the
+script runs from `~`, producing very confusing "file not found" errors deep
+into the chain.
+
 ## App Store submission checklist
 
 **Every time we `eas submit` a new iOS version, the marketing site has to
