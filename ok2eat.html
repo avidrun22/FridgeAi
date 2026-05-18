@@ -203,13 +203,42 @@
     font-size: clamp(16px, 2.2vw, 21px);
     color: var(--muted);
     max-width: 580px;
-    margin: 0 auto 48px;
+    margin: 0 auto 28px;
     font-weight: 400;
     line-height: 1.5;
     animation: fadeUp 0.6s 0.2s ease both;
     position: relative;
     z-index: 1;
   }
+
+  /* App Store rating pill — small social-proof signal in the hero.
+     Sits between the subtitle and the CTA row. Coral stars + cream
+     pill so it reads as a credibility badge, not a button. The whole
+     pill is clickable to the App Store listing. */
+  .rating-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 8px 16px;
+    margin: 0 auto 32px;
+    text-decoration: none;
+    color: var(--text-soft);
+    font-size: 13px;
+    transition: border-color 0.2s, transform 0.2s;
+    animation: fadeUp 0.6s 0.25s ease both;
+    position: relative;
+    z-index: 1;
+  }
+  .rating-pill:hover { border-color: var(--coral); transform: translateY(-1px); }
+  .rating-pill-stars {
+    color: var(--coral);
+    font-size: 14px;
+    letter-spacing: 1px;
+  }
+  .rating-pill-text strong { color: var(--text); font-weight: 700; }
 
   .hero-cta {
     display: flex;
@@ -808,6 +837,138 @@
     line-height: 1.6;
   }
 
+  /* v1.22 #256 — Tiered features.
+     Notion's pattern: 4 hero cards get full-bleed treatment with bigger
+     icons, bigger type, and (eventually) a real product screenshot per
+     card. Everything else collapses into a compact secondary grid below
+     so visitors don't have to weigh 13 equal-rank features. The 4 heroes
+     get 2 columns on desktop and stack on mobile. */
+  .features-tier1 {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+    margin-bottom: 56px;
+  }
+  .features-tier1 .feature-card {
+    padding: 36px;
+  }
+  .features-tier1 .feature-card .feature-icon { font-size: 48px; margin-bottom: 22px; }
+  .features-tier1 .feature-card .feature-title { font-size: 22px; margin-bottom: 12px; }
+  .features-tier1 .feature-card .feature-desc { font-size: 15px; }
+  /* Optional <img class="feature-screenshot"> slot — when Greg drops real
+     product screenshots into /screenshots/, uncomment the inner <img>
+     blocks in the hero feature cards. The class below is ready. */
+  .feature-screenshot {
+    display: block;
+    width: 100%;
+    max-width: 320px;
+    margin: 0 auto 22px;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+  }
+
+  /* Tier 2 — the rest. Compact grid, 3 columns desktop, auto on mobile.
+     Smaller icons, shorter descriptions, tighter spacing — meant to be
+     scanned, not studied. */
+  .features-tier2-heading {
+    text-align: center;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 22px;
+  }
+  .features-tier2 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+  .features-tier2 .feature-card {
+    padding: 20px;
+  }
+  .features-tier2 .feature-card .feature-icon { font-size: 28px; margin-bottom: 10px; }
+  .features-tier2 .feature-card .feature-title { font-size: 15px; margin-bottom: 6px; }
+  .features-tier2 .feature-card .feature-desc { font-size: 13px; line-height: 1.5; }
+
+  @media (max-width: 768px) {
+    .features-tier1 { grid-template-columns: 1fr; gap: 16px; margin-bottom: 36px; }
+    .features-tier1 .feature-card { padding: 28px; }
+    .features-tier1 .feature-card .feature-icon { font-size: 40px; }
+    .features-tier1 .feature-card .feature-title { font-size: 19px; }
+    .features-tier2 { grid-template-columns: 1fr 1fr; gap: 10px; }
+  }
+  @media (max-width: 480px) {
+    .features-tier2 { grid-template-columns: 1fr; }
+  }
+
+  /* v1.22 #256 — Social proof block.
+     Three review cards in a row on desktop, stacked on mobile. Card
+     styling matches the .feature-card aesthetic (cream surface, soft
+     border) so it visually rhymes with the features section below. */
+  .social-proof {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 72px 24px 40px;
+  }
+  .reviews-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+  .review-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 28px;
+    margin: 0;
+  }
+  .review-stars {
+    color: var(--coral);
+    font-size: 16px;
+    letter-spacing: 2px;
+    margin-bottom: 14px;
+  }
+  .review-text {
+    font-family: 'Georgia', serif;
+    font-size: 16px;
+    line-height: 1.55;
+    color: var(--text);
+    margin: 0 0 18px;
+  }
+  .review-meta {
+    font-size: 12px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 0.3px;
+  }
+  @media (max-width: 900px) {
+    .reviews-grid { grid-template-columns: 1fr; gap: 14px; }
+    .social-proof { padding: 48px 20px 32px; }
+    .review-card { padding: 22px; }
+  }
+
+  /* v1.22 #256 — Scroll-reveal utility.
+     Elements with .reveal start invisible + slightly translated. The
+     IntersectionObserver at the bottom of the page adds .reveal--visible
+     once the element enters the viewport, which transitions it in. CSS
+     only — no library. Respects prefers-reduced-motion (no animation
+     for users who've asked the OS to reduce motion). */
+  .reveal {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+    will-change: opacity, transform;
+  }
+  .reveal--visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { opacity: 1; transform: none; transition: none; }
+  }
+
   /* v1.16 — Demo video + feature pair inside How it works.
      v1.19 — Receipt-scan card kept as a text feature description (no longer
      embeds a try-it landing page). Grid is balanced 1fr 1fr because the
@@ -1373,6 +1534,15 @@
   <div class="hero-badge">v1.21 · iOS + web</div>
   <h1>What to eat first — <span>before it goes bad.</span></h1>
   <p class="hero-sub">Open your fridge. There's leftover chicken, half a bag of spinach, three yogurts, and that cilantro you forgot about. Which is going bad first? Most apps make you scroll. ok2eat just tells you — in the new Eat Me First tab — plus three recipes that use whatever's closest to spoiling. Free.</p>
+
+  <!-- v1.22 #256 — App Store rating pill. Small social-proof signal
+       above the fold; full review quotes live in the .social-proof
+       section below the stats bar. Update the rating + count when new
+       reviews land (App Store Connect → Ratings & Reviews). -->
+  <a href="https://apps.apple.com/us/app/ok2eat/id6761730687" class="rating-pill" aria-label="5.0 stars from 4 App Store reviews — read on the App Store">
+    <span class="rating-pill-stars" aria-hidden="true">★★★★★</span>
+    <span class="rating-pill-text"><strong>5.0</strong> on the App Store</span>
+  </a>
   <!-- v1.19 — Hero CTAs wrapped in a single data-android-waitlist root
        so the JS in /blog/android-waitlist.js can find both the toggle
        button (inside .hero-cta) AND the form (inside .android-waitlist)
@@ -1529,81 +1699,125 @@
   </div>
 </div>
 
+<!-- v1.22 #256 — Social proof section. Real App Store reviews (4 total
+     as of 2026-05-17, all 5-star). To refresh: pull latest from App
+     Store Connect → Ratings & Reviews and swap the three blockquotes
+     below. Keep the count to 3 — Notion's pattern shows that 3 strong
+     quotes outperform a wall of testimonials. Update the rating-pill
+     count in the .hero block too if the average changes. -->
+<section class="social-proof reveal">
+  <div class="section-tag" style="text-align:center;margin-bottom:14px;display:block;">// What people are saying</div>
+  <h2 style="text-align:center;font-size:36px;font-weight:700;letter-spacing:-0.8px;margin-bottom:8px;">From real users on the App Store</h2>
+  <p style="text-align:center;color:var(--muted);font-size:15px;margin-bottom:36px;">All 5-star, all in the last two weeks.</p>
+  <div class="reviews-grid">
+    <blockquote class="review-card">
+      <div class="review-stars" aria-label="5 out of 5 stars">★★★★★</div>
+      <p class="review-text">"Felt like I was wasting so much money and food especially with groceries being so expensive lately. Finally started tracking everything so I can actually use items before the expiration dates and save some money."</p>
+      <footer class="review-meta">sagelyprofessor24 · App Store · May 2026</footer>
+    </blockquote>
+    <blockquote class="review-card">
+      <div class="review-stars" aria-label="5 out of 5 stars">★★★★★</div>
+      <p class="review-text">"It has helped me tremendously in managing the spoilage in my kitchen. It has already helped me when I purchase items that I thought I had but didn't."</p>
+      <footer class="review-meta">JDS Desktop · App Store · May 2026</footer>
+    </blockquote>
+    <blockquote class="review-card">
+      <div class="review-stars" aria-label="5 out of 5 stars">★★★★★</div>
+      <p class="review-text">"Great way to reduce waste and make yourself accountable for lost $$ while understanding your weekly grocery needs."</p>
+      <footer class="review-meta">Doodlebug04 · App Store · May 2026</footer>
+    </blockquote>
+  </div>
+  <p style="text-align:center;margin-top:28px;font-size:13px;color:var(--muted);"><a href="https://apps.apple.com/us/app/ok2eat/id6761730687" style="color:var(--green);text-decoration:none;font-weight:600;">Read all reviews on the App Store →</a></p>
+</section>
+
 <hr class="divider">
 
-<!-- Features -->
+<!-- Features — v1.22 #256: tiered layout.
+     Tier 1 (.features-tier1): the four cards that do the most conversion
+     work — Eat Me First (the headline feature), USDA expiry (the trust
+     moat), Receipt Scan (the "magic moment" demo), Shared Household
+     (the cohabiting-couple use case). Each gets a hero card with room
+     for a real product screenshot.
+     Tier 2 (.features-tier2): everything else — 8 supporting features
+     in a compact scannable grid below. Same .feature-card class so the
+     visual language is consistent; size/density differs via the parent
+     selector.
+     Screenshots: drop PNGs at /screenshots/eat-me-first.png, /screenshots/usda-shelf-life.png,
+     /screenshots/receipt-scan.png, /screenshots/shared-household.png
+     (recommended 720×1440 portrait, 1.5MB max). Then uncomment the
+     <img class="feature-screenshot"> blocks in the four tier-1 cards. -->
 <section id="features">
   <div class="section-tag">// What you get</div>
   <h2>Everything you need to waste nothing.</h2>
   <p class="section-sub">ok2eat is built around one question — what should you eat first, before it goes bad? Every feature below answers that, or makes the answer faster.</p>
 
-  <div class="features-grid">
-    <!-- v1.22 #250 follow-up — reverted the screenshot thumbnails. The
-         existing App Store screenshots showed stale copy (v1.16 / 660
-         foods) which contradicted the 1,900+ claim in the text below.
-         Cards stay as anchors to /demo so clicks still land in the
-         interactive demo; PostHog event tracking preserved. Re-add
-         screenshots later with fresh captures that match the current
-         catalog/version. -->
+  <div class="features-tier1 reveal">
     <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_eat_me_first_clicked">
+      <!-- <img class="feature-screenshot" src="/screenshots/eat-me-first.png" alt="ok2eat Eat Me First tab — fridge items ranked by expiry urgency" loading="lazy"> -->
       <span class="feature-icon">🔥</span>
       <div class="feature-title">Eat Me First <span style="font-size:11px;background:var(--green);color:#fff;padding:2px 8px;border-radius:99px;margin-left:6px;vertical-align:middle;letter-spacing:0.05em;">NEW</span></div>
       <div class="feature-desc">A new top-level tab that ranks your fridge by urgency. The thing closest to spoiling sits at the top. Tap any item to get three recipes that use it — plus the four next-most-urgent things alongside it — so dinner uses what's about to go bad instead of what you'd have to buy.</div>
     </a>
     <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_usda_expiry_clicked">
+      <!-- <img class="feature-screenshot" src="/screenshots/usda-shelf-life.png" alt="ok2eat item detail showing printed expiry date plus USDA shelf-life window" loading="lazy"> -->
       <span class="feature-icon">⏰</span>
       <div class="feature-title">USDA-backed expiry dates</div>
       <div class="feature-desc">Per-item shelf life from the <strong>USDA FoodKeeper</strong> dataset plus <strong>USDA FoodData Central</strong>, FDA, FSIS, and Cooperative Extension publications — <strong>1,900+ foods</strong> with their own typical fridge, freezer, and pantry windows. ok2eat stores both the printed date and the USDA window, so you stop tossing cheddar at 14 days when it actually lasts six months.</div>
     </a>
     <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_receipt_scan_clicked">
+      <!-- <img class="feature-screenshot" src="/screenshots/receipt-scan.png" alt="ok2eat receipt scan results — every line item parsed with category and expiry" loading="lazy"> -->
       <span class="feature-icon">📸</span>
       <div class="feature-title">Receipt Scanning</div>
       <div class="feature-desc">Snap your grocery receipt and ok2eat fills your fridge for you in seconds. Every line gets smart expiry dates from FoodKeeper plus a smart container default — bread to pantry, ice cream to freezer, no manual sorting.</div>
     </a>
-    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_dashboard_clicked">
-      <span class="feature-icon">📊</span>
-      <div class="feature-title">Impact Dashboard <span style="font-size:11px;background:var(--green);color:#fff;padding:2px 8px;border-radius:99px;margin-left:6px;vertical-align:middle;letter-spacing:0.05em;">NEW</span></div>
-      <div class="feature-desc">Lifetime money saved, pounds of food rescued, CO₂ avoided. Live numbers, recalculated every time you mark something used. The average US household wastes $1,866 of food a year — yours doesn't have to.</div>
-    </a>
-    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_recipes_clicked">
-      <span class="feature-icon">🥗</span>
-      <div class="feature-title">Recipes that respect your diet <span style="font-size:11px;background:var(--green);color:#fff;padding:2px 8px;border-radius:99px;margin-left:6px;vertical-align:middle;letter-spacing:0.05em;">NEW</span></div>
-      <div class="feature-desc">Set dietary preferences (vegetarian, vegan, gluten-free, dairy-free, nut-free, low-carb, keto) and allergies (peanut, tree nut, shellfish, fish, egg, milk, soy, wheat, sesame) once. Every recipe respects them. Ingredient amounts scale to your household size.</div>
-    </a>
-    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_barcode_clicked">
-      <span class="feature-icon">📷</span>
-      <div class="feature-title">Barcode Scanner</div>
-      <div class="feature-desc">For quick one-off additions. Scan a barcode and pull nutrition info, ingredients, and suggested expiry from a database of 3 million+ products.</div>
-    </a>
-    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_digest_clicked">
-      <span class="feature-icon">🔔</span>
-      <div class="feature-title">Daily Digest</div>
-      <div class="feature-desc">Get a morning summary by push notification, email, or both — your choice. See what's expiring, what's expired, and what to use first.</div>
-    </a>
-    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_reorder_clicked">
-      <span class="feature-icon">🛒</span>
-      <div class="feature-title">One-Tap Reorder</div>
-      <div class="feature-desc">Tap any low-stock item and order it on <strong>Instacart</strong>, <strong>Amazon</strong>, or <strong>Walmart</strong>. Pre-filled search, your cart, no typing. Restock before you run out.</div>
-    </a>
     <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_household_clicked">
+      <!-- <img class="feature-screenshot" src="/screenshots/shared-household.png" alt="ok2eat shared household — two phones showing the same shared fridge in real time" loading="lazy"> -->
       <span class="feature-icon">🤝</span>
       <div class="feature-title">Shared Household</div>
       <div class="feature-desc">Add an item on your phone, your partner sees it on theirs. One fridge, one source of truth. Stop the "do we still have eggs?" texts.</div>
     </a>
+  </div>
+
+  <div class="features-tier2-heading">+ everything else</div>
+  <div class="features-tier2 reveal">
+    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_dashboard_clicked">
+      <span class="feature-icon">📊</span>
+      <div class="feature-title">Impact Dashboard</div>
+      <div class="feature-desc">Lifetime money saved, pounds rescued, CO₂ avoided. Live, every time you mark something used.</div>
+    </a>
+    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_recipes_clicked">
+      <span class="feature-icon">🥗</span>
+      <div class="feature-title">Diet-aware recipes</div>
+      <div class="feature-desc">Vegetarian, vegan, GF, allergen filters. Set once, every recipe respects them, ingredients scale to your household.</div>
+    </a>
+    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_barcode_clicked">
+      <span class="feature-icon">📷</span>
+      <div class="feature-title">Barcode Scanner</div>
+      <div class="feature-desc">For one-off additions. Pulls nutrition + suggested expiry from 3 million+ products.</div>
+    </a>
+    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_digest_clicked">
+      <span class="feature-icon">🔔</span>
+      <div class="feature-title">Daily Digest</div>
+      <div class="feature-desc">Morning push or email summary of what's expiring, what's expired, what to use first.</div>
+    </a>
+    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_reorder_clicked">
+      <span class="feature-icon">🛒</span>
+      <div class="feature-title">One-Tap Reorder</div>
+      <div class="feature-desc">Order any item via Instacart, Amazon, or Walmart. Pre-filled, no typing.</div>
+    </a>
     <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_shopping_lists_clicked">
       <span class="feature-icon">📝</span>
       <div class="feature-title">Shopping Lists, Together</div>
-      <div class="feature-desc">Build separate lists for Costco, Trader Joe's, the weekday grab. Everyone in the house adds items in real time — and you can see who added what.</div>
+      <div class="feature-desc">Separate lists per store. Real-time household sync. See who added what.</div>
     </a>
     <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_cupboard_clicked">
       <span class="feature-icon">🥫</span>
       <div class="feature-title">Cupboard + Fridge</div>
-      <div class="feature-desc">Track pantry staples and fridge items side by side, in one place. Different shelf life, same simple interface.</div>
+      <div class="feature-desc">Pantry and fridge side by side. Different shelf life, one interface.</div>
     </a>
     <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_partial_use_clicked">
       <span class="feature-icon">🍽</span>
       <div class="feature-title">Partial Use Tracking</div>
-      <div class="feature-desc">Used half a gallon of milk? Added 2 tbsp of ketchup? Log partial usage in any unit and your inventory stays accurate.</div>
+      <div class="feature-desc">Used half the milk? Log it in any unit. Inventory stays accurate.</div>
     </a>
   </div>
 </section>
@@ -1611,7 +1825,7 @@
 <hr class="divider">
 
 <!-- Shelf life directory highlight -->
-<section id="shelf-life-highlight" style="max-width:1100px;margin:0 auto;padding:0 24px;">
+<section id="shelf-life-highlight" class="reveal" style="max-width:1100px;margin:0 auto;padding:0 24px;">
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:24px;padding:48px 36px;text-align:center;position:relative;overflow:hidden;">
     <div style="position:absolute;top:-60px;right:-40px;width:220px;height:220px;background:radial-gradient(circle,rgba(62,114,29,0.18),transparent 70%);pointer-events:none;"></div>
     <div class="section-tag" style="display:inline-block;">// Free public resource</div>
@@ -1638,7 +1852,7 @@
 <hr class="divider">
 
 <!-- How it works -->
-<section id="how">
+<section id="how" class="reveal">
   <div class="section-tag">// How it works</div>
   <h2>From "what do we want?" to <span style="color:var(--green);">"what do we have?"</span></h2>
   <p class="section-sub">Four steps. Less than a minute to set up. No complicated setup, no manual data entry.</p>
@@ -1712,7 +1926,7 @@
 <hr class="divider">
 
 <!-- Impact -->
-<section id="impact">
+<section id="impact" class="reveal">
   <div class="section-tag">// Why it matters</div>
   <h2>Good for your wallet. Good for the planet.</h2>
   <p class="section-sub">Food waste isn't just an inconvenience — it's one of the biggest environmental and financial problems we face at home.</p>
@@ -1827,6 +2041,32 @@
 
 <script>
   document.getElementById("year").textContent = new Date().getFullYear();
+
+  // v1.22 #256 — Scroll-reveal animation.
+  // Adds .reveal--visible to any .reveal element once it enters the
+  // viewport, which transitions its opacity + translateY (see CSS).
+  // Uses IntersectionObserver so we don't pay a scroll-listener tax.
+  // No-op for users with prefers-reduced-motion (CSS short-circuits
+  // the animation regardless). Falls back to "everything visible" if
+  // the browser doesn't support IntersectionObserver — old Safari etc.
+  (function () {
+    var nodes = document.querySelectorAll(".reveal");
+    if (!nodes.length) return;
+    if (!("IntersectionObserver" in window)) {
+      // Old browser — skip the animation, show everything immediately.
+      nodes.forEach(function (n) { n.classList.add("reveal--visible"); });
+      return;
+    }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("reveal--visible");
+          io.unobserve(entry.target); // one-shot — don't re-animate on scroll up
+        }
+      });
+    }, { threshold: 0.12, rootMargin: "0px 0px -40px 0px" });
+    nodes.forEach(function (n) { io.observe(n); });
+  })();
 </script>
 <script src="/blog/newsletter.js" defer></script>
 <script src="/blog/android-waitlist.js" defer></script>
