@@ -120,6 +120,115 @@
 
   .nav-cta:hover { background: var(--green-dim) !important; }
 
+  /* v1.22 #265 — Mobile hamburger nav.
+     Before: at ≤768px the `.mobile-hide` class hid every nav link except
+     Shelf life + Download. Users reported they couldn't find Log in (and
+     by extension Blog, Features, How it works, For businesses, Support).
+     After: hamburger button visible only on mobile, sits between Shelf
+     life and Download. Tap → fullscreen drawer with EVERY link. Close
+     on link tap, backdrop tap, or Escape. Pure CSS + vanilla JS — no
+     library. Drawer items are 44px+ tall to meet iOS HIG touch targets. */
+  .nav-burger {
+    display: none; /* desktop hides this — see mobile @media below */
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    width: 40px;
+    height: 40px;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    color: var(--text);
+  }
+  .nav-burger:hover { border-color: var(--green); color: var(--green); }
+  .nav-burger svg { width: 22px; height: 22px; display: block; }
+
+  /* Drawer — hidden by default, slides in from right when [data-open] is
+     on the parent. Full-height overlay with the backdrop. */
+  .nav-drawer-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(28, 38, 28, 0.4);
+    z-index: 200;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .nav-drawer-backdrop[data-open="true"] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .nav-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(340px, 86vw);
+    background: var(--surface);
+    z-index: 201;
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+    display: flex;
+    flex-direction: column;
+    padding: 22px 22px 28px;
+    box-shadow: -8px 0 32px rgba(28, 38, 28, 0.12);
+  }
+  .nav-drawer[data-open="true"] { transform: translateX(0); }
+  .nav-drawer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+  }
+  .nav-drawer-close {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    width: 40px;
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--text);
+  }
+  .nav-drawer-close:hover { border-color: var(--green); color: var(--green); }
+  .nav-drawer-links {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .nav-drawer-links a {
+    display: flex;
+    align-items: center;
+    min-height: 48px;
+    padding: 0 14px;
+    border-radius: 10px;
+    text-decoration: none;
+    color: var(--text);
+    font-size: 16px;
+    font-weight: 500;
+    transition: background 0.15s;
+  }
+  .nav-drawer-links a:hover { background: var(--bg); color: var(--green); }
+  .nav-drawer-cta {
+    margin-top: 16px;
+    display: block;
+    text-align: center;
+    background: var(--green);
+    color: #FFFFFF !important;
+    text-decoration: none;
+    padding: 14px 20px;
+    border-radius: 100px;
+    font-size: 15px;
+    font-weight: 700;
+  }
+  .nav-drawer-cta:hover { background: var(--green-dim); }
+
   /* Hero */
   .hero {
     min-height: 100vh;
@@ -1329,11 +1438,15 @@
   /* Responsive */
   @media (max-width: 768px) {
     nav { padding: 16px 20px; }
-    /* Keep Blog + Download visible on mobile — Features/How/Impact/Support
-       are in-page anchors a visitor can already reach by scrolling, but
-       Blog and Download have no other entry point on mobile. */
+    /* v1.22 #265 — Mobile nav now uses a hamburger drawer for the full
+       link set. The .mobile-hide items stay hidden in the top nav strip
+       to keep the bar uncluttered, but they're all reachable inside the
+       drawer (Features / How it works / Blog / For businesses / Support /
+       Log in / Download). Visible in the top strip: logo + Shelf life +
+       hamburger + Download CTA. */
     .nav-links { gap: 10px; }
     .nav-links li.mobile-hide { display: none; }
+    .nav-burger { display: inline-flex; }
     /* iOS HIG: minimum 44pt tap targets. Default nav-links a is 14px text
        with no padding — that's a ~22px touch target. Bump to min-height
        44px on mobile and use inline-flex centering so the larger hit area
@@ -1523,9 +1636,51 @@
     <li class="mobile-hide"><a href="/for-business/">For businesses</a></li>
     <li class="mobile-hide"><a href="#support">Support</a></li>
     <li class="mobile-hide"><a href="https://app.ok2eat.com">Log in</a></li>
+    <!-- v1.22 #265 — Mobile hamburger button sits between Shelf life and
+         Download. Hidden on desktop via the .nav-burger default; surfaced
+         in the mobile @media block. data-nav-toggle is the JS hook. -->
+    <li>
+      <button type="button" class="nav-burger" data-nav-toggle aria-expanded="false" aria-controls="mobile-nav-drawer" aria-label="Open menu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="3" y1="6" x2="21" y2="6"/>
+          <line x1="3" y1="12" x2="21" y2="12"/>
+          <line x1="3" y1="18" x2="21" y2="18"/>
+        </svg>
+      </button>
+    </li>
     <li><a href="https://apps.apple.com/us/app/ok2eat/id6761730687" class="nav-cta">Download</a></li>
   </ul>
 </nav>
+
+<!-- v1.22 #265 — Mobile nav drawer. Hidden by default; slides in from the
+     right when the hamburger is tapped. Closes on backdrop tap, Escape, or
+     any link tap. Contains the full nav set so mobile users have parity
+     with desktop. -->
+<div class="nav-drawer-backdrop" data-nav-backdrop hidden aria-hidden="true"></div>
+<aside class="nav-drawer" id="mobile-nav-drawer" data-nav-drawer hidden aria-hidden="true">
+  <div class="nav-drawer-head">
+    <span style="font-size: 16px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 8px;">
+      <svg width="24" height="24" aria-hidden="true" focusable="false"><use href="#avocado"/></svg>
+      ok2eat
+    </span>
+    <button type="button" class="nav-drawer-close" data-nav-close aria-label="Close menu">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <line x1="18" y1="6" x2="6" y2="18"/>
+        <line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
+  </div>
+  <ul class="nav-drawer-links">
+    <li><a href="#features" data-nav-link>Features</a></li>
+    <li><a href="#how" data-nav-link>How it works</a></li>
+    <li><a href="/shelf-life/" data-nav-link>Shelf life</a></li>
+    <li><a href="/blog/" data-nav-link>Blog</a></li>
+    <li><a href="/for-business/" data-nav-link>For businesses</a></li>
+    <li><a href="#support" data-nav-link>Support</a></li>
+    <li><a href="https://app.ok2eat.com" data-nav-link>Log in</a></li>
+  </ul>
+  <a href="https://apps.apple.com/us/app/ok2eat/id6761730687" class="nav-drawer-cta" data-nav-link>Download on the App Store</a>
+</aside>
 
 <!-- Hero -->
 <div class="hero">
@@ -2041,6 +2196,58 @@
 
 <script>
   document.getElementById("year").textContent = new Date().getFullYear();
+
+  // v1.22 #265 — Mobile hamburger nav toggle.
+  // Wires up the burger button, backdrop, close button, and every link
+  // inside the drawer. Closing rules:
+  //   - tap the backdrop
+  //   - tap the X
+  //   - tap any link inside the drawer (so the anchor scroll actually
+  //     happens against a non-scroll-locked body)
+  //   - press Escape
+  // Body scroll-lock prevents the page underneath from scrolling while
+  // the drawer is open (avoids the iOS "rubber banding" weirdness).
+  (function () {
+    var toggle   = document.querySelector("[data-nav-toggle]");
+    var drawer   = document.querySelector("[data-nav-drawer]");
+    var backdrop = document.querySelector("[data-nav-backdrop]");
+    var closeBtn = document.querySelector("[data-nav-close]");
+    var links    = document.querySelectorAll("[data-nav-link]");
+    if (!toggle || !drawer || !backdrop) return;
+
+    function setOpen(open) {
+      drawer.setAttribute("data-open", open ? "true" : "false");
+      backdrop.setAttribute("data-open", open ? "true" : "false");
+      toggle.setAttribute("aria-expanded", open ? "true" : "false");
+      drawer.setAttribute("aria-hidden", open ? "false" : "true");
+      backdrop.setAttribute("aria-hidden", open ? "false" : "true");
+      // Show/hide via the `hidden` attribute too — keeps the elements out
+      // of the accessibility tree when closed AND avoids the initial-paint
+      // flash of an unstyled drawer before CSS loads.
+      if (open) { drawer.removeAttribute("hidden"); backdrop.removeAttribute("hidden"); }
+      else      {
+        // Wait for the transition to finish before applying hidden so the
+        // close animation is visible (250ms matches the CSS transition).
+        setTimeout(function () {
+          if (drawer.getAttribute("data-open") === "false") {
+            drawer.setAttribute("hidden", "");
+            backdrop.setAttribute("hidden", "");
+          }
+        }, 260);
+      }
+      document.body.style.overflow = open ? "hidden" : "";
+    }
+
+    toggle.addEventListener("click", function () { setOpen(true); });
+    backdrop.addEventListener("click", function () { setOpen(false); });
+    if (closeBtn) closeBtn.addEventListener("click", function () { setOpen(false); });
+    Array.prototype.forEach.call(links, function (a) {
+      a.addEventListener("click", function () { setOpen(false); });
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && drawer.getAttribute("data-open") === "true") setOpen(false);
+    });
+  })();
 
   // v1.22 #256 — Scroll-reveal animation.
   // Adds .reveal--visible to any .reveal element once it enters the

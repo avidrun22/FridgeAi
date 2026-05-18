@@ -21,6 +21,21 @@ export default function HouseholdShareModal({ open, onClose, onJoined }) {
   const [inviteCode, setInviteCode] = useState(null);
   const [creating, setCreating]     = useState(false);
   const [copied, setCopied]         = useState(false);
+  // v1.22 #260 — Separate error state for the invite/create path. Previously
+  // createInvite() wrote its error into setRedeemErr, which then bled onto
+  // the redeem screen (Greg saw "could not find function create_household_invite"
+  // appear under the redeem input — totally confusing). Splitting the states
+  // also lets each screen render its own error inline without coupling.
+  const [createErr, setCreateErr] = useState(null);
+
+  // v1.22 #260 — Self-loaded household ID. Previously create_household_invite
+  // was called without arguments, but the DB function signature is
+  //   create_household_invite(p_household_id uuid)
+  // — so the RPC failed with "Could not find function without parameters in
+  // the schema cache." Loading our own household_id via the existing
+  // ensure_household_for_user() RPC keeps the modal self-contained (Settings
+  // and Fridge callers don't need to know to pass it in).
+  const [householdId, setHouseholdId] = useState(null);
 
   // Redeem state
   const [redeemCode, setRedeemCode] = useState("");
@@ -33,20 +48,38 @@ export default function HouseholdShareModal({ open, onClose, onJoined }) {
       setMode("menu");
       setInviteCode(null); setCreating(false); setCopied(false);
       setRedeemCode(""); setRedeeming(false); setRedeemErr(null); setRedeemDone(false);
+      setCreateErr(null);
+      // Load household_id when the modal opens. Fire-and-forget — if it fails,
+      // createInvite will surface a clear error when the user taps Generate.
+      (async () => {
+        try {
+          const { data, error } = await supabase.rpc("ensure_household_for_user");
+          if (!error && data) setHouseholdId(data);
+        } catch (_) { /* createInvite() will show the error if it tries to fire */ }
+      })();
     }
   }, [open]);
 
   async function createInvite() {
     setCreating(true);
+    setCreateErr(null);
     try {
-      const { data, error } = await supabase.rpc("create_household_invite");
+      if (!householdId) {
+        // Modal mount might have raced — refresh once before failing.
+        const { data } = await supabase.rpc("ensure_household_for_user");
+        if (data) setHouseholdId(data);
+        if (!data) throw new Error("Couldn't load your household. Refresh and try again.");
+      }
+      const { data, error } = await supabase.rpc("create_household_invite", {
+        p_household_id: householdId,
+      });
       if (error) throw error;
       // RPC returns {code, expires_at} or just a code string. Handle both.
       const code = typeof data === "string" ? data : (data?.code || data?.invite_code);
       setInviteCode(code || null);
     } catch (e) {
       setInviteCode(null);
-      setRedeemErr(e?.message || "Couldn't create invite.");
+      setCreateErr(e?.message || "Couldn't create invite.");
     } finally {
       setCreating(false);
     }
@@ -80,7 +113,10 @@ export default function HouseholdShareModal({ open, onClose, onJoined }) {
     if (!code || redeeming) return;
     setRedeeming(true); setRedeemErr(null);
     try {
-      const { error } = await supabase.rpc("redeem_household_invite", { invite_code: code });
+      // v1.22 #260 — Param name was 'invite_code' but the DB function
+      // signature is redeem_household_invite(p_code text). Wrong name made
+      // every redeem call fail silently with a schema-cache miss.
+      const { error } = await supabase.rpc("redeem_household_invite", { p_code: code });
       if (error) throw error;
       setRedeemDone(true);
       onJoined?.();
@@ -134,6 +170,10 @@ export default function HouseholdShareModal({ open, onClose, onJoined }) {
               >
                 Generate invite code
               </button>
+              {/* v1.22 #260 — Inline error for the create flow. Replaces the
+                  previous behavior of leaking createInvite errors into
+                  setRedeemErr (which surfaced them on the redeem screen). */}
+              {createErr && <p className="text-sm text-danger">{createErr}</p>}
             </>
           )}
           {creating && (

@@ -10102,10 +10102,15 @@ export default function App() {
       {/* navBar lives OUTSIDE the SafeAreaView so its white background
           extends through the home-indicator / gesture-handle zone.
           paddingBottom keeps labels above the indicator on iOS and above
-          the Android gesture bar (Pixel 9 default). v1.21 — extended to
-          Android after Greg saw "PLAN" being clipped by the Pixel 9
-          gesture handle. */}
-      <View style={[s.navBar, { paddingBottom: 24 }]}>
+          the Android gesture bar.
+          v1.21 — extended to Android after Greg saw "PLAN" being clipped
+          by the Pixel 9 gesture handle (bumped to 24).
+          v1.23 #264 — Android tester reported the gesture handle STILL
+          overlapping the tab labels on Samsung S-series + Pixel 9 in
+          edge-to-edge mode (the system gesture bar can be 32-40px tall).
+          Bumped to 36 on Android only. iOS stays at 24 since SafeAreaView
+          higher in the tree already accounts for the home indicator. */}
+      <View style={[s.navBar, { paddingBottom: Platform.OS === "android" ? 36 : 24 }]}>
         {navItems.map(n => {
           const active = tab === n.id ||
             (n.id === "eatMeFirst" && tab === "reminders") || // back-compat
