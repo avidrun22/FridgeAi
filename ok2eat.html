@@ -36,6 +36,13 @@
     --muted: #6B8264;
     --warn: #C97E1E;
     --danger: #B23A3A;
+    /* v1.22 — Lucky Beard-style accent for the hero quiz CTA. The coral
+       sits against cream + green and is the single highest-contrast color
+       on the page, so it pulls the eye to one place (the quiz button).
+       --coral-dim is the hover state; matched ~10% darker for the press
+       affordance. Reuse sparingly — its job is to be the loudest thing. */
+    --coral: #E85A4F;
+    --coral-dim: #C4493F;
   }
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -484,44 +491,77 @@
      The entire phone is also wrapped in an <a> so the mockup itself is
      a tap target. Greg's v2 spec: solid green card, mono title, down
      arrow pointing at the phone — drop the small sticker entirely. */
-  .demo-cta-card {
-    display: inline-flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-    margin-top: 36px;
-    padding: 24px 40px;
-    background: var(--green);
-    color: #fff;
-    border-radius: 24px;
-    text-decoration: none;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
-    max-width: 640px;
+  /* v1.22 — Hero quiz CTA, Lucky Beard treatment.
+     Previous iteration was a solid green pill card; visually loud but it
+     read as a sticker on top of the hero rather than a peer of it. This
+     version drops the card background entirely — the headline sits on the
+     cream hero in big Georgia serif, with a single hand-drawn coral
+     brushstroke under "the way you shop." The pill button is the only
+     filled element, so the eye lands there without competing accents.
+     Greg approved this against a Lucky Beard reference (2026-05-17). */
+  .hero-quiz-cta {
+    display: block;
     text-align: center;
-    box-shadow: 0 10px 28px rgba(62, 114, 29, 0.30);
+    margin: 44px auto 8px;
+    max-width: 720px;
+    text-decoration: none;
+    color: inherit;
   }
-  .demo-cta-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 18px 36px rgba(62, 114, 29, 0.42);
+  .hero-quiz-cta-title {
+    margin: 0 auto 18px;
+    font-family: 'Georgia', serif;
+    font-size: 46px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -1px;
+    line-height: 1.15;
   }
-  .demo-cta-card .demo-cta-title {
-    font-size: 26px;
-    font-weight: 800;
-    color: #fff;
-    font-family: 'DM Mono', monospace;
-    letter-spacing: 0.01em;
-    line-height: 1.25;
+  /* Wraps the underlined phrase so the SVG brushstroke positions relative
+     to it. white-space:nowrap keeps "the way you shop" on one line so the
+     underline never wraps awkwardly across two lines. */
+  .hero-quiz-underline {
+    position: relative;
+    display: inline-block;
+    white-space: nowrap;
   }
-  .demo-cta-card .demo-cta-sub {
+  .hero-quiz-underline svg {
+    position: absolute;
+    left: -4px;
+    right: -4px;
+    bottom: -12px;
+    width: calc(100% + 8px);
+    height: 14px;
+    pointer-events: none;
+  }
+  .hero-quiz-cta-sub {
+    margin: 0 auto 30px;
+    max-width: 520px;
     font-size: 18px;
-    color: rgba(255, 255, 255, 0.92);
-    line-height: 1.4;
-    font-weight: 600;
+    color: var(--text-soft);
+    line-height: 1.5;
+    font-weight: 400;
+  }
+  .hero-quiz-cta-btn {
+    display: inline-block;
+    padding: 18px 44px;
+    background: var(--coral);
+    color: #FFFFFF;
+    border-radius: 999px;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    transition: background 0.15s ease, transform 0.15s ease;
+  }
+  .hero-quiz-cta:hover .hero-quiz-cta-btn {
+    background: var(--coral-dim);
+    transform: translateY(-1px);
   }
   @media (max-width: 600px) {
-    .demo-cta-card { padding: 20px 24px; }
-    .demo-cta-card .demo-cta-title { font-size: 21px; }
-    .demo-cta-card .demo-cta-sub { font-size: 16px; }
+    .hero-quiz-cta { margin: 32px auto 4px; }
+    .hero-quiz-cta-title { font-size: 30px; letter-spacing: -0.5px; }
+    .hero-quiz-underline svg { bottom: -8px; height: 10px; }
+    .hero-quiz-cta-sub { font-size: 16px; margin-bottom: 24px; }
+    .hero-quiz-cta-btn { padding: 16px 36px; font-size: 17px; }
   }
 
   .phone-link-wrap {
@@ -1351,14 +1391,21 @@
 
   <p style="margin-top: 20px; font-size: 13px; color: var(--muted); font-style: italic; max-width: 480px;">I built ok2eat after years of opening the fridge, staring at it, closing it, and ordering takeout. Turns out "what do we have to eat?" is the most-asked question in every household. — Greg</p>
 
-  <!-- v1.22 #250 — Hero CTA swap. The standalone text link to the quiz was
-       getting lost; the green card (previously the "free demo" prompt) is
-       now the QUIZ CTA so it has visual weight. The phone mockup below
-       remains independently clickable to /demo for visitors who want to
-       skip straight to the interactive demo. -->
-  <a href="/quiz.html" class="demo-cta-card" data-event="hero_quiz_card_clicked">
-    <span class="demo-cta-title">How can we help you transform the way you shop for groceries?</span>
-    <span class="demo-cta-sub">Take the quiz and find out →</span>
+  <!-- v1.22 #254 — Lucky Beard-style hero quiz CTA.
+       Replaces the green pill card. No background — headline sits directly
+       on the cream hero with a hand-drawn coral brushstroke under "the way
+       you shop." The coral pill button is the single high-contrast element
+       so the eye lands there without competing accents. The phone mockup
+       below remains independently clickable to /demo for visitors who want
+       to skip straight to the interactive demo. -->
+  <a href="/quiz.html" class="hero-quiz-cta" data-event="hero_quiz_card_clicked">
+    <h2 class="hero-quiz-cta-title">
+      How can we help you transform
+      <span class="hero-quiz-underline">the way you shop<svg viewBox="0 0 380 18" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none" aria-hidden="true"><path d="M4 11 C 60 4, 190 4, 280 8 S 360 14, 376 9" fill="none" stroke="#E85A4F" stroke-width="5" stroke-linecap="round"/></svg></span>
+      for groceries?
+    </h2>
+    <p class="hero-quiz-cta-sub">Take the quiz and find out — three questions, sixty seconds.</p>
+    <span class="hero-quiz-cta-btn">Take the quiz</span>
   </a>
 
   <!-- v1.19 — Mockup refreshed to show the Eat Me First tab (the headline
