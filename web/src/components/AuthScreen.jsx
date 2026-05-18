@@ -77,12 +77,16 @@ export default function AuthScreen() {
         setMsg("Account created. Check your email to confirm, then sign in.");
         setMode("signin");
       } else if (mode === "reset") {
+        // v1.22 #261 — Redirect target is the new /reset-password route, not
+        // root. Root would render AuthScreen and drop the recovery token; the
+        // /reset-password route detects PASSWORD_RECOVERY and shows the "set
+        // new password" form.
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: window.location.origin + "/",
+          redirectTo: window.location.origin + "/reset-password",
         });
         if (error) throw error;
         track("password_reset_requested");
-        setMsg("Password reset link sent — check your email.");
+        setMsg("Password reset link sent — check your email (and spam folder).");
         setMode("signin");
       }
     } catch (e) {
@@ -190,6 +194,13 @@ export default function AuthScreen() {
               <>
                 <button onClick={() => { setMode("signin"); setErr(null); setMsg(null); }} className="text-textSoft hover:text-text">
                   Have a password? Use that instead
+                </button>
+                {/* v1.22 #261 — Surface Forgot password at top level. Previously
+                    only visible after switching to signin mode, which made it
+                    two clicks deep and easy to miss. Greg flagged
+                    2026-05-17 — iOS / Android / web all had the same gap. */}
+                <button onClick={() => { setMode("reset"); setErr(null); setMsg(null); }} className="text-textSoft hover:text-text">
+                  Forgot password?
                 </button>
               </>
             )}

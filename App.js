@@ -1722,6 +1722,39 @@ function AuthScreen({ onAuth }) {
   const [needsConfirm, setNeedsConfirm] = useState(false);
   const [resendingConfirm, setResendingConfirm] = useState(false);
   const [resendMsg, setResendMsg] = useState("");
+  // v1.22 #261 — Password reset flow (matches Android via shared App.js).
+  //  resettingPassword: spinner state for the Forgot password tap.
+  //  resetMsg: success/error message rendered under the Forgot password link.
+  // Reset emails point at https://app.ok2eat.com/reset-password (web) — the
+  // recovery token is in the URL hash; the web ResetPassword screen detects
+  // PASSWORD_RECOVERY and shows a "Set new password" form. The user then
+  // signs back into iOS with the new password. Keeps the reset flow on one
+  // platform (web) so we don't need Universal-Link plumbing for it.
+  const [resettingPassword, setResettingPassword] = useState(false);
+  const [resetMsg, setResetMsg] = useState("");
+
+  // v1.22 #261 — Trigger Supabase password reset email for the typed address.
+  // Uses the web app at app.ok2eat.com/reset-password as the redirect target
+  // — that page detects the recovery token in the URL hash and lets the user
+  // set a new password. After resetting on web, they sign back into iOS with
+  // the new password. Same auth.users row, so iOS state stays intact.
+  async function handleForgotPassword() {
+    const addr = (email || "").trim();
+    if (!addr) { setResetMsg("Enter your email above first."); return; }
+    setResettingPassword(true);
+    setResetMsg("");
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(addr, {
+        redirectTo: "https://app.ok2eat.com/reset-password",
+      });
+      if (error) throw error;
+      track("password_reset_requested", { method: "email" });
+      setResetMsg("Reset link sent — check your email (and spam folder). Set your new password on the web, then come back here to sign in.");
+    } catch (e) {
+      setResetMsg(e?.message || "Couldn't send reset link. Try again in a minute.");
+    }
+    setResettingPassword(false);
+  }
 
   // v1.17 — Resend the Supabase Auth confirmation email for the typed address.
   // Idempotent on Supabase's side; safe to spam (Supabase rate-limits at 1/min).
@@ -1888,6 +1921,26 @@ function AuthScreen({ onAuth }) {
             <TouchableOpacity style={s.btnPrimary} onPress={handleAuth} disabled={loading}>
               {loading ? <ActivityIndicator color="#FFFFFF" /> : <Text style={s.btnPrimaryText}>{mode === "login" ? "Sign In" : "Create Account"}</Text>}
             </TouchableOpacity>
+
+            {/* v1.22 #261 — Forgot password link, login mode only. Hidden on
+                Create Account since there's no account yet to reset. Tap →
+                resetPasswordForEmail with the typed email; success message
+                renders inline below. The link itself stays visible so users
+                can re-tap if they typo'd the email. */}
+            {mode === "login" && (
+              <View style={{ marginTop: 14, alignItems: "center" }}>
+                <TouchableOpacity onPress={handleForgotPassword} disabled={resettingPassword}>
+                  {resettingPassword
+                    ? <ActivityIndicator color={T.textSoft} size="small" />
+                    : <Text style={{ color: T.textSoft, fontSize: 13, fontWeight: "600" }}>Forgot password?</Text>}
+                </TouchableOpacity>
+                {resetMsg !== "" && (
+                  <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 10, textAlign: "center", lineHeight: 18, paddingHorizontal: 8 }}>
+                    {resetMsg}
+                  </Text>
+                )}
+              </View>
+            )}
           </View>
           )}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginVertical: 16 }}>

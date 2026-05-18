@@ -9,6 +9,7 @@ import EatMeFirst from "./screens/EatMeFirst.jsx";
 import Dashboard from "./screens/Dashboard.jsx";
 import Settings from "./screens/Settings.jsx";
 import Demo from "./screens/Demo.jsx";
+import ResetPassword from "./screens/ResetPassword.jsx";
 
 // Root component. Wraps the auth state listener and the router.
 // Single rule: if no session, show AuthScreen. Otherwise, render the routes.
@@ -72,6 +73,25 @@ export default function App() {
     return (
       <Routes>
         <Route path="/demo" element={<Demo />} />
+      </Routes>
+    );
+  }
+
+  // v1.22 #261 — /reset-password is the landing page for the Supabase
+  // password-recovery email link. Rendered BEFORE the !session gate
+  // because:
+  //   1. The user is signed-out when they click the email — without this
+  //      bypass they'd hit the auth screen and the recovery hash would be
+  //      dropped before ResetPassword could parse it.
+  //   2. The recovery hash actually CREATES a short-lived session via
+  //      onAuthStateChange(PASSWORD_RECOVERY). ResetPassword owns that
+  //      session lifecycle and signs the user out after the password is
+  //      updated, so we punt them back to AuthScreen for a fresh sign-in.
+  // Same pattern as /demo: an unauthenticated entry point ahead of the gate.
+  if (location.pathname === "/reset-password") {
+    return (
+      <Routes>
+        <Route path="/reset-password" element={<ResetPassword />} />
       </Routes>
     );
   }
