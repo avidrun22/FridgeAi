@@ -30,6 +30,30 @@ Things that still need to land in Greg's terminal:
 - `git push` (his SSH key)
 - Anything requiring the iOS Simulator or Xcode
 
+## Store release notes & marketing copy: paste-in-chat, don't drive
+
+When Greg needs to paste release notes, App Store listings, Play Console
+fields, or any structured marketing copy into a web form, default to
+**printing the exact copy-paste block in chat** — clearly labeled with
+where each block goes. Do NOT offer to drive Chrome MCP into App Store
+Connect / Play Console / similar dashboards for these pastes. Greg
+prefers eyes-on control for store-listing moments and copies the text
+into the relevant field himself.
+
+Format: one fenced block per destination, labeled with the exact field
+name (e.g. "App Store Connect → v1.23 → What's New in This Version").
+Multiple blocks in one response are fine — Greg can scroll between them.
+
+This applies to: App Store version notes, App Review reviewer notes,
+Google Play release notes, Play Console reviewer notes, promotional
+text, App Store / Play Store listing descriptions, keyword fields,
+support URLs, and similar.
+
+This does NOT apply to: setting changes that aren't user-facing copy
+(SMTP settings, Supabase redirect URL allowlists, PostHog dashboard
+config, EAS credentials) — driving those via Chrome MCP is still fine
+and faster.
+
 ## Repo path on Greg's machines
 
 When handing off commands, never assume `~/Documents/projects/fridgeai-native`
