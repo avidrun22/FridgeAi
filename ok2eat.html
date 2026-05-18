@@ -401,22 +401,24 @@
   }
 
   /* v1.19 — Android waitlist CTA. Promoted from a small pill to a full
-     button equal in visual weight to "Download on the App Store" and
-     "Open the web app" — ClankerView AI UX review (5/14) flagged the pill
-     as reading like a footnote and missing Android-first users entirely.
-     The button lives INSIDE .hero-cta now (same flex row as the other two)
-     so all three CTAs are siblings. Tap → form expands below (existing JS
-     behavior unchanged; we just bumped the trigger element's visual rank).
-     Color: matches .btn-secondary (outline) but with brand-green border +
-     text to distinguish it as the "not yet shipped" option. */
+     button equal in visual weight to "Download on the App Store" — flagged
+     by an AI UX review as a footnote missing Android-first users.
+     v1.22 #266 — Visual hierarchy adjustment per Benjamin-Wagner's
+     one-primary-CTA advice: Android waitlist is no longer co-equal with
+     the App Store button. It stays clearly visible (Android-first
+     visitors must still find it) but de-emphasized — thinner border,
+     lower-contrast text, smaller padding — so the eye lands on Download
+     first. Same flex row, same behavior; just a quieter sibling.
+     The "Try the demo" middle button was removed entirely this pass;
+     demo access is preserved via the clickable phone mockup below. */
   .btn-android {
-    background: rgba(62, 114, 29, 0.06);
-    color: var(--green);
-    padding: 16px 28px;
+    background: transparent;
+    color: var(--muted);
+    padding: 12px 22px;
     border-radius: 100px;
-    font-size: 16px;
-    font-weight: 600;
-    border: 1.5px solid var(--green);
+    font-size: 14px;
+    font-weight: 500;
+    border: 1px solid var(--border);
     cursor: pointer;
     transition: all 0.2s;
     font-family: 'Bricolage Grotesque', sans-serif;
@@ -424,6 +426,7 @@
     align-items: center;
     gap: 8px;
   }
+  .btn-android:hover { color: var(--green); border-color: var(--green); }
   .btn-android::before {
     content: "🤖";
     font-size: 15px;
@@ -637,10 +640,24 @@
      brushstroke under "the way you shop." The pill button is the only
      filled element, so the eye lands there without competing accents.
      Greg approved this against a Lucky Beard reference (2026-05-17). */
+  /* v1.22 #266 — Quiz CTA moved out of the hero into its own section.
+     The section centers the CTA block and gives it generous vertical
+     padding so it reads as a deliberate pause point between stats and
+     social proof, not a leftover hero element. */
+  .quiz-cta-section {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 56px 24px;
+    text-align: center;
+  }
+  @media (max-width: 600px) {
+    .quiz-cta-section { padding: 40px 20px; }
+  }
+
   .hero-quiz-cta {
     display: block;
     text-align: center;
-    margin: 44px auto 8px;
+    margin: 0 auto 8px;
     max-width: 720px;
     text-decoration: none;
     color: inherit;
@@ -964,16 +981,32 @@
   .features-tier1 .feature-card .feature-icon { font-size: 48px; margin-bottom: 22px; }
   .features-tier1 .feature-card .feature-title { font-size: 22px; margin-bottom: 12px; }
   .features-tier1 .feature-card .feature-desc { font-size: 15px; }
-  /* Optional <img class="feature-screenshot"> slot — when Greg drops real
-     product screenshots into /screenshots/, uncomment the inner <img>
-     blocks in the hero feature cards. The class below is ready. */
+  /* Product screenshot slot in tier-1 feature cards.
+     v1.22 #266 — Screenshots are now live with real captures. The
+     emoji `.feature-icon` stays in the markup as a graceful fallback if
+     the image fails to load (404, ad-blocker on /screenshots/, etc.);
+     the adjacent-sibling rule below hides the emoji whenever a
+     screenshot precedes it. Mobile cap is tighter (180px) so each card
+     doesn't become a 480px-tall wall of phone-shot when tier-1 stacks
+     vertically on a 380px viewport. */
   .feature-screenshot {
     display: block;
     width: 100%;
-    max-width: 320px;
-    margin: 0 auto 22px;
+    max-width: 280px;
+    margin: 0 auto 18px;
     border-radius: 14px;
     border: 1px solid var(--border);
+    object-fit: contain;
+    background: var(--bg);
+  }
+  /* Hide the emoji when its card has a screenshot — adjacent-sibling
+     selector works in every browser and avoids needing :has(). */
+  .feature-card .feature-screenshot + .feature-icon { display: none; }
+
+  @media (max-width: 600px) {
+    /* On mobile, cap the screenshot smaller so a stacked tier-1 grid
+       doesn't turn into four 480px-tall phone images. */
+    .feature-screenshot { max-width: 180px; margin-bottom: 14px; }
   }
 
   /* Tier 2 — the rest. Compact grid, 3 columns desktop, auto on mobile.
@@ -1688,7 +1721,13 @@
   <svg class="hero-mark" aria-hidden="true" focusable="false"><use href="#avocado"/></svg>
   <div class="hero-badge">v1.21 · iOS + web</div>
   <h1>What to eat first — <span>before it goes bad.</span></h1>
-  <p class="hero-sub">Open your fridge. There's leftover chicken, half a bag of spinach, three yogurts, and that cilantro you forgot about. Which is going bad first? Most apps make you scroll. ok2eat just tells you — in the new Eat Me First tab — plus three recipes that use whatever's closest to spoiling. Free.</p>
+  <!-- v1.22 #266 — Tightened subtitle ~40% per Benjamin-Wagner's
+       time-to-value advice. Was 62 words; now 40. Kept the concrete
+       fridge-inventory list (chicken / spinach / yogurts / cilantro) —
+       that's the line that lands the brand voice — but cut the
+       comparative "Most apps make you scroll" sentence which was an
+       extra beat the visitor doesn't need to convert. -->
+  <p class="hero-sub">Open your fridge. There's leftover chicken, half a bag of spinach, three yogurts, and that cilantro you forgot about. Which is going bad first? ok2eat just tells you — plus three recipes that use whatever's closest to spoiling. Free.</p>
 
   <!-- v1.22 #256 — App Store rating pill. Small social-proof signal
        above the fold; full review quotes live in the .social-proof
@@ -1710,11 +1749,13 @@
   <div data-android-waitlist>
     <div class="hero-cta">
       <a href="https://apps.apple.com/us/app/ok2eat/id6761730687" class="btn-primary">Download on the App Store</a>
-      <!-- v1.20 — Web CTA points at /demo so cold visitors land in the
-           no-auth tour instead of the sign-in wall. Existing users still
-           hit /demo for the first click, then sign in from there
-           (header CTA on the demo screen takes them straight to /). -->
-      <a href="https://app.ok2eat.com/demo" class="btn-secondary">Try the demo — no signup →</a>
+      <!-- v1.22 #266 — Removed the "Try the demo" CTA from the hero per
+           Benjamin-Wagner's one-primary-CTA advice. Hero now has two
+           clear actions (Download iOS / Android waitlist) instead of
+           three. Demo access is preserved: the phone mockup below is
+           still wrapped in <a href="/demo"> so the picture-as-CTA path
+           works for visitors who want to tour before installing.
+           Earlier (v1.20) comment about the demo button now stale. -->
       <button type="button" class="btn-android" data-android-toggle aria-expanded="false">
         Android — join waitlist
       </button>
@@ -1729,23 +1770,6 @@
   </div>
 
   <p style="margin-top: 20px; font-size: 13px; color: var(--muted); font-style: italic; max-width: 480px;">I built ok2eat after years of opening the fridge, staring at it, closing it, and ordering takeout. Turns out "what do we have to eat?" is the most-asked question in every household. — Greg</p>
-
-  <!-- v1.22 #254 — Lucky Beard-style hero quiz CTA.
-       Replaces the green pill card. No background — headline sits directly
-       on the cream hero with a hand-drawn coral brushstroke under "the way
-       you shop." The coral pill button is the single high-contrast element
-       so the eye lands there without competing accents. The phone mockup
-       below remains independently clickable to /demo for visitors who want
-       to skip straight to the interactive demo. -->
-  <a href="/quiz.html" class="hero-quiz-cta" data-event="hero_quiz_card_clicked">
-    <h2 class="hero-quiz-cta-title">
-      How can we help you transform
-      <span class="hero-quiz-underline">the way you shop<svg viewBox="0 0 380 18" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none" aria-hidden="true"><path d="M4 11 C 60 4, 190 4, 280 8 S 360 14, 376 9" fill="none" stroke="#E85A4F" stroke-width="5" stroke-linecap="round"/></svg></span>
-      for groceries?
-    </h2>
-    <p class="hero-quiz-cta-sub">Take the quiz and find out — three questions, sixty seconds.</p>
-    <span class="hero-quiz-cta-btn">Take the quiz</span>
-  </a>
 
   <!-- v1.19 — Mockup refreshed to show the Eat Me First tab (the headline
        feature since v1.16). Earlier mockup showed a generic "My Fridge"
@@ -1854,6 +1878,25 @@
   </div>
 </div>
 
+<!-- v1.22 #266 — Quiz CTA, moved out of the hero per Benjamin-Wagner's
+     one-primary-CTA design advice. Previous hero had 5 competing actions
+     (Download / Demo / Android waitlist / Quiz / Phone mockup); this gives
+     the quiz its own breathing room between the stats-bar (problem framing)
+     and the social-proof block (user validation). Acts as a bridge: "Here's
+     the problem cost → here's a personalized estimate for YOU → here's what
+     other users are saying." -->
+<section class="quiz-cta-section reveal">
+  <a href="/quiz.html" class="hero-quiz-cta" data-event="hero_quiz_card_clicked">
+    <h2 class="hero-quiz-cta-title">
+      How can we help you transform
+      <span class="hero-quiz-underline">the way you shop<svg viewBox="0 0 380 18" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none" aria-hidden="true"><path d="M4 11 C 60 4, 190 4, 280 8 S 360 14, 376 9" fill="none" stroke="#E85A4F" stroke-width="5" stroke-linecap="round"/></svg></span>
+      for groceries?
+    </h2>
+    <p class="hero-quiz-cta-sub">Take the quiz and find out — three questions, sixty seconds.</p>
+    <span class="hero-quiz-cta-btn">Take the quiz</span>
+  </a>
+</section>
+
 <!-- v1.22 #256 — Social proof section. Real App Store reviews (4 total
      as of 2026-05-17, all 5-star). To refresh: pull latest from App
      Store Connect → Ratings & Reviews and swap the three blockquotes
@@ -1905,39 +1948,46 @@
   <h2>Everything you need to waste nothing.</h2>
   <p class="section-sub">ok2eat is built around one question — what should you eat first, before it goes bad? Every feature below answers that, or makes the answer faster.</p>
 
+  <!-- v1.22 #266 — Tier-1 swap. Shared Household demoted to tier-2;
+       Impact Dashboard promoted to tier-1 because (a) it has a real
+       screenshot in screenshots/features/, (b) it ties directly to the
+       inflation/savings narrative on the rest of the page. Each tier-1
+       card now has a real product screenshot — proof-via-UI per
+       Benjamin-Wagner's design advice. Emoji stays in the markup as
+       a fallback if the image 404s; CSS hides it when img loads. -->
   <div class="features-tier1 reveal">
     <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_eat_me_first_clicked">
-      <!-- <img class="feature-screenshot" src="/screenshots/eat-me-first.png" alt="ok2eat Eat Me First tab — fridge items ranked by expiry urgency" loading="lazy"> -->
+      <img class="feature-screenshot" src="/screenshots/features/01_eat_me_first.png" alt="ok2eat Eat Me First tab — fridge items ranked by expiry urgency" loading="lazy">
       <span class="feature-icon">🔥</span>
       <div class="feature-title">Eat Me First <span style="font-size:11px;background:var(--green);color:#fff;padding:2px 8px;border-radius:99px;margin-left:6px;vertical-align:middle;letter-spacing:0.05em;">NEW</span></div>
       <div class="feature-desc">A new top-level tab that ranks your fridge by urgency. The thing closest to spoiling sits at the top. Tap any item to get three recipes that use it — plus the four next-most-urgent things alongside it — so dinner uses what's about to go bad instead of what you'd have to buy.</div>
     </a>
     <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_usda_expiry_clicked">
-      <!-- <img class="feature-screenshot" src="/screenshots/usda-shelf-life.png" alt="ok2eat item detail showing printed expiry date plus USDA shelf-life window" loading="lazy"> -->
+      <img class="feature-screenshot" src="/screenshots/features/06_dual_date.png" alt="ok2eat item detail showing printed expiry date plus USDA shelf-life window" loading="lazy">
       <span class="feature-icon">⏰</span>
       <div class="feature-title">USDA-backed expiry dates</div>
       <div class="feature-desc">Per-item shelf life from the <strong>USDA FoodKeeper</strong> dataset plus <strong>USDA FoodData Central</strong>, FDA, FSIS, and Cooperative Extension publications — <strong>1,900+ foods</strong> with their own typical fridge, freezer, and pantry windows. ok2eat stores both the printed date and the USDA window, so you stop tossing cheddar at 14 days when it actually lasts six months.</div>
     </a>
     <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_receipt_scan_clicked">
-      <!-- <img class="feature-screenshot" src="/screenshots/receipt-scan.png" alt="ok2eat receipt scan results — every line item parsed with category and expiry" loading="lazy"> -->
+      <img class="feature-screenshot" src="/screenshots/features/04_receipt_scan.png" alt="ok2eat receipt scan results — every line item parsed with category and expiry" loading="lazy">
       <span class="feature-icon">📸</span>
       <div class="feature-title">Receipt Scanning</div>
       <div class="feature-desc">Snap your grocery receipt and ok2eat fills your fridge for you in seconds. Every line gets smart expiry dates from FoodKeeper plus a smart container default — bread to pantry, ice cream to freezer, no manual sorting.</div>
     </a>
-    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_household_clicked">
-      <!-- <img class="feature-screenshot" src="/screenshots/shared-household.png" alt="ok2eat shared household — two phones showing the same shared fridge in real time" loading="lazy"> -->
-      <span class="feature-icon">🤝</span>
-      <div class="feature-title">Shared Household</div>
-      <div class="feature-desc">Add an item on your phone, your partner sees it on theirs. One fridge, one source of truth. Stop the "do we still have eggs?" texts.</div>
+    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_dashboard_clicked">
+      <img class="feature-screenshot" src="/screenshots/features/03_dashboard.png" alt="ok2eat Impact Dashboard — lifetime money saved, pounds rescued, CO2 avoided" loading="lazy">
+      <span class="feature-icon">📊</span>
+      <div class="feature-title">Impact Dashboard <span style="font-size:11px;background:var(--green);color:#fff;padding:2px 8px;border-radius:99px;margin-left:6px;vertical-align:middle;letter-spacing:0.05em;">NEW</span></div>
+      <div class="feature-desc">Lifetime money saved, pounds of food rescued, CO₂ avoided. Live numbers, recalculated every time you mark something used. The average US household wastes $1,866 of food a year — yours doesn't have to.</div>
     </a>
   </div>
 
   <div class="features-tier2-heading">+ everything else</div>
   <div class="features-tier2 reveal">
-    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_dashboard_clicked">
-      <span class="feature-icon">📊</span>
-      <div class="feature-title">Impact Dashboard</div>
-      <div class="feature-desc">Lifetime money saved, pounds rescued, CO₂ avoided. Live, every time you mark something used.</div>
+    <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_household_clicked">
+      <span class="feature-icon">🤝</span>
+      <div class="feature-title">Shared Household</div>
+      <div class="feature-desc">Add an item on your phone, your partner sees it on theirs. One fridge, one source of truth.</div>
     </a>
     <a href="https://app.ok2eat.com/demo" class="feature-card" data-event="feature_recipes_clicked">
       <span class="feature-icon">🥗</span>
