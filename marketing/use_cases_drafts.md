@@ -28,14 +28,14 @@ If you live with one other person, you've had this fight. You're at Trader Joe's
 ok2eat is one fridge, two phones. Add an item on yours, your partner sees it on theirs in real time. The shopping list is shared too — add "yogurt" on the walk to your car and your partner sees it before they pull in to Costco.
 
 **Features that earn this page:**
-- **Shared Household** — add a partner with a 6-letter invite code. Same fridge, same lists, same recipe ideas. No upgrade tier, no "premium plan." Free for both of you.
+- **Shared Household** — add a partner with a 6-letter invite code. Same fridge, same lists, same recipe ideas. Equal access for everyone in the household.
 - **Shopping Lists, Together** — separate lists for each store, see who added what
 - **Daily Digest** — both people get the morning "what's expiring" email so it's not one partner's job to remember
 
 **Real review (JDS Desktop · App Store · May 2026):**
 > "It has helped me tremendously in managing the spoilage in my kitchen. It has already helped me when I purchase items that I thought I had but didn't."
 
-**CTA:** Set up your shared fridge — free for both of you.
+**CTA:** Set up your shared fridge — both of you on the same page, every grocery run.
 
 **Cross-links:** for-families · stop-wasting-produce
 
@@ -60,7 +60,7 @@ ok2eat ranks your fridge by what's about to spoil. The thing closest to going ba
 **Real review (Doodlebug04 · App Store · May 2026):**
 > "Great way to reduce waste and make yourself accountable for lost $$ while understanding your weekly grocery needs."
 
-**CTA:** See what's about to go bad in your fridge — try the free demo.
+**CTA:** See what's about to go bad in your fridge — try the demo.
 
 **Cross-links:** for-misfits-imperfect · cut-grocery-bill
 
@@ -210,7 +210,7 @@ Open the fridge at 6pm. Leftover chicken, half a bag of spinach, three yogurts, 
 - **Diet-aware recipes** — vegetarian, vegan, gluten-free, allergens — set once, every recipe respects them
 - **Inventory-aware shopping list** — pick a recipe, only the *missing* ingredients hit your list
 
-**CTA:** See what's worth cooking tonight — try the free demo.
+**CTA:** See what's worth cooking tonight — try the demo.
 
 **Cross-links:** stop-wasting-produce · for-batch-cooking
 

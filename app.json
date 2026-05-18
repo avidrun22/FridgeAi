@@ -2,7 +2,7 @@
   "expo": {
     "name": "ok2eat",
     "slug": "ok2eat",
-    "version": "1.22",
+    "version": "1.23",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",

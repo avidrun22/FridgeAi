@@ -292,7 +292,7 @@ def render_item_page(item, slug, related):
 
     <section class="cta-card">
       <h2>Stop guessing — let ok2eat track this for you</h2>
-      <p>Add an item once, and ok2eat reminds you before it goes bad. Free, no signup.</p>
+      <p>Add an item once, and ok2eat reminds you before it goes bad. No signup needed to browse this directory.</p>
       <a href="{APP_STORE_URL}" class="btn-primary">Download for iOS</a>
       <a href="{WEB_APP_URL}" class="btn-secondary">Try the web app</a>
     </section>

@@ -439,12 +439,12 @@ function buildEmailHtml(p: {
         </tr></table>
       </td></tr>
 
-      <!-- Free public resource — shelf-life directory -->
+      <!-- Public shelf-life directory reference -->
       <tr><td style="padding:18px 32px;border-top:1px solid #E5DFCE;background:#F7F3E8;">
-        <p style="margin:0 0 4px;font-size:10px;color:#6B8264;font-family:'DM Mono',monospace;letter-spacing:0.6px;text-transform:uppercase;">// free resource</p>
+        <p style="margin:0 0 4px;font-size:10px;color:#6B8264;font-family:'DM Mono',monospace;letter-spacing:0.6px;text-transform:uppercase;">// reference</p>
         <p style="margin:0;font-size:13px;color:#3A4A38;line-height:1.5;">
           Wondering how long something lasts?
-          <a href="https://ok2eat.com/shelf-life/?utm_source=email_digest&amp;utm_medium=email&amp;utm_campaign=shelf_life_link" style="color:#3E721D;text-decoration:underline;font-weight:600;">Look it up free in our shelf-life directory →</a>
+          <a href="https://ok2eat.com/shelf-life/?utm_source=email_digest&amp;utm_medium=email&amp;utm_campaign=shelf_life_link" style="color:#3E721D;text-decoration:underline;font-weight:600;">Look it up in our shelf-life directory →</a>
         </p>
         <p style="margin:4px 0 0;font-size:11px;color:#6B8264;">980+ foods, sourced from USDA FoodKeeper + FDA + FSIS + Cooperative Extension publications. No signup.</p>
       </td></tr>
@@ -523,7 +523,7 @@ function buildEmailText(p: {
   }
   lines.push(`Open ok2eat: ${p.appUrl}`);
   lines.push("");
-  lines.push("Wondering how long something lasts? Free public directory of 980+ foods (USDA + FDA data, no signup):");
+  lines.push("Wondering how long something lasts? Our public directory of 980+ foods (USDA + FDA data, no signup):");
   lines.push("  https://ok2eat.com/shelf-life/?utm_source=email_digest&utm_medium=email&utm_campaign=shelf_life_link");
   lines.push("");
   lines.push(`Unsubscribe: ${p.unsubscribeUrl}`);

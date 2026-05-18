@@ -9,7 +9,7 @@
        and meta description dynamically so it shows up properly in OG cards
        + Search). -->
   <title>Recipe · ok2eat</title>
-  <meta name="description" content="A recipe from ok2eat — sign up free to track your fridge and see what to cook tonight before food expires.">
+  <meta name="description" content="A recipe from ok2eat — sign up to track your fridge and see what to cook tonight before food expires.">
   <link rel="icon" type="image/png" href="/assets/favicon.png">
   <!-- Apple-touch + Universal Links: ok2eat.com/recipes/* is registered in
        the marketing-site AASA so iOS users with the app installed get
@@ -89,7 +89,7 @@
 
     <div id="state-error" class="state" style="display:none;">
       <h1 id="error-headline">Recipe not found</h1>
-      <p class="sub" id="error-detail">This link may have expired, or the recipe was removed. Sign up free and we'll surface fresh recipes based on what's in your fridge.</p>
+      <p class="sub" id="error-detail">This link may have expired, or the recipe was removed. Sign up and we'll surface fresh recipes based on what's in your fridge.</p>
     </div>
 
     <div id="state-ok" style="display:none;">
@@ -117,7 +117,7 @@
         <h2>Want recipes from your fridge?</h2>
         <p>ok2eat tracks what's in your fridge and suggests recipes from what's about to expire — so you cook the right thing tonight instead of throwing food out Friday.</p>
         <div class="cta-buttons">
-          <a id="signup-cta" class="btn btn-primary" href="https://app.ok2eat.com/">Try free in your browser</a>
+          <a id="signup-cta" class="btn btn-primary" href="https://app.ok2eat.com/">Try in your browser</a>
           <a id="appstore-cta" class="btn btn-secondary" href="https://apps.apple.com/us/app/ok2eat/id6761730687">Download on App Store</a>
         </div>
       </div>
@@ -251,7 +251,7 @@
     }
 
     if (!slug || !slug_re.test(slug)) {
-      showError('Recipe not found', 'This link doesn’t point to a valid recipe. Browse ok2eat’s recipes by signing up free below.');
+      showError('Recipe not found', 'This link doesn’t point to a valid recipe. Browse ok2eat’s recipes by signing up below.');
       return;
     }
 
@@ -274,7 +274,7 @@
           // explicitly rather than a generic "not found".
           showError(
             'This recipe was personalized',
-            'It was generated from someone’s fridge, so it isn’t a recipe we can show you out of context. Sign up free and we’ll surface recipes from yours.'
+            'It was generated from someone’s fridge, so it isn’t a recipe we can show you out of context. Sign up and we’ll surface recipes from yours.'
           );
           throw new Error('expired_personalized');
         }
