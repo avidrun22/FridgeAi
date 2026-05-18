@@ -1171,13 +1171,27 @@
     /* Keep Blog + Download visible on mobile — Features/How/Impact/Support
        are in-page anchors a visitor can already reach by scrolling, but
        Blog and Download have no other entry point on mobile. */
-    .nav-links { gap: 14px; }
+    .nav-links { gap: 10px; }
     .nav-links li.mobile-hide { display: none; }
+    /* iOS HIG: minimum 44pt tap targets. Default nav-links a is 14px text
+       with no padding — that's a ~22px touch target. Bump to min-height
+       44px on mobile and use inline-flex centering so the larger hit area
+       stays visually anchored to the link text. Gap narrowed to 10px to
+       compensate for the now-padded links. */
+    .nav-links a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 6px; }
     .float-card { display: none; }
     .impact-grid { grid-template-columns: 1fr; }
     .impact-card.green-card { grid-column: span 1; flex-direction: column; text-align: center; }
     .steps::before { display: none; }
     footer { flex-direction: column; gap: 20px; text-align: center; }
+    /* Footer links also get the 44px tap-target treatment on mobile. The
+       footer collapses to column on small screens (rule above), so wider
+       links don't break the row layout — they just become bigger taps. */
+    .footer-links { flex-direction: column; gap: 4px; align-items: center; }
+    .footer-links a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; }
+    /* Social icon buttons — desktop is 36px (mouse precision is fine);
+       mobile bumps to 44px for thumb-friendly taps per iOS HIG. */
+    .socials a { width: 44px; height: 44px; }
     .stats-bar { gap: 32px; padding: 32px 24px; }
   }
 
@@ -1318,7 +1332,7 @@
 <body>
 
 <!-- Avocado SVG (reused) -->
-<svg width="0" height="0" style="position:absolute;">
+<svg width="0" height="0" style="position:absolute;" aria-hidden="true" focusable="false">
   <defs>
     <symbol id="avocado" viewBox="0 0 36 36">
       <path fill="#3E721D" d="M35 5.904c2.394 6.042-1.438 20.543-10.5 26.5-9.06 5.957-20.395 3.573-23.097-6.443-1.669-6.186 2.79-10.721 11.851-16.677C22.315 3.327 32.64-.053 35 5.904z"/>
@@ -1333,7 +1347,7 @@
 
 <!-- Nav -->
 <nav>
-  <a href="#" class="nav-logo"><svg><use href="#avocado"/></svg> ok2eat</a>
+  <a href="#" class="nav-logo"><svg aria-hidden="true" focusable="false"><use href="#avocado"/></svg> ok2eat</a>
   <ul class="nav-links">
     <li class="mobile-hide"><a href="#features">Features</a></li>
     <li class="mobile-hide"><a href="#how">How it works</a></li>
@@ -1355,7 +1369,7 @@
 <!-- Hero -->
 <div class="hero">
   <div class="hero-glow"></div>
-  <svg class="hero-mark"><use href="#avocado"/></svg>
+  <svg class="hero-mark" aria-hidden="true" focusable="false"><use href="#avocado"/></svg>
   <div class="hero-badge">v1.21 · iOS + web</div>
   <h1>What to eat first — <span>before it goes bad.</span></h1>
   <p class="hero-sub">Open your fridge. There's leftover chicken, half a bag of spinach, three yogurts, and that cilantro you forgot about. Which is going bad first? Most apps make you scroll. ok2eat just tells you — in the new Eat Me First tab — plus three recipes that use whatever's closest to spoiling. Free.</p>
@@ -1605,16 +1619,17 @@
     <p class="section-sub" style="margin-bottom:28px;">Browse shelf-life estimates for <strong>950+ foods</strong>, sourced from the <strong>USDA FoodKeeper</strong> dataset, the <strong>FDA</strong> Refrigerator &amp; Freezer Storage Chart, <strong>USDA FSIS</strong> guidance, and <strong>Cooperative Extension Service</strong> bulletins. Searchable, free, no signup. The same data that powers ok2eat's per-item expiry — open to anyone.</p>
     <form action="/shelf-life/" method="get" style="display:flex;gap:8px;max-width:480px;margin:0 auto 18px;flex-wrap:wrap;justify-content:center;">
       <input name="q" type="text" placeholder="Search 'spinach', 'whole milk', 'hard cheese'…" autocomplete="off"
+             aria-label="Search the shelf-life directory"
              style="flex:1;min-width:240px;background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:12px 18px;font-size:15px;color:var(--text);font-family:inherit;outline:none;">
       <button type="submit" style="background:var(--green);color:#fff;border:none;border-radius:100px;padding:12px 22px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;">Search →</button>
     </form>
     <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;font-family:'DM Mono',monospace;font-size:12px;">
-      <a href="/shelf-life/bagged-greens.html" style="background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:6px 14px;color:var(--text-soft);text-decoration:none;">bagged greens</a>
-      <a href="/shelf-life/milk.html" style="background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:6px 14px;color:var(--text-soft);text-decoration:none;">milk</a>
-      <a href="/shelf-life/eggs.html" style="background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:6px 14px;color:var(--text-soft);text-decoration:none;">eggs</a>
-      <a href="/shelf-life/cheese.html" style="background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:6px 14px;color:var(--text-soft);text-decoration:none;">hard cheese</a>
-      <a href="/shelf-life/avocados.html" style="background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:6px 14px;color:var(--text-soft);text-decoration:none;">avocados</a>
-      <a href="/shelf-life/" style="background:var(--green);border:1px solid var(--green);border-radius:100px;padding:6px 14px;color:#fff;text-decoration:none;font-weight:600;">Browse all 950+ →</a>
+      <a href="/shelf-life/bagged-greens.html" style="background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:10px 16px;color:var(--text-soft);text-decoration:none;display:inline-flex;align-items:center;min-height:40px;">bagged greens</a>
+      <a href="/shelf-life/milk.html" style="background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:10px 16px;color:var(--text-soft);text-decoration:none;display:inline-flex;align-items:center;min-height:40px;">milk</a>
+      <a href="/shelf-life/eggs.html" style="background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:10px 16px;color:var(--text-soft);text-decoration:none;display:inline-flex;align-items:center;min-height:40px;">eggs</a>
+      <a href="/shelf-life/cheese.html" style="background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:10px 16px;color:var(--text-soft);text-decoration:none;display:inline-flex;align-items:center;min-height:40px;">hard cheese</a>
+      <a href="/shelf-life/avocados.html" style="background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:10px 16px;color:var(--text-soft);text-decoration:none;display:inline-flex;align-items:center;min-height:40px;">avocados</a>
+      <a href="/shelf-life/" style="background:var(--green);border:1px solid var(--green);border-radius:100px;padding:10px 16px;color:#fff;text-decoration:none;font-weight:600;display:inline-flex;align-items:center;min-height:40px;">Browse all 950+ →</a>
     </div>
     <p style="margin-top:22px;font-size:12px;color:var(--muted);font-style:italic;">Data via USDA FSIS FoodKeeper. Estimates only — when in doubt, throw it out.</p>
   </div>
@@ -1725,7 +1740,7 @@
 
 <!-- CTA -->
 <div class="cta-section" id="download">
-  <svg class="cta-mark"><use href="#avocado"/></svg>
+  <svg class="cta-mark" aria-hidden="true" focusable="false"><use href="#avocado"/></svg>
   <div class="section-tag" style="display:inline-block;">// Get started</div>
   <h2>Stop staring at the fridge.</h2>
   <p class="cta-sub">Free to download. No subscription. Just an answer to "what do we have to eat?" — every night.</p>
@@ -1764,10 +1779,11 @@
 <!-- Newsletter signup -->
 <section style="max-width:680px;margin:0 auto;padding:24px;">
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:36px 32px;text-align:center;">
-    <h3 style="font-size:24px;font-weight:700;letter-spacing:-0.4px;margin-bottom:8px;">Get the ok2eat newsletter</h3>
+    <h2 style="font-size:24px;font-weight:700;letter-spacing:-0.4px;margin-bottom:8px;">Get the ok2eat newsletter</h2>
     <p style="color:var(--text-soft);font-size:15px;max-width:460px;margin:0 auto 20px;">Two short emails a week, Tuesdays and Thursdays. Personal notes on cutting food waste, lowering grocery bills, and cooking from what's in your fridge.</p>
     <form class="signup-form" data-newsletter style="display:flex;gap:8px;max-width:440px;margin:0 auto;flex-wrap:wrap;justify-content:center;">
       <input type="email" name="email" placeholder="you@example.com" required autocomplete="email"
+             aria-label="Email address for newsletter signup"
              style="flex:1;min-width:220px;background:var(--bg);border:1px solid var(--border);border-radius:100px;padding:12px 18px;font-size:15px;color:var(--text);font-family:inherit;outline:none;">
       <button type="submit" style="background:var(--green);color:#fff;border:none;border-radius:100px;padding:12px 22px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;">Subscribe</button>
     </form>
@@ -1778,7 +1794,7 @@
 
 <!-- Footer -->
 <footer>
-  <div class="footer-logo"><svg><use href="#avocado"/></svg> ok2eat</div>
+  <div class="footer-logo"><svg aria-hidden="true" focusable="false"><use href="#avocado"/></svg> ok2eat</div>
   <ul class="footer-links">
     <li><a href="#features">Features</a></li>
     <li><a href="#how">How it works</a></li>
