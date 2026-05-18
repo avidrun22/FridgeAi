@@ -82,10 +82,10 @@ const FEATURED_POST: {
   url: string;
   until: string; // YYYY-MM-DD; banner hides itself after this date
 } | null = {
-  title: "Groceries jumped 0.7% in April. Food waste just got more expensive too.",
-  blurb: "April's CPI showed the biggest one-month grocery jump in nearly four years. When prices climb and 30% of what you buy still gets thrown away, the real cost increase is much bigger than the headline.",
-  url: "https://ok2eat.com/blog/april-grocery-inflation.html?utm_source=email_digest&utm_medium=email&utm_campaign=blog_announce_grocery_inflation",
-  until: "2026-05-21",
+  title: "What we've been up to this week",
+  blurb: "1,200+ more foods with calibrated shelf life (cheddar lasts 6 months, not 14 days), natural-language search that actually understands \"swiss cheese,\" and a save-your-leftovers flow coming in the next iOS update. A short note from Greg on what shipped.",
+  url: "https://ok2eat.com/blog/whats-new-this-week.html?utm_source=email_digest&utm_medium=email&utm_campaign=blog_announce_whats_new_v122",
+  until: "2026-05-24",
 };
 
 const corsHeaders = {
