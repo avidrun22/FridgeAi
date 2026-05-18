@@ -7,6 +7,8 @@ import AddItemModal from "../components/AddItemModal.jsx";
 import BulkAddItemsModal from "../components/BulkAddItemsModal.jsx";
 import ScanReceiptModal from "../components/ScanReceiptModal.jsx";
 import ItemDetailModal from "../components/ItemDetailModal.jsx";
+import ManageInventoryModal from "../components/ManageInventoryModal.jsx";
+import HouseholdShareModal from "../components/HouseholdShareModal.jsx";
 import Layout from "../components/Layout.jsx";
 
 // Round 3 — full CRUD. Click any row to open the detail modal (edit / use /
@@ -22,6 +24,12 @@ export default function Fridge({ user }) {
   const [showBulkAdd, setShowBulkAdd] = useState(false);
   const [showScanReceipt, setShowScanReceipt] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
+  // v1.22 #257 — Web parity with iOS Manage inventory + invite flow.
+  const [showManage, setShowManage] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
+  // householdName is loaded alongside householdId in refetch; the modal
+  // needs it for its subtitle ("Greg's household · 2 members").
+  const [householdName, setHouseholdName] = useState("");
   // v1.16 — search + category filter for the active container
   const [searchQuery, setSearchQuery] = useState("");
   const [filter, setFilter] = useState("All"); // "All" | "Dairy" | "Protein" | … | "expiring" | "expired"
@@ -34,7 +42,15 @@ export default function Fridge({ user }) {
       const { data: { user: u } } = await supabase.auth.getUser();
       if (!u) return;
       const { data: hhId } = await supabase.rpc("ensure_household_for_user");
-      if (hhId) setHouseholdId(hhId);
+      if (hhId) {
+        setHouseholdId(hhId);
+        // v1.22 #257 — Load household name for the Manage inventory modal
+        // header. Mirrors iOS pattern (App.js ~line 9170). maybeSingle()
+        // so a missing row resolves to null rather than throwing.
+        const { data: hh } = await supabase
+          .from("households").select("name").eq("id", hhId).maybeSingle();
+        if (hh?.name) setHouseholdName(hh.name);
+      }
       const { data, error } = await supabase
         .from("fridge_items")
         .select("*")
@@ -153,6 +169,17 @@ export default function Fridge({ user }) {
             </p>
           </div>
           <div className="flex gap-2 flex-wrap justify-start sm:justify-end mt-3 sm:mt-0 sm:-mt-12">
+            {/* v1.22 #257 — Manage inventory entry point. Matches the iOS
+                top-right pill: tinted-accent fill, accent border so it
+                visually separates from the items-management buttons on
+                its right (Add / Multi-add / Scan receipt are item-level
+                actions; this one is household-level). */}
+            <button
+              onClick={() => setShowManage(true)}
+              className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-full border border-accent/30 bg-accent/10 text-accent text-xs sm:text-sm font-semibold hover:bg-accent/20 whitespace-nowrap"
+            >
+              Manage inventory
+            </button>
             <button
               onClick={() => setShowAdd(true)}
               className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-full border border-border bg-card text-text text-xs sm:text-sm font-semibold hover:border-accent hover:text-accent whitespace-nowrap"
@@ -393,6 +420,25 @@ export default function Fridge({ user }) {
           onUpdated={handleUpdated}
           onRemoved={handleRemoved}
           onLeftoverSaved={handleAdded}
+        />
+
+        {/* v1.22 #257 — Manage inventory + share-household flow.
+            Manage inventory is the iOS-parity landing page (containers,
+            members, invite CTA). The "Invite a family member" button
+            inside it closes itself and pops the share modal (existing
+            HouseholdShareModal which handles both create + redeem). */}
+        <ManageInventoryModal
+          open={showManage}
+          onClose={() => setShowManage(false)}
+          items={items}
+          householdName={householdName}
+          onOpenInvite={() => setShowInvite(true)}
+        />
+
+        <HouseholdShareModal
+          open={showInvite}
+          onClose={() => setShowInvite(false)}
+          onJoined={() => { setShowInvite(false); refetch(); }}
         />
       </>
     </Layout>
