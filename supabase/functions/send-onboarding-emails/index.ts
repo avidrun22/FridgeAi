@@ -241,7 +241,7 @@ const TPL_D0 = `<!DOCTYPE html>
               </p>
               <p style="margin:0 0 8px 0;">Here's how ok2eat works:</p>
               <ul style="margin:0 0 16px 0; padding-left:20px;">
-                <li style="margin:0 0 6px 0;"><strong>Snap a receipt.</strong> Our AI reads every line and fills your fridge in seconds — each item gets a smart shelf-life date from USDA FoodKeeper data (950+ foods).</li>
+                <li style="margin:0 0 6px 0;"><strong>Snap a receipt.</strong> Our AI reads every line and fills your fridge in seconds — each item gets a smart shelf-life date from USDA FoodKeeper data (980+ foods).</li>
                 <li style="margin:0 0 6px 0;"><strong>Open Eat Me First.</strong> Your fridge already ranked by what spoils soonest. Tap any item for three recipes that use it, plus the four next-most-urgent items alongside.</li>
                 <li style="margin:0 0 6px 0;"><strong>Build a shopping list automagically.</strong> Pick a recipe and only the missing ingredients hit your list — no more buying spinach you already have.</li>
               </ul>
@@ -284,7 +284,7 @@ const TPL_D0 = `<!DOCTYPE html>
           <!-- P.S. block -->
           <tr>
             <td style="padding:16px 32px 28px 32px; font-family:'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:14px; line-height:1.6; color:#3E721D;">
-              <p style="margin:0;"><strong>P.S.</strong> Our shelf-life directory at <a href="https://ok2eat.com/shelf-life/" style="color:#3E721D;">ok2eat.com/shelf-life</a> covers 950+ foods with USDA numbers — free, no account needed. Useful for one-off "is this still good?" texts.</p>
+              <p style="margin:0;"><strong>P.S.</strong> Our shelf-life directory at <a href="https://ok2eat.com/shelf-life/" style="color:#3E721D;">ok2eat.com/shelf-life</a> covers 980+ foods with USDA numbers — free, no account needed. Useful for one-off "is this still good?" texts.</p>
             </td>
           </tr>
 
@@ -528,7 +528,7 @@ const TPL_D5 = `<!DOCTYPE html>
 
                     <div style="margin-bottom:14px;">
                       <span style="font-family:'DM Mono', 'Courier New', monospace; font-size:13px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#2A4F12;">01 &nbsp;·&nbsp; Scan</span>
-                      <div style="font-size:16px; line-height:1.65; margin-top:4px;">Barcode for one-off items, receipt photo for the whole haul. We pull the product info and assign a shelf-life window from USDA FoodKeeper data — 950+ foods covered.</div>
+                      <div style="font-size:16px; line-height:1.65; margin-top:4px;">Barcode for one-off items, receipt photo for the whole haul. We pull the product info and assign a shelf-life window from USDA FoodKeeper data — 980+ foods covered.</div>
                     </div>
 
                     <div style="margin-bottom:14px;">
@@ -693,7 +693,7 @@ const TPL_D10 = `<!DOCTYPE html>
                   <td style="padding:16px 20px; font-family:'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; color:#1C261C;">
                     <div style="font-family:'DM Mono', 'Courier New', monospace; font-size:13px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#2A4F12; margin-bottom:4px;">02 &nbsp;·&nbsp; The shelf-life directory works without the app</div>
                     <div style="font-size:16px; line-height:1.65;">
-                      <a href="https://ok2eat.com/shelf-life/" style="color:#3E721D; text-decoration:underline;">ok2eat.com/shelf-life</a> covers 950+ foods with USDA FoodKeeper numbers. No sign-in. Bookmark it on your phone for the "is this still good?" texts from your partner standing in front of the fridge.
+                      <a href="https://ok2eat.com/shelf-life/" style="color:#3E721D; text-decoration:underline;">ok2eat.com/shelf-life</a> covers 980+ foods with USDA FoodKeeper numbers. No sign-in. Bookmark it on your phone for the "is this still good?" texts from your partner standing in front of the fridge.
                     </div>
                   </td>
                 </tr>
