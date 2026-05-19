@@ -65,6 +65,18 @@
     label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; color: var(--text); }
     label .req { color: var(--danger); margin-left: 2px; }
     label .hint { font-weight: 400; color: var(--text-soft); font-size: 12px; }
+
+    /* Honeypot field — off-screen but technically interactive so bots that
+       enumerate inputs see it and fill it. Real humans don't. The Edge
+       Function rejects any submission where this is non-empty. */
+    .hp-trap {
+      position: absolute !important;
+      left: -10000px !important;
+      top: auto !important;
+      width: 1px !important;
+      height: 1px !important;
+      overflow: hidden !important;
+    }
     input[type="text"], input[type="email"], input[type="tel"], input[type="number"], select, textarea {
       width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: #fff; color: var(--text); font-family: inherit; font-size: 14px;
     }
@@ -179,6 +191,18 @@
       </p>
 
       <form id="biz-form" novalidate>
+        <!-- Honeypot: hidden field bots fill in but humans never see.
+             Named "website" because bots target plausible business-form
+             field names. Wrapped in .hp-trap so it's off-screen + aria-hidden
+             + tabindex=-1 + autocomplete=off so password managers / screen
+             readers / keyboard nav all skip it cleanly. -->
+        <div class="hp-trap" aria-hidden="true">
+          <label>
+            Website
+            <input type="text" name="website" tabindex="-1" autocomplete="off" maxlength="200">
+          </label>
+        </div>
+
         <label>
           Your name
           <input type="text" name="contact_name" autocomplete="name" maxlength="200">
@@ -288,6 +312,11 @@
     var btn  = document.getElementById('submit-btn');
     var msg  = document.getElementById('form-msg');
 
+    // Spam defense: track when the form was rendered. Real humans take 5+
+    // seconds to fill out 9 fields; bots hammer in <1s. Edge Function
+    // rejects anything submitted under 3,000ms after this lands.
+    var loadedAt = Date.now();
+
     var ENDPOINT = 'https://qemarhvgeuzhlwybmbie.supabase.co/functions/v1/subscribe-business-waitlist';
     // Anon key is the current legacy anon key (rotated 2026-05-15). Matches
     // the value in lists/index.html and recipes/index.html.
@@ -315,6 +344,11 @@
         location_count:  fd.get('location_count') ? Number(fd.get('location_count')) : null,
         description:     (fd.get('description') || '').toString().trim(),
         source:          (document.referrer || '/for-business').slice(0, 200),
+        // Spam defense (read by the Edge Function):
+        //   website    — honeypot field, real humans never see it
+        //   elapsed_ms — time since the page was rendered (real fills take 5+s)
+        website:         (fd.get('website') || '').toString(),
+        elapsed_ms:      Date.now() - loadedAt,
       };
 
       if (!payload.email || !payload.business_name) {

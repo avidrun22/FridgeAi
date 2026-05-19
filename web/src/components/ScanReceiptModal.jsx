@@ -24,7 +24,21 @@ import { smartUnitFor } from "../lib/helpers.js";
 // Errors during scan show inline; errors during insert show inline. Rate
 // limit hits (429) surface the 10/day cap to the user.
 
-const MAX_FILE_BYTES = 4_500_000; // 4.5 MB pre-encoding
+// v1.24 — bumped from 4.5MB → 12MB source cap because we now resize on a
+// Canvas before upload (was: rejected outright if source was too big, even
+// though a 12MP photo of a receipt is fine once downscaled). The actual
+// payload sent to scan-receipt is the resized output, capped well under
+// the Edge Function's 6MB base64 ceiling.
+const MAX_FILE_BYTES = 12_000_000;
+// Long-side cap for client-side resize. 1600px keeps printed receipt text
+// readable for Claude vision while shrinking a typical iPhone shot from
+// 3-4MB to 500-800KB (much faster on slow Wi-Fi / cellular).
+const RESIZE_MAX_DIM = 1600;
+const RESIZE_JPEG_QUALITY = 0.75;
+// Rotating phase copy shown during the Claude vision call so the 4-6s
+// wait feels intentional instead of frozen. Mirrors the iOS scanPhase
+// state in App.js — targeting the 50% mid-flow cancel rate in PostHog.
+const SCAN_PHASES = ["Reading your receipt…", "Identifying items…", "Almost there…"];
 
 // v1.16 — smart-default container for a parsed item. Mirrors the iOS
 // defaultContainerFor in App.js. Rules in priority order:
@@ -56,6 +70,8 @@ export default function ScanReceiptModal({ open, onClose, onAdded, householdId, 
   const [previewUrl, setPreviewUrl]   = useState(null);
   const [scanning, setScanning]       = useState(false);
   const [scanError, setScanError]     = useState(null);
+  // v1.24 — rotating phase shown during the scan. Advances every 2s.
+  const [scanPhase, setScanPhase]     = useState(SCAN_PHASES[0]);
 
   // Review-phase state
   const [items, setItems]             = useState([]); // [{name, quantity, category, expiry_days}]
@@ -82,6 +98,29 @@ export default function ScanReceiptModal({ open, onClose, onAdded, householdId, 
     if (previewUrl) URL.revokeObjectURL(previewUrl);
   }, [previewUrl]);
 
+  // v1.24 — rotate the scan phase copy every 2s while the call is in
+  // flight. Reset to first phase whenever scanning toggles off.
+  useEffect(() => {
+    if (!scanning) { setScanPhase(SCAN_PHASES[0]); return; }
+    let i = 0;
+    const iv = setInterval(() => {
+      i = Math.min(i + 1, SCAN_PHASES.length - 1);
+      setScanPhase(SCAN_PHASES[i]);
+    }, 2000);
+    return () => clearInterval(iv);
+  }, [scanning]);
+
+  // v1.24 — observe modal-close while a scan is mid-flight or items are
+  // staged in review. Lets us split the cancel cohort by stage in PostHog,
+  // so we can see whether users bail (a) before snapping, (b) during the
+  // Claude call, or (c) on the review screen. Wired via a wrapper around
+  // onClose below.
+  function trackedClose() {
+    const stage = scanning ? "mid_scan" : phase === "review" ? "review" : "upload";
+    track("receipt_scan_cancelled", { source: "web", cancel_stage: stage });
+    onClose?.();
+  }
+
   function handleFile(f) {
     if (!f) return;
     if (!f.type.startsWith("image/")) {
@@ -89,7 +128,7 @@ export default function ScanReceiptModal({ open, onClose, onAdded, householdId, 
       return;
     }
     if (f.size > MAX_FILE_BYTES) {
-      setScanError(`File is ${(f.size / 1_000_000).toFixed(1)} MB — please use one under 4 MB.`);
+      setScanError(`File is ${(f.size / 1_000_000).toFixed(1)} MB — please use one under 12 MB.`);
       return;
     }
     setScanError(null);
@@ -113,13 +152,60 @@ export default function ScanReceiptModal({ open, onClose, onAdded, householdId, 
     });
   }
 
+  // v1.24 — client-side resize using a Canvas. Mirrors the iOS
+  // resizeReceiptForUpload helper in App.js. Returns a base64 JPEG with
+  // long-side capped at RESIZE_MAX_DIM. Avoids needing a Node-side
+  // sharp/image-magick dep; runs entirely in the user's browser.
+  async function resizeOnCanvas(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const ratio = Math.min(1, RESIZE_MAX_DIM / Math.max(img.width, img.height));
+          const w = Math.round(img.width * ratio);
+          const h = Math.round(img.height * ratio);
+          const canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, w, h);
+          const dataUrl = canvas.toDataURL("image/jpeg", RESIZE_JPEG_QUALITY);
+          URL.revokeObjectURL(url);
+          resolve(dataUrl.split(",")[1]);
+        } catch (e) {
+          URL.revokeObjectURL(url);
+          reject(e);
+        }
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("could not decode image"));
+      };
+      img.src = url;
+    });
+  }
+
   async function handleScan() {
     if (!file || scanning) return;
     setScanning(true);
     setScanError(null);
     track("web_app_scan_started");
+    // v1.24 — also fire the unified receipt_scan_started event so iOS and
+    // web share a denominator in the funnel.
+    track("receipt_scan_started", { source: "web" });
     try {
-      const base64 = await fileToBase64(file);
+      // v1.24 — Canvas resize before upload (was: full-resolution base64,
+      // which was the dominant cause of slow scans on cellular and outright
+      // failure on >4.5MB files). Falls back to the raw fileToBase64 if
+      // resize throws for any browser-specific reason.
+      let base64;
+      try {
+        base64 = await resizeOnCanvas(file);
+      } catch (e) {
+        console.warn("canvas resize failed, falling back to raw base64", e);
+        base64 = await fileToBase64(file);
+      }
 
       // Use supabase.functions.invoke so the JWT is attached automatically.
       const t0 = performance.now();
@@ -129,15 +215,37 @@ export default function ScanReceiptModal({ open, onClose, onAdded, householdId, 
       const ms = Math.round(performance.now() - t0);
 
       if (error) {
-        // Functions invoke returns { error } on non-2xx
+        // Functions invoke returns { error } on non-2xx. v1.24 — use the
+        // typed error_type from the Edge Function to surface an actionable
+        // message instead of a single generic error.
         const status = error?.context?.status;
         const json = await error?.context?.json?.().catch(() => ({}));
-        if (status === 429) {
-          setScanError(`Daily scan limit reached (${json?.limit || 10}/day). Try again tomorrow, or use the iOS app.`);
-        } else {
-          setScanError(json?.error || error?.message || "Couldn't parse your receipt. Try a clearer photo.");
+        const errorType = json?.error_type
+          || (status === 429 ? "daily_limit" : status === 401 ? "unauthenticated" : `http_${status || "unknown"}`);
+        let msg;
+        switch (errorType) {
+          case "daily_limit":
+            msg = `Daily scan limit reached (${json?.limit || 10}/day). Try again tomorrow, or use the iOS app.`;
+            break;
+          case "image_too_large":
+            msg = "The photo is unusually large. Try a smaller image (under 12 MB).";
+            break;
+          case "anthropic_transient":
+            msg = "Connection hiccup — please try again.";
+            break;
+          case "anthropic_permanent":
+          case "bad_model_output":
+            msg = "Couldn't read this receipt. Try a clearer photo — make sure the whole receipt is in frame and well-lit.";
+            break;
+          case "unauthenticated":
+            msg = "Please sign in and try again.";
+            break;
+          default:
+            msg = json?.error || error?.message || "Couldn't parse your receipt. Try a clearer photo.";
         }
-        track("web_app_scan_failed", { status, ms });
+        setScanError(msg);
+        track("web_app_scan_failed", { status, ms, error_type: errorType });
+        track("receipt_scan_failed", { source: "web", error_type: errorType });
         setScanning(false);
         return;
       }
@@ -257,7 +365,7 @@ export default function ScanReceiptModal({ open, onClose, onAdded, householdId, 
 
   // ---------- RENDER ----------
   return (
-    <Modal open={open} onClose={onClose} title={phase === "upload" ? "Scan a receipt" : "Review items"} size="lg">
+    <Modal open={open} onClose={trackedClose} title={phase === "upload" ? "Scan a receipt" : "Review items"} size="lg">
       {phase === "upload" && (
         <div className="space-y-3">
           {!previewUrl ? (
@@ -314,7 +422,7 @@ export default function ScanReceiptModal({ open, onClose, onAdded, householdId, 
           <div className="flex gap-2 pt-1">
             <button
               type="button"
-              onClick={onClose}
+              onClick={trackedClose}
               disabled={scanning}
               className="px-5 py-2.5 rounded-full border border-border text-sm font-medium text-textSoft hover:bg-card disabled:opacity-50"
             >Cancel</button>
@@ -324,9 +432,17 @@ export default function ScanReceiptModal({ open, onClose, onAdded, householdId, 
               disabled={!file || scanning}
               className="flex-1 px-5 py-2.5 rounded-full bg-accent text-white text-sm font-semibold hover:bg-accent/90 disabled:opacity-50 flex items-center justify-center gap-2"
             >
-              {scanning ? (<><Spinner /> Reading receipt…</>) : "Scan receipt"}
+              {/* v1.24 — rotating scanPhase copy instead of static "Reading
+                  receipt…". Pairs with the "usually 4-6 seconds" hint below
+                  so the wait feels intentional vs frozen. */}
+              {scanning ? (<><Spinner /> {scanPhase}</>) : "Scan receipt"}
             </button>
           </div>
+          {scanning && (
+            <p className="text-textSoft text-xs text-center">
+              Usually takes 4-6 seconds. Don't close this tab.
+            </p>
+          )}
         </div>
       )}
 

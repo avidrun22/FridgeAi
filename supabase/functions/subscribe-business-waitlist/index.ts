@@ -85,6 +85,33 @@ Deno.serve(async (req) => {
     return json({ error: "Invalid JSON" }, 400);
   }
 
+  // ─── Spam defense (silent reject) ───────────────────────────────────────
+  // Two checks. Both return 200 OK with {ok:true} so bots think they
+  // succeeded — that way they don't iterate on bypasses. The row is never
+  // inserted into business_waitlist and never sent to Resend.
+  //
+  //   1. Honeypot: hidden "website" field on the form. Real humans don't
+  //      see it; bots that auto-fill inputs do. Any non-empty value here
+  //      is a spam signature.
+  //   2. Time trap: real humans take 5+ seconds to fill out the 9-field
+  //      form. Anything submitted in under 3,000ms is almost certainly a
+  //      headless-browser bot. We also reject negative or absurdly large
+  //      elapsed_ms values (clock drift / replay attacks).
+  //
+  // Both checks fire silently; we log the reason for analytics so we can
+  // tune thresholds later if a real lead trips the filter.
+  const honeypot = typeof body.website === "string" ? body.website.trim() : "";
+  if (honeypot) {
+    console.log(`business-waitlist: honeypot hit (website=${honeypot.slice(0, 60)}); silent reject`);
+    return json({ ok: true, already_on_list: false });
+  }
+  const elapsed = typeof body.elapsed_ms === "number" ? body.elapsed_ms : 0;
+  if (elapsed > 0 && elapsed < 3000) {
+    console.log(`business-waitlist: time-trap hit (elapsed_ms=${elapsed}); silent reject`);
+    return json({ ok: true, already_on_list: false });
+  }
+  // ────────────────────────────────────────────────────────────────────────
+
   const email = clamp(body.email, 320)?.toLowerCase() ?? "";
   if (!email || !EMAIL_RE.test(email)) {
     return json({ error: "Invalid email" }, 400);

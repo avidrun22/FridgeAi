@@ -13,6 +13,10 @@ import { createClient } from "@supabase/supabase-js";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
 import * as ImagePicker from "expo-image-picker";
+// v1.24 — client-side resize before scan-receipt upload. Caps long-side
+// at 1600px so a 12MP iPhone shot drops from ~3-4MB to ~500-800KB,
+// dramatically faster on cellular and well under the 6MB Edge Function cap.
+import * as ImageManipulator from "expo-image-manipulator";
 import PostHog from "posthog-react-native";
 import { Picker } from "@react-native-picker/picker";
 
@@ -4509,9 +4513,37 @@ function SettingsScreen({ notificationsEnabled, onToggleNotifications, emailDige
 // ─── Receipt Scanner Helper ──────────────────────────────────────────────────
 // Proxies through the Supabase Edge Function `scan-receipt` so the Anthropic
 // API key stays off-device. Requires the user to be signed in.
+// v1.24 — resize image client-side before sending to scan-receipt.
+// Long-side capped at 1600px keeps the receipt readable for Claude vision
+// (still resolves printed text fine) while shrinking 12MP iPhone shots
+// from ~3-4MB to ~500-800KB. Major win on cellular and avoids the 6MB
+// Edge Function ceiling. JPEG compress at 0.7 for additional savings.
+async function resizeReceiptForUpload(uri) {
+  try {
+    const out = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: 1600 } }],
+      { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true },
+    );
+    return out.base64;
+  } catch (e) {
+    // If resize fails for any reason, throw so the caller can decide
+    // whether to retry without resize or surface a friendly error.
+    throw new Error(`resize failed: ${(e && e.message) || e}`);
+  }
+}
+
+// v1.24 — typed error payload from scan-receipt. The Edge Function returns
+// { error_type } so the client can show actionable copy instead of a
+// single generic "scan failed" toast. Errors here carry .errorType so the
+// caller can route to the right Alert message + telemetry property.
 async function parseReceiptImage(base64) {
   const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error("Please sign in to scan receipts.");
+  if (!session) {
+    const err = new Error("Please sign in to scan receipts.");
+    err.errorType = "unauthenticated";
+    throw err;
+  }
 
   const res = await fetch(`${SUPABASE_URL}/functions/v1/scan-receipt`, {
     method: "POST",
@@ -4524,9 +4556,11 @@ async function parseReceiptImage(base64) {
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    if (res.status === 429) throw new Error(data?.error || "Daily scan limit reached.");
-    if (res.status === 401) throw new Error("Please sign in to scan receipts.");
-    throw new Error(data?.error || `Scan failed (HTTP ${res.status}).`);
+    const err = new Error(data?.error || `Scan failed (HTTP ${res.status}).`);
+    err.errorType = data?.error_type || (res.status === 429 ? "daily_limit"
+      : res.status === 401 ? "unauthenticated"
+      : `http_${res.status}`);
+    throw err;
   }
   return Array.isArray(data.items) ? data.items : [];
 }
@@ -4651,6 +4685,22 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
   const [rows, setRows] = useState([]);
   const [adding, setAdding] = useState(false);
   const [scanning, setScanning] = useState(false);
+  // v1.24 — rotating loading phase shown during the Claude vision call so
+  // the 4-6s wait feels intentional instead of frozen. Phases advance every
+  // ~2s while `scanning` is true; reset to first phase when scan ends. Tied
+  // to the 50% mid-flow cancel rate seen in PostHog — perceived speed is
+  // the real fix, not actual speed.
+  const SCAN_PHASES = ["Reading your receipt…", "Identifying items…", "Almost there…"];
+  const [scanPhase, setScanPhase] = useState(SCAN_PHASES[0]);
+  useEffect(() => {
+    if (!scanning) { setScanPhase(SCAN_PHASES[0]); return; }
+    let i = 0;
+    const iv = setInterval(() => {
+      i = Math.min(i + 1, SCAN_PHASES.length - 1);
+      setScanPhase(SCAN_PHASES[i]);
+    }, 2000);
+    return () => clearInterval(iv);
+  }, [scanning]);
   // v1.15 — sample-receipt banner. Shown when the modal opens with
   // presetMode="sample" (from the empty-state "Try a sample receipt" CTA).
   // Tells the user the data isn't real yet and they should edit or commit it.
@@ -4792,10 +4842,13 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
           );
           return;
         }
+        // v1.24 — drop base64:true here. Resize happens in
+        // resizeReceiptForUpload() and produces a smaller base64 from the
+        // resized image. Skipping the full-size base64 saves memory on
+        // older devices and one round of large string handling.
         result = await ImagePicker.launchCameraAsync({
           mediaTypes: ["images"],
           quality: 0.7,
-          base64: true,
         });
       } else {
         const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -4819,28 +4872,61 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
         result = await ImagePicker.launchImageLibraryAsync({
           mediaTypes: ["images"],
           quality: 0.7,
-          base64: true,
         });
       }
-      if (result.canceled || !result.assets?.[0]?.base64) {
-        // v1.15 — explicit cancel telemetry so we can see how often users
-        // start the scan flow and bail out before snapping/picking a photo.
-        track("receipt_scan_cancelled", { source });
+      const uri = result?.assets?.[0]?.uri;
+      if (result.canceled || !uri) {
+        // v1.24 — added cancel_stage so we can split picker-cancels (here,
+        // user backed out before taking/picking a photo) from later cancels
+        // on the post-scan review screen. v1.15 fired this for both cases.
+        track("receipt_scan_cancelled", { source, cancel_stage: "picker" });
         return;
       }
 
       setScanning(true);
-      const parsed = await parseReceiptImage(result.assets[0].base64);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        applyReceiptItems(parsed);
-        track("receipt_scanned", { source, item_count: parsed.length });
-      } else {
-        track("receipt_scan_no_items", { source });
-        Alert.alert("No items found", "Couldn't extract food items from this image. Try a clearer photo.");
+      // v1.24 — client-side resize before upload. The Edge Function caps
+      // at 6MB base64; iPhone shots regularly exceed that without resize.
+      let resizedB64;
+      try {
+        resizedB64 = await resizeReceiptForUpload(uri);
+      } catch (e) {
+        track("receipt_scan_failed", { source, error_type: "client_resize_failed", message: String(e?.message || "").slice(0, 80) });
+        Alert.alert("Couldn't process that photo", "Try taking the photo again. If this keeps happening, email hello@ok2eat.com.");
+        return;
+      }
+      try {
+        const parsed = await parseReceiptImage(resizedB64);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          applyReceiptItems(parsed);
+          track("receipt_scanned", { source, item_count: parsed.length });
+        } else {
+          track("receipt_scan_no_items", { source });
+          Alert.alert("No items found", "Couldn't extract food items from this image. Try a clearer photo.");
+        }
+      } catch (e) {
+        // v1.24 — route to actionable error message based on the typed
+        // errorType payload from scan-receipt. Also send error_type to
+        // PostHog so we can finally see WHY the 12.5% failure cohort fails.
+        const errorType = e?.errorType || "unknown";
+        track("receipt_scan_failed", { source, error_type: errorType });
+        const title = errorType === "anthropic_transient" ? "Connection slow"
+                    : errorType === "image_too_large"    ? "Photo too large"
+                    : errorType === "daily_limit"        ? "Daily limit reached"
+                    : errorType === "unauthenticated"    ? "Sign-in needed"
+                    : "Couldn't read the receipt";
+        const body = errorType === "anthropic_transient" ? "Network hiccup — try again in a moment."
+                   : errorType === "image_too_large"    ? "The photo is unusually large. Try a smaller one."
+                   : errorType === "daily_limit"        ? (e?.message || "You've hit today's scan limit. Try again tomorrow.")
+                   : errorType === "unauthenticated"    ? "Please sign in and try again."
+                   : errorType === "anthropic_permanent" || errorType === "bad_model_output" ? "Try a clearer photo or better lighting — make sure the whole receipt is in frame."
+                   : "Couldn't process the receipt. Check your connection and try again.";
+        Alert.alert(title, body);
       }
     } catch (e) {
-      track("receipt_scan_failed", { source });
-      Alert.alert("Scan failed", "Couldn't process the receipt. Check your connection and try again.");
+      // v1.24 — outer catch for unexpected throws (e.g. ImagePicker errors).
+      // Should rarely fire now that the inner blocks own their error paths.
+      track("receipt_scan_failed", { source, error_type: "unexpected", message: String(e?.message || "").slice(0, 80) });
+      Alert.alert("Scan failed", "Something went wrong. Check your connection and try again.");
     } finally {
       setScanning(false);
     }
@@ -4913,11 +4999,16 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 120 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
 
             {/* Receipt Scanner Buttons */}
+            {/* v1.24 — friendlier loading copy. The Claude vision call takes
+                4-6s typically, and the previous "Reading receipt..." felt
+                like a freeze. Setting expectations + a phase indicator
+                that rotates every 2s makes the wait feel intentional and
+                helps reduce the 50% mid-flow cancel rate seen in PostHog. */}
             {scanning ? (
               <View style={[s.card, { padding: 24, marginBottom: 16, alignItems: "center" }]}>
                 <ActivityIndicator color={T.accent} size="large" />
-                <Text style={[s.bold, { fontSize: 15, marginTop: 12 }]}>Reading receipt...</Text>
-                <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 4 }}>AI is extracting your grocery items</Text>
+                <Text style={[s.bold, { fontSize: 15, marginTop: 12 }]}>{scanPhase}</Text>
+                <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 4, textAlign: "center" }}>Usually takes 4-6 seconds. Don't close the app.</Text>
               </View>
             ) : (
               <View style={{ flexDirection: "row", gap: 10, marginBottom: 16 }}>

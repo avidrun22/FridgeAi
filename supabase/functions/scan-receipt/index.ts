@@ -43,8 +43,14 @@ Deno.serve(async (req) => {
     return json({ error: "missing image (base64-jpeg)" }, 400);
   }
   if (image.length > 6_000_000) {
-    // ~4.5 MB decoded — cap to protect Anthropic token budget
-    return json({ error: "image too large, must be <6MB base64" }, 413);
+    // ~4.5 MB decoded — cap to protect Anthropic token budget. v1.24:
+    // client now resizes to ~1600px before upload so this should rarely
+    // fire; when it does, surface a typed error so the client can show
+    // an actionable message instead of a generic "scan failed".
+    return json({
+      error: "Receipt photo is too large. Try a smaller image.",
+      error_type: "image_too_large",
+    }, 413);
   }
 
   // 3. Rate limit (atomic increment; counts even if Claude call fails, which
@@ -54,12 +60,13 @@ Deno.serve(async (req) => {
     rl = await checkAndIncrement(userId, "scan_receipt", DAILY_LIMIT);
   } catch (e) {
     console.error("rate_limit error", e);
-    return json({ error: "rate limit check failed" }, 500);
+    return json({ error: "rate limit check failed", error_type: "rate_limit_check" }, 500);
   }
   if (!rl.allowed) {
     return json(
       {
         error: `daily limit reached (${rl.limit}/day). Try again tomorrow.`,
+        error_type: "daily_limit",
         count: rl.count,
         limit: rl.limit,
       },
@@ -67,9 +74,12 @@ Deno.serve(async (req) => {
     );
   }
 
-  // 4. Call Anthropic
+  // 4. Call Anthropic — v1.24 typed error responses so the client can
+  // surface "Connection hiccup — try again" / "Try a clearer photo" etc.
+  // instead of a single generic "receipt parse failed".
+  let text: string;
   try {
-    const { text } = await callClaude({
+    const resp = await callClaude({
       max_tokens: 2000,
       messages: [
         {
@@ -84,13 +94,61 @@ Deno.serve(async (req) => {
         },
       ],
     });
-    const items = extractJson<unknown[]>(text);
-    if (!Array.isArray(items)) return json({ error: "bad model output" }, 502);
-    return json({ items, usage: { count: rl.count, limit: rl.limit } });
+    text = resp.text;
   } catch (e) {
-    console.error("anthropic error", e);
-    return json({ error: "receipt parse failed" }, 502);
+    const msg = (e as Error)?.message || String(e);
+    console.error("anthropic error", msg);
+    // Differentiate transient (network/5xx/timeout) from permanent. Client
+    // can retry the transient class; permanent shows a helpful tip.
+    const transient = /timeout|fetch|network|5\d\d|abort|reset|enotfound/i.test(msg);
+    return json(
+      {
+        error: transient
+          ? "Connection hiccup — try again."
+          : "Couldn't read this receipt. Try a clearer photo or better lighting.",
+        error_type: transient ? "anthropic_transient" : "anthropic_permanent",
+      },
+      502,
+    );
   }
+
+  // 5. JSON extraction — v1.24 retry once if first extraction fails. A chunk
+  // of the historical ~12.5% failure rate is Claude returning JSON wrapped
+  // in commentary or trailing text. One stricter retry catches those cheaply.
+  let items = extractJson<unknown[]>(text);
+  if (!Array.isArray(items)) {
+    console.warn("bad model output on first pass, retrying once with stricter prompt");
+    try {
+      const resp = await callClaude({
+        max_tokens: 2000,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "image",
+                source: { type: "base64", media_type: "image/jpeg", data: image },
+              },
+              { type: "text", text: PROMPT + "\n\nReturn ONLY the JSON array. No prose, no markdown, no commentary." },
+            ],
+          },
+        ],
+      });
+      items = extractJson<unknown[]>(resp.text);
+    } catch (e) {
+      console.error("retry anthropic error", (e as Error)?.message || e);
+    }
+    if (!Array.isArray(items)) {
+      return json(
+        {
+          error: "Couldn't read this receipt. Try a clearer photo.",
+          error_type: "bad_model_output",
+        },
+        502,
+      );
+    }
+  }
+  return json({ items, usage: { count: rl.count, limit: rl.limit } });
 });
 
 function json(body: unknown, status = 200) {
