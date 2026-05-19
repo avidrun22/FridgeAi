@@ -21,6 +21,21 @@ export default function AuthScreen() {
   const [msg, setMsg]       = useState(null);
   const [err, setErr]       = useState(null);
 
+  // v1.24 — Bot defense. Two signals layered:
+  //   1. Honeypot "website" field — visually hidden, real users never see it,
+  //      form-filling bots auto-fill any input named "website".
+  //   2. Time trap — real humans take 5+ seconds to read + type an email.
+  //      Anything submitted under 3,000ms after this component mounted is
+  //      almost certainly a headless-browser bot.
+  // When either trips, we DO NOT call Supabase Auth (so no real account
+  // gets created and no welcome email fires). We DO show the same success
+  // copy a real submission would — bot sees "success", moves on, never
+  // retries with a bypass. Critical because welcome emails to bot-Gmail
+  // addresses degrade hello@ok2eat.com sender reputation, which is what's
+  // pushing real users' confirm emails into spam (May 2026 issue).
+  const [website, setWebsite] = useState("");
+  const [loadedAt] = useState(() => Date.now());
+
   // v1.16 — Sign in with Apple via Supabase OAuth. Supabase brokers the
   // redirect to Apple, then bounces back to /. Same email as iOS Apple
   // sign-in lands on the same auth.users row (Supabase links identities
@@ -49,6 +64,35 @@ export default function AuthScreen() {
     setErr(null);
     setMsg(null);
     setBusy(true);
+
+    // v1.24 — Bot defense check before ANY Supabase call. Silent reject:
+    // show the same success message a real submission would produce, but
+    // skip the Supabase Auth call entirely so no account gets created and
+    // no welcome email fires. Bots think they succeeded → don't retry with
+    // a bypass. See the comment on `website` + `loadedAt` state for context.
+    const honeypot = website.trim();
+    const elapsed = Date.now() - loadedAt;
+    if (honeypot || (elapsed > 0 && elapsed < 3000)) {
+      track("auth_blocked_bot_signal", {
+        method: mode,
+        honeypot_hit: !!honeypot,
+        elapsed_ms: elapsed,
+      });
+      // Fake success messaging matched to the mode, so the bot's UI parser
+      // sees the same "we sent you an email" copy a real run would produce.
+      if (mode === "magic" || mode === "signup") {
+        setMsg("Check your email — we sent a sign-in link.");
+      } else if (mode === "reset") {
+        setMsg("Password reset link sent — check your email (and spam folder).");
+      } else {
+        // signin: don't pretend success (would leak that this defense exists
+        // to anyone watching). Show a generic invalid-creds error.
+        setErr("Invalid email or password.");
+      }
+      setBusy(false);
+      return;
+    }
+
     try {
       track("auth_attempted", { method: mode });
       if (mode === "magic") {
@@ -155,6 +199,35 @@ export default function AuthScreen() {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-3">
+            {/* v1.24 — Honeypot field. Real users never see it (off-screen
+                via absolute positioning + tiny size). Form-filling bots that
+                blindly populate every input named "website" will trip the
+                check in handleSubmit. aria-hidden + tabIndex=-1 + autoComplete=off
+                keep screen readers / keyboard nav / password managers from
+                ever surfacing it to real humans. */}
+            <div
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                left: "-10000px",
+                top: "auto",
+                width: "1px",
+                height: "1px",
+                overflow: "hidden",
+              }}
+            >
+              <label>
+                Website
+                <input
+                  type="text"
+                  name="website"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  value={website}
+                  onChange={(e) => setWebsite(e.target.value)}
+                />
+              </label>
+            </div>
             <div>
               <label className="block text-xs text-textSoft mb-1">Email</label>
               <input
