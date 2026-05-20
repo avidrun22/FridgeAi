@@ -80,6 +80,19 @@ export default function Plan({ user }) {
   const [archivedLists, setArchivedLists] = useState([]);
   const [archivedExpanded, setArchivedExpanded] = useState(false);
 
+  // v1.26 #312 web parity — top-level mode gate. null = haven't picked Today
+  // vs Week yet; "today" = legacy Tonight/All/Saved flow; "week" = the new
+  // multi-cuisine + serving picker → 5-card Mon-Fri plan persisted to
+  // weekly_meal_plans. Mirrors iOS PlanScreen.
+  const [planMode, setPlanMode] = useState(null);                    // null | "today" | "week"
+  const [weeklyPlan, setWeeklyPlan] = useState(null);                // { id, servings, cuisines, recipes, created_at }
+  const [weeklyCuisines, setWeeklyCuisines] = useState(new Set());
+  const [weeklyServings, setWeeklyServings] = useState(2);
+  const [weeklyGenerating, setWeeklyGenerating] = useState(false);
+  const [previousPlans, setPreviousPlans] = useState([]);
+  const [previousPlansExpanded, setPreviousPlansExpanded] = useState(false);
+  const [viewingPreviousPlan, setViewingPreviousPlan] = useState(null);
+
   // v1.22 #187 web parity — Recipes section. Mirrors iOS PlanScreen v1.19.
   // Three sub-tabs: Tonight (fridge-aware, ranked by overlap), All Recipes
   // (cuisine-filtered browse), Saved (user_recipes_saved).
@@ -210,6 +223,123 @@ export default function Plan({ user }) {
 
   useEffect(() => { loadEverything(); /* eslint-disable-line */ }, []);
   useEffect(() => { if (activeListId) loadItems(activeListId); else setItems([]); /* eslint-disable-line */ }, [activeListId]);
+  // v1.26 #312 — Load weekly plans when user enters Week mode (or household changes).
+  useEffect(() => {
+    if (planMode === "week") loadWeeklyPlans();
+    // eslint-disable-next-line
+  }, [householdId, planMode]);
+
+  // v1.26 #312 web parity — Weekly Meal Plans handlers. Same shape as iOS:
+  // load active + history, generate (auto-saves), clone-on-reactivate.
+  async function loadWeeklyPlans() {
+    if (!householdId) {
+      setWeeklyPlan(null);
+      setPreviousPlans([]);
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from("weekly_meal_plans")
+        .select("id, servings, cuisines, recipes, created_at")
+        .eq("household_id", householdId)
+        .is("archived_at", null)
+        .order("created_at", { ascending: false })
+        .limit(21);
+      if (error) throw error;
+      const rows = data || [];
+      if (rows.length === 0) {
+        setWeeklyPlan(null);
+        setPreviousPlans([]);
+      } else {
+        setWeeklyPlan(rows[0]);
+        setPreviousPlans(rows.slice(1));
+      }
+    } catch (e) {
+      console.warn("[plan-web] loadWeeklyPlans failed:", e?.message || e);
+    }
+  }
+
+  async function generateWeeklyPlan() {
+    if (!householdId || weeklyGenerating) return;
+    setWeeklyGenerating(true);
+    try {
+      const itemNames = (items || [])
+        .map(i => (i.name || "").trim())
+        .filter(Boolean)
+        .slice(0, 60);
+      if (itemNames.length === 0) {
+        alert("Add a few items to your fridge first — the weekly plan uses your inventory.");
+        return;
+      }
+      const cuisinesArr = Array.from(weeklyCuisines);
+      const body = {
+        items: itemNames,
+        servings: weeklyServings,
+        mode: "weekly",
+        cuisines: cuisinesArr,
+      };
+      const { data, error } = await supabase.functions.invoke("generate-recipes", { body });
+      if (error) throw error;
+      const recipes = Array.isArray(data?.recipes) ? data.recipes : [];
+      if (recipes.length === 0) {
+        alert("Couldn't build a plan. Try a different cuisine mix or add more items.");
+        return;
+      }
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data: inserted, error: insErr } = await supabase
+        .from("weekly_meal_plans")
+        .insert({
+          household_id: householdId,
+          created_by: user?.id || null,
+          servings: weeklyServings,
+          cuisines: cuisinesArr,
+          recipes,
+        })
+        .select("id, servings, cuisines, recipes, created_at")
+        .single();
+      if (insErr) throw insErr;
+      setPreviousPlans(prev => weeklyPlan ? [weeklyPlan, ...prev].slice(0, 20) : prev);
+      setWeeklyPlan(inserted);
+      track("weekly_plan_generated", {
+        surface: "web",
+        servings: weeklyServings,
+        cuisine_count: cuisinesArr.length,
+        recipe_count: recipes.length,
+        source: data?.source || "claude",
+      });
+    } catch (e) {
+      console.warn("[plan-web] generateWeeklyPlan failed:", e?.message || e);
+      alert("Couldn't build a plan. Try again in a moment.");
+    } finally {
+      setWeeklyGenerating(false);
+    }
+  }
+
+  async function cloneWeeklyPlan(sourcePlan) {
+    if (!householdId || !sourcePlan) return;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data: inserted, error } = await supabase
+        .from("weekly_meal_plans")
+        .insert({
+          household_id: householdId,
+          created_by: user?.id || null,
+          servings: sourcePlan.servings,
+          cuisines: sourcePlan.cuisines || [],
+          recipes: sourcePlan.recipes,
+        })
+        .select("id, servings, cuisines, recipes, created_at")
+        .single();
+      if (error) throw error;
+      setPreviousPlans(prev => weeklyPlan ? [weeklyPlan, ...prev].slice(0, 20) : prev);
+      setWeeklyPlan(inserted);
+      setViewingPreviousPlan(null);
+      track("weekly_plan_cloned", { surface: "web", source_id: sourcePlan.id });
+    } catch (e) {
+      console.warn("[plan-web] cloneWeeklyPlan failed:", e?.message || e);
+      alert("Couldn't reactivate that plan. Try again.");
+    }
+  }
 
   // v1.22 #187 — recipe loaders. Tonight comes from recipe-browse with
   // tab=tonight (server ranks by fridge overlap). All Recipes is browse
@@ -660,14 +790,56 @@ export default function Plan({ user }) {
           </div>
         )}
 
-        {/* ─── Recipes (v1.22 web parity port — #187 Phase 2+3) ─────────────────
-            Three sub-tabs: Tonight (fridge-aware, ranked by overlap), All
-            Recipes (cuisine-filtered browse), Saved (user_recipes_saved).
-            Cuisine-first flow on Tonight + All Recipes — pick a cuisine
-            before seeing cards. Tap a card → opens RecipeSheet with
-            Save / Share / Add-to-list. Mirrors iOS App.js PlanScreen
-            v1.19. */}
+        {/* ─── Meal Planning — top-level mode gate (v1.26 #312) ───────────
+            Two-button gate: "For Today" preserves the Tonight/All/Saved
+            cuisine-first flow. "For This Week" swaps in a multi-cuisine +
+            serving picker → 5-card Mon-Fri plan persisted to
+            weekly_meal_plans, with a Previous Plans collapsible. Mirrors
+            iOS App.js PlanScreen. */}
         <section className="mb-8">
+          <h2 className="text-[11px] font-bold tracking-widest text-textSoft uppercase mb-3">
+            // Meal Planning
+          </h2>
+
+          {/* Mode gate — only shown when user hasn't picked Today vs Week yet. */}
+          {planMode === null && (
+            <div className="mb-5">
+              <p className="text-textSoft text-sm mb-3">What are you planning?</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => { setPlanMode("today"); track("plan_mode_selected", { surface: "web", mode: "today" }); }}
+                  className="rounded-xl border border-border bg-card p-4 hover:border-accent/60 transition text-center"
+                >
+                  <div className="text-3xl mb-1">🍽️</div>
+                  <div className="text-text text-sm font-semibold">For Today</div>
+                  <div className="text-textSoft text-xs mt-0.5">What to cook tonight</div>
+                </button>
+                <button
+                  onClick={() => { setPlanMode("week"); track("plan_mode_selected", { surface: "web", mode: "week" }); }}
+                  className="rounded-xl border border-border bg-card p-4 hover:border-accent/60 transition text-center"
+                >
+                  <div className="text-3xl mb-1">📅</div>
+                  <div className="text-text text-sm font-semibold">For This Week</div>
+                  <div className="text-textSoft text-xs mt-0.5">5 dinners Mon–Fri</div>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Mode-active pill — tap to return to gate */}
+          {planMode !== null && (
+            <button
+              onClick={() => { setPlanMode(null); track("plan_mode_changed", { surface: "web" }); }}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/15 text-accent text-xs font-semibold mb-4 hover:opacity-80"
+            >
+              <span>←</span>
+              <span>{planMode === "today" ? "🍽️ Planning for today" : "📅 Planning for the week"}</span>
+              <span className="text-textSoft font-normal ml-0.5">· tap to change</span>
+            </button>
+          )}
+
+          {/* ─── Today mode — Tonight/All/Saved sub-tabs ─────────────── */}
+          {planMode === "today" && (<>
           <h2 className="text-[11px] font-bold tracking-widest text-textSoft uppercase mb-3">
             // Recipes
           </h2>
@@ -827,7 +999,292 @@ export default function Plan({ user }) {
               </div>
             )
           )}
+          </>)}
+
+          {/* ─── Week mode — multi-cuisine + servings → 5-card Mon-Fri ─── */}
+          {planMode === "week" && (() => {
+            const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+            if (weeklyGenerating) {
+              return (
+                <div className="rounded-xl border border-border bg-card p-6 text-center">
+                  <div className="text-2xl mb-2">⏳</div>
+                  <p className="text-text font-semibold text-sm">Building your week's plan…</p>
+                  <p className="text-textSoft text-xs mt-1">
+                    5 dinners, scaled to {weeklyServings} {weeklyServings === 1 ? "serving" : "servings"}.
+                  </p>
+                </div>
+              );
+            }
+            // ────── ACTIVE PLAN — 5 cards Mon-Fri ──────
+            if (weeklyPlan && Array.isArray(weeklyPlan.recipes) && weeklyPlan.recipes.length > 0) {
+              const planRecipes = weeklyPlan.recipes;
+              const planCuisinesLabel = (weeklyPlan.cuisines || [])
+                .map(k => CUISINE_PICKER_OPTIONS.find(c => c.key === k)?.label || k)
+                .join(", ");
+              return (
+                <div>
+                  <div className="rounded-xl border border-accent/30 bg-accent/5 p-3 mb-3">
+                    <p className="text-textSoft text-xs">
+                      Active plan · {weeklyPlan.servings} {weeklyPlan.servings === 1 ? "serving" : "servings"}
+                      {planCuisinesLabel ? ` · ${planCuisinesLabel}` : ""}
+                    </p>
+                    <p className="text-accent text-xs font-bold mt-0.5">📅 Your week</p>
+                  </div>
+                  <div className="space-y-2 mb-4">
+                    {planRecipes.slice(0, 5).map((r, idx) => {
+                      const day = DAY_LABELS[idx] || `Day ${idx + 1}`;
+                      const meta = [r.time, r.difficulty].filter(Boolean).join(" · ");
+                      return (
+                        <button
+                          key={`${weeklyPlan.id}-${idx}`}
+                          onClick={() => {
+                            track("weekly_plan_recipe_opened", { surface: "web", plan_id: weeklyPlan.id, day_index: idx, name: r.name });
+                            openRecipeSheet(r);
+                          }}
+                          className="w-full rounded-xl border border-border bg-card p-3 flex items-center gap-3 text-left hover:border-accent/60 transition"
+                        >
+                          <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0">
+                            <span className="text-[10px] font-bold text-accent">{day.toUpperCase()}</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-text font-semibold text-sm truncate">
+                              {r.emoji || "🍽️"} {r.name || "Recipe"}
+                            </p>
+                            {!!meta && (
+                              <p className="text-textSoft text-xs mt-0.5 truncate">{meta}</p>
+                            )}
+                          </div>
+                          <span className="text-muted text-xl flex-shrink-0">›</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button
+                    onClick={() => {
+                      setWeeklyPlan(null);
+                      setWeeklyCuisines(new Set());
+                      setWeeklyServings(2);
+                      track("weekly_plan_new_tapped", { surface: "web", previous_id: weeklyPlan.id });
+                    }}
+                    className="w-full rounded-xl border border-dashed border-border bg-card p-3 hover:border-accent/60 transition text-center"
+                  >
+                    <p className="text-accent text-sm font-bold">+ New plan</p>
+                    <p className="text-textSoft text-xs mt-0.5">Compose a fresh week</p>
+                  </button>
+
+                  {/* Previous Plans */}
+                  {previousPlans.length > 0 && (
+                    <div className="mt-4">
+                      <button
+                        onClick={() => setPreviousPlansExpanded(!previousPlansExpanded)}
+                        className="w-full flex items-center justify-between py-2"
+                      >
+                        <span className="text-textSoft text-[10px] font-bold tracking-widest uppercase">
+                          ⏱  Previous Plans · {previousPlans.length}
+                        </span>
+                        <span className="text-muted text-base">{previousPlansExpanded ? "▴" : "▾"}</span>
+                      </button>
+                      {previousPlansExpanded && (
+                        <div className="space-y-1.5">
+                          {previousPlans.map(p => {
+                            const created = new Date(p.created_at);
+                            const dateLabel = created.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                            const cuisinesLabel = (p.cuisines || [])
+                              .map(k => CUISINE_PICKER_OPTIONS.find(c => c.key === k)?.label || k)
+                              .join(", ") || "Any cuisine";
+                            const firstRecipeName = (p.recipes?.[0]?.name) || "Recipe";
+                            return (
+                              <button
+                                key={p.id}
+                                onClick={() => setViewingPreviousPlan(p)}
+                                className="w-full rounded-xl border border-border bg-card p-2.5 flex items-center gap-3 text-left hover:border-accent/60 transition"
+                              >
+                                <div className="w-10 h-10 rounded-lg bg-bg flex flex-col items-center justify-center flex-shrink-0">
+                                  <span className="text-[9px] font-bold text-textSoft uppercase">{dateLabel.split(" ")[0]}</span>
+                                  <span className="text-xs font-bold text-text leading-none">{dateLabel.split(" ")[1]}</span>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-text font-semibold text-xs truncate">{cuisinesLabel}</p>
+                                  <p className="text-textSoft text-[11px] mt-0.5 truncate">
+                                    {p.servings} {p.servings === 1 ? "serving" : "servings"} · starts with {firstRecipeName}
+                                  </p>
+                                </div>
+                                <span className="text-muted text-base flex-shrink-0">›</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+            // ────── COMPOSE — multi-cuisine + servings + Generate ──────
+            return (
+              <div>
+                <p className="text-text text-sm font-semibold mb-1">Pick the cuisines you want this week</p>
+                <p className="text-textSoft text-xs mb-3">
+                  We'll spread 5 dinners across them. Pick 1 or pick all — your call.
+                </p>
+                <div className="flex flex-wrap gap-1.5 mb-5">
+                  {CUISINE_PICKER_OPTIONS.map(c => {
+                    const selected = weeklyCuisines.has(c.key);
+                    return (
+                      <button
+                        key={c.key}
+                        onClick={() => {
+                          const next = new Set(weeklyCuisines);
+                          if (selected) next.delete(c.key); else next.add(c.key);
+                          setWeeklyCuisines(next);
+                        }}
+                        className={`px-3 py-1.5 rounded-full border text-xs font-semibold transition flex items-center gap-1.5 ${
+                          selected
+                            ? "bg-accent/15 text-accent border-accent"
+                            : "bg-surface text-text border-border hover:border-accent/60"
+                        }`}
+                      >
+                        <span>{c.emoji}</span>
+                        <span>{c.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <p className="text-text text-sm font-semibold mb-1">How many people?</p>
+                <p className="text-textSoft text-xs mb-3">We'll scale ingredient amounts to match.</p>
+                <div className="flex flex-wrap gap-1.5 mb-5">
+                  {[1, 2, 3, 4, 5, 6, 8].map(n => {
+                    const selected = weeklyServings === n;
+                    return (
+                      <button
+                        key={n}
+                        onClick={() => setWeeklyServings(n)}
+                        className={`min-w-[44px] px-3.5 py-2 rounded-xl border text-sm font-bold transition ${
+                          selected
+                            ? "bg-accent/15 text-accent border-accent"
+                            : "bg-surface text-text border-border hover:border-accent/60"
+                        }`}
+                      >
+                        {n}{n === 8 ? "+" : ""}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <button
+                  onClick={generateWeeklyPlan}
+                  disabled={weeklyGenerating}
+                  className="w-full py-2.5 rounded-lg bg-accent text-white text-sm font-bold hover:opacity-90 transition disabled:opacity-50"
+                >
+                  {weeklyCuisines.size > 0
+                    ? `Generate ${weeklyCuisines.size === 1
+                        ? "from " + (CUISINE_PICKER_OPTIONS.find(c => c.key === Array.from(weeklyCuisines)[0])?.label || "selected")
+                        : "across " + weeklyCuisines.size + " cuisines"}`
+                    : "Surprise me with 5 dinners"}
+                </button>
+                <p className="text-textSoft text-xs mt-2 text-center">
+                  Uses what's in your fridge when possible · skip cuisines to let us mix
+                </p>
+
+                {/* Previous Plans (also visible in compose state) */}
+                {previousPlans.length > 0 && (
+                  <div className="mt-6">
+                    <button
+                      onClick={() => setPreviousPlansExpanded(!previousPlansExpanded)}
+                      className="w-full flex items-center justify-between py-2"
+                    >
+                      <span className="text-textSoft text-[10px] font-bold tracking-widest uppercase">
+                        ⏱  Previous Plans · {previousPlans.length}
+                      </span>
+                      <span className="text-muted text-base">{previousPlansExpanded ? "▴" : "▾"}</span>
+                    </button>
+                    {previousPlansExpanded && (
+                      <div className="space-y-1.5">
+                        {previousPlans.map(p => {
+                          const created = new Date(p.created_at);
+                          const dateLabel = created.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                          const cuisinesLabel = (p.cuisines || [])
+                            .map(k => CUISINE_PICKER_OPTIONS.find(c => c.key === k)?.label || k)
+                            .join(", ") || "Any cuisine";
+                          const firstRecipeName = (p.recipes?.[0]?.name) || "Recipe";
+                          return (
+                            <button
+                              key={p.id}
+                              onClick={() => setViewingPreviousPlan(p)}
+                              className="w-full rounded-xl border border-border bg-card p-2.5 flex items-center gap-3 text-left hover:border-accent/60 transition"
+                            >
+                              <div className="w-10 h-10 rounded-lg bg-bg flex flex-col items-center justify-center flex-shrink-0">
+                                <span className="text-[9px] font-bold text-textSoft uppercase">{dateLabel.split(" ")[0]}</span>
+                                <span className="text-xs font-bold text-text leading-none">{dateLabel.split(" ")[1]}</span>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-text font-semibold text-xs truncate">{cuisinesLabel}</p>
+                                <p className="text-textSoft text-[11px] mt-0.5 truncate">
+                                  {p.servings} {p.servings === 1 ? "serving" : "servings"} · starts with {firstRecipeName}
+                                </p>
+                              </div>
+                              <span className="text-muted text-base flex-shrink-0">›</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </section>
+
+        {/* v1.26 #312 — View-previous-plan modal (Reactivate this plan). */}
+        {viewingPreviousPlan && (
+          <Modal
+            open={true}
+            onClose={() => setViewingPreviousPlan(null)}
+            size="lg"
+            title="Previous plan"
+          >
+            <div className="max-h-[75vh] overflow-y-auto">
+              <p className="text-textSoft text-sm mb-4">
+                {new Date(viewingPreviousPlan.created_at).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                {" · "}{viewingPreviousPlan.servings} {viewingPreviousPlan.servings === 1 ? "serving" : "servings"}
+              </p>
+              <div className="space-y-2 mb-4">
+                {(viewingPreviousPlan.recipes || []).slice(0, 5).map((r, idx) => {
+                  const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+                  const day = DAY_LABELS[idx] || `Day ${idx + 1}`;
+                  const meta = [r.time, r.difficulty].filter(Boolean).join(" · ");
+                  return (
+                    <div key={`prev-${idx}`} className="rounded-xl border border-border bg-bg p-3 flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0">
+                        <span className="text-[10px] font-bold text-accent">{day.toUpperCase()}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-text font-semibold text-sm truncate">
+                          {r.emoji || "🍽️"} {r.name || "Recipe"}
+                        </p>
+                        {!!meta && <p className="text-textSoft text-xs mt-0.5 truncate">{meta}</p>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <button
+                onClick={() => cloneWeeklyPlan(viewingPreviousPlan)}
+                className="w-full py-2.5 rounded-lg bg-accent text-white text-sm font-bold hover:opacity-90 transition mb-2"
+              >
+                Reactivate this plan
+              </button>
+              <button
+                onClick={() => setViewingPreviousPlan(null)}
+                className="w-full py-2.5 rounded-lg bg-bg text-text text-sm font-semibold hover:opacity-80 transition"
+              >
+                Close
+              </button>
+            </div>
+          </Modal>
+        )}
 
         {/* ─── Shopping lists ───────────────────────────────────────────────── */}
         <section>

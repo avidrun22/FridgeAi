@@ -188,7 +188,29 @@ export default function EatMeFirst({ user }) {
     setSavingIdx(null);
     setAddingIdx(null);
     setRecipeToast(null);
-    setRecipeModal({ leadItem, items: contextItems, recipes: [], loading: true, error: null, filters: activeFilters });
+    // v1.26 #307 — preserve selectedItemIds across re-fetches so the user can
+    // toggle a chip + "Update results" without losing their other choices.
+    // Build from leadItem + contextItems passed in (those are the ALREADY-
+    // filtered set the caller wants Claude to use).
+    const preservedSelection = new Set();
+    if (leadItem) preservedSelection.add(leadItem.id);
+    contextItems.forEach(i => preservedSelection.add(i.id));
+    setRecipeModal(prev => ({
+      // Preserve the FULL items pool (lead + context) for the chip row even
+      // after recipes load — user can re-toggle to refine.
+      leadItem: prev?.leadItem || leadItem,
+      items: prev?.items || contextItems,
+      recipes: [],
+      loading: true,
+      error: null,
+      filters: activeFilters,
+      awaitingSuggest: false,
+      selectedItemIds: preservedSelection,
+      // v1.26 #307 — snapshot of which items were sent to the API on this
+      // fetch. Used to detect "selection dirty" → re-show Update Results
+      // when the user toggles a chip after recipes have rendered.
+      appliedSelectionIds: new Set(preservedSelection),
+    }));
     track("eat_me_first_recipes_requested", {
       lead_item: leadItem?.name || null,
       context_count: contextItems.length,
@@ -415,16 +437,60 @@ export default function EatMeFirst({ user }) {
     }
   }
 
+  // v1.26 #307 — pre-suggest gate. Was: tapping "Get recipes" immediately
+  // fired the Claude call. Now we open the modal in awaiting-suggest state
+  // so the user can deselect items they don't want grouped together (e.g.
+  // chicken + blueberries don't belong in the same recipe). Default all
+  // selected; Suggest button fires the actual fetch.
+  function openSelectionModal({ leadItem, contextItems }) {
+    // selectedItemIds includes the lead (if any) + all context items by default.
+    const allIds = new Set();
+    if (leadItem) allIds.add(leadItem.id);
+    contextItems.forEach(i => allIds.add(i.id));
+    setRecipeModal({
+      leadItem,
+      items: contextItems,
+      recipes: [],
+      loading: false,
+      error: null,
+      filters: pendingFilters,
+      awaitingSuggest: true,
+      selectedItemIds: allIds,
+    });
+    track("eat_me_first_selection_opened", {
+      surface: leadItem ? "row" : "header_top5",
+      item_count: allIds.size,
+    });
+  }
+
   function onUseLeading(leadItem) {
     // Find the 4 next-most-urgent items (excluding the lead) for context.
     const context = ranked
       .filter(i => i.id !== leadItem.id)
       .slice(0, 4);
-    fetchRecipes({ leadItem, contextItems: context });
+    openSelectionModal({ leadItem, contextItems: context });
   }
 
   function onUseTop5() {
-    fetchRecipes({ leadItem: null, contextItems: ranked.slice(0, 5) });
+    openSelectionModal({ leadItem: null, contextItems: ranked.slice(0, 5) });
+  }
+
+  // v1.26 #307 — wraps fetchRecipes to honor the per-item selection. Pulls
+  // selectedItemIds out of recipeModal, filters lead + items by that set,
+  // then calls the real fetch.
+  function suggestFromSelection() {
+    if (!recipeModal) return;
+    const sel = recipeModal.selectedItemIds || new Set();
+    const filteredLead = (recipeModal.leadItem && sel.has(recipeModal.leadItem.id))
+      ? recipeModal.leadItem
+      : null;
+    const filteredItems = (recipeModal.items || []).filter(i => sel.has(i.id));
+    if (!filteredLead && filteredItems.length === 0) return;  // disabled button shouldn't reach here
+    fetchRecipes({
+      leadItem: filteredLead,
+      contextItems: filteredItems,
+      filters: pendingFilters,
+    });
   }
 
   return (
@@ -545,10 +611,71 @@ export default function EatMeFirst({ user }) {
             : "Recipes for your top expiring items"}
         >
           <div className="max-h-[75vh] overflow-y-auto">
-            <p className="text-textSoft text-sm mb-4">
-              Using: {[recipeModal.leadItem?.name, ...recipeModal.items.map(i => i.name)]
-                .filter(Boolean).join(", ")}
-            </p>
+            {/* v1.26 #307 — subtitle reflects current selection vs total pool.
+                In awaiting-suggest, shows "Using: a, b · 2 of 5". After fetch,
+                just the names of the items actually used. */}
+            {(() => {
+              const sel = recipeModal.selectedItemIds || new Set();
+              const allItems = [
+                ...(recipeModal.leadItem ? [recipeModal.leadItem] : []),
+                ...recipeModal.items,
+              ];
+              const selectedNames = allItems.filter(i => sel.has(i.id)).map(i => i.name);
+              const countSuffix = recipeModal.awaitingSuggest && allItems.length > 0
+                ? ` · ${selectedNames.length} of ${allItems.length}`
+                : "";
+              return (
+                <p className="text-textSoft text-sm mb-4">
+                  Using: {selectedNames.join(", ") || "no items selected"}{countSuffix}
+                </p>
+              );
+            })()}
+
+            {/* v1.26 #307 — item-selection chip row. Toggle per item. Default
+                all-selected. Suggest button below the filters fires the actual
+                Claude call when the user is happy with the set. */}
+            {(() => {
+              const sel = recipeModal.selectedItemIds || new Set();
+              const allItems = [
+                ...(recipeModal.leadItem ? [recipeModal.leadItem] : []),
+                ...recipeModal.items,
+              ];
+              if (allItems.length === 0) return null;
+              return (
+                <div className="mb-3">
+                  <p className="text-textSoft text-[10px] font-bold tracking-widest uppercase mb-1.5">
+                    Items to include
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {allItems.map(item => {
+                      const active = sel.has(item.id);
+                      return (
+                        <button
+                          type="button"
+                          key={item.id}
+                          onClick={() => {
+                            setRecipeModal(m => {
+                              if (!m) return m;
+                              const next = new Set(m.selectedItemIds || new Set());
+                              if (next.has(item.id)) next.delete(item.id);
+                              else next.add(item.id);
+                              return { ...m, selectedItemIds: next };
+                            });
+                          }}
+                          className={`px-2.5 py-1 rounded-full border text-xs font-semibold whitespace-nowrap flex items-center gap-1 transition ${
+                            active
+                              ? "bg-accent text-white border-accent"
+                              : "bg-surface text-textSoft border-border line-through opacity-60 hover:opacity-100"
+                          }`}
+                        >
+                          {item.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
 
             {recipeModal.loading && (
               <div className="py-10 text-center text-textSoft text-sm">
@@ -562,14 +689,24 @@ export default function EatMeFirst({ user }) {
             )}
 
             {/* v1.22 #236 — Pre-generation filter chips. Cuisine + protein +
-                ingredient cap. Selection alone doesn't fetch; "Update results"
-                appears only when pending differs from what was generated. */}
+                ingredient cap. Selection alone doesn't fetch; "Suggest recipes"
+                (awaiting state) or "Update results" (after fetch) commits.
+                v1.26 #307 — gated behind the new item-selection chip row above.
+                Button is disabled if user has deselected ALL items. */}
             {!recipeModal.loading && (() => {
               const applied = recipeModal.filters || {};
-              const dirty =
+              const filtersDirty =
                 (pendingFilters.cuisine || null) !== (applied.cuisine || null) ||
                 (pendingFilters.protein || null) !== (applied.protein || null) ||
                 (pendingFilters.maxIngredients || null) !== (applied.maxIngredients || null);
+              const sel = recipeModal.selectedItemIds || new Set();
+              const appliedSel = recipeModal.appliedSelectionIds || new Set();
+              const selectionDirty =
+                sel.size !== appliedSel.size ||
+                Array.from(sel).some(id => !appliedSel.has(id));
+              const dirty = filtersDirty || selectionDirty;
+              const hasSelection = sel.size > 0;
+              const awaiting = !!recipeModal.awaitingSuggest;
               const Row = ({ label, options, currentKey, onPick }) => (
                 <div className="mb-2">
                   <p className="text-textSoft text-[10px] font-bold tracking-widest uppercase mb-1.5">{label}</p>
@@ -614,17 +751,35 @@ export default function EatMeFirst({ user }) {
                     onPick={k => setPendingFilters(p => ({ ...p, protein: k }))} />
                   <Row label="Ingredients" options={EMF_MAX_INGREDIENTS_OPTIONS} currentKey={pendingFilters.maxIngredients}
                     onPick={k => setPendingFilters(p => ({ ...p, maxIngredients: k }))} />
-                  {dirty && (
+                  {/* v1.26 #307 — In awaiting-suggest state, primary CTA is
+                      "Suggest recipes" (disabled if no items selected). Once
+                      recipes are loaded, "Update results" only appears if
+                      filters changed since the last fetch. */}
+                  {awaiting ? (
                     <button
                       type="button"
-                      onClick={() => fetchRecipes({
-                        leadItem: recipeModal.leadItem,
-                        contextItems: recipeModal.items,
+                      onClick={suggestFromSelection}
+                      disabled={!hasSelection}
+                      className={`mt-2 w-full py-2 rounded-lg text-white text-sm font-bold transition ${
+                        hasSelection ? "bg-accent hover:opacity-90" : "bg-muted opacity-50 cursor-not-allowed"
+                      }`}
+                    >
+                      {hasSelection ? `Suggest recipes using ${sel.size} ${sel.size === 1 ? "item" : "items"}` : "Pick at least one item"}
+                    </button>
+                  ) : dirty && (
+                    <button
+                      type="button"
+                      onClick={() => hasSelection && fetchRecipes({
+                        leadItem: (recipeModal.leadItem && sel.has(recipeModal.leadItem.id)) ? recipeModal.leadItem : null,
+                        contextItems: (recipeModal.items || []).filter(i => sel.has(i.id)),
                         filters: pendingFilters,
                       })}
-                      className="mt-2 w-full py-2 rounded-lg bg-accent text-white text-sm font-bold hover:opacity-90 transition"
+                      disabled={!hasSelection}
+                      className={`mt-2 w-full py-2 rounded-lg text-white text-sm font-bold transition ${
+                        hasSelection ? "bg-accent hover:opacity-90" : "bg-muted opacity-50 cursor-not-allowed"
+                      }`}
                     >
-                      Update results
+                      {hasSelection ? "Update results" : "Pick at least one item"}
                     </button>
                   )}
                 </div>

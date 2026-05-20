@@ -4,6 +4,7 @@ import {
   StyleSheet, SafeAreaView, StatusBar, Modal, Alert,
   Animated, Platform, ActivityIndicator, AppState, KeyboardAvoidingView,
   PanResponder, Dimensions, Keyboard, InputAccessoryView, Image, Switch,
+  BackHandler, ToastAndroid,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Linking, Share } from "react-native";
@@ -3249,10 +3250,29 @@ function EatMeFirstScreen({ items, householdId }) {
     setAddToListSuccess(false);
     setSavedRecipeMap({});
     setSavingRecipeIdx(null);
-    setRecipeModal({ leadItem, items: contextItems, recipes: [], loading: true, error: null, filters: activeFilters });
+    // v1.26 #320 — Carry forward the user's selectedItemIds from the pre-
+    // suggest screen (or default to "all current items selected" if the
+    // caller skipped the gate, e.g. a programmatic re-fetch). The filter
+    // is applied below when assembling `names` so the Claude prompt only
+    // sees items the user explicitly opted in.
+    const carriedSelection = recipeModal?.selectedItemIds
+      || new Set([
+        ...(leadItem ? [leadItem.id] : []),
+        ...contextItems.map(i => i.id),
+      ]);
+    setRecipeModal({
+      leadItem,
+      items: contextItems,
+      selectedItemIds: carriedSelection,
+      recipes: [],
+      loading: true,
+      error: null,
+      filters: activeFilters,
+    });
     track("eat_me_first_recipes_requested", {
       lead_item: leadItem?.name || null,
       context_count: contextItems.length,
+      selected_count: carriedSelection.size,
       surface: leadItem ? "row" : "header_top5",
       cuisine: activeFilters?.cuisine || null,
       protein: activeFilters?.protein || null,
@@ -3261,10 +3281,18 @@ function EatMeFirstScreen({ items, householdId }) {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Please sign in to generate recipes.");
-      const names = [
-        ...(leadItem ? [leadItem.name] : []),
-        ...contextItems.map(i => i.name).filter(n => n && n !== leadItem?.name),
-      ].slice(0, 8);
+      // v1.26 #320 — Filter to only the items the user kept selected on
+      // the pre-suggest screen. Falls back to lead+context if no selection
+      // map exists (defensive — shouldn't happen after the gate).
+      const allItems = [
+        ...(leadItem ? [leadItem] : []),
+        ...contextItems.filter(i => i.id !== leadItem?.id),
+      ];
+      const keptItems = allItems.filter(i => carriedSelection.has(i.id));
+      const names = (keptItems.length > 0 ? keptItems : allItems)
+        .map(i => i.name)
+        .filter(Boolean)
+        .slice(0, 8);
       const body = { items: names };
       // Only include filter fields when set, so Edge Function defaults apply.
       if (activeFilters?.cuisine) body.cuisine = activeFilters.cuisine;
@@ -3283,12 +3311,63 @@ function EatMeFirstScreen({ items, householdId }) {
     }
   }
 
+  // v1.26 #307 — Filter-first UX. Instead of firing the Claude call
+  // immediately on tap, open the recipe sheet in `awaitingSuggest` mode:
+  // the user sees the filter chips ABOVE a big "Suggest recipes" button
+  // and picks their cuisine/protein/ingredient cap BEFORE we spend the
+  // call. Earlier behavior had the modal auto-fire on open and exposed
+  // filters only AFTER results landed — meaning users typically burned
+  // an unfiltered call before refining.
+  //
+  // v1.26 #320 — selectedItemIds tracks WHICH of the top-expiring items
+  // the user wants in the recipe. Greg's example: blueberries + chicken
+  // both expiring, but they don't naturally combine, so user should be
+  // able to deselect one before tapping Suggest. Default-all-selected
+  // preserves prior behavior for users who don't engage with the chips.
   function onUseLeading(item) {
     const context = ranked.filter(i => i.id !== item.id).slice(0, 4);
-    fetchRecipes({ leadItem: item, contextItems: context });
+    setSelectedRecipeIdx(null);
+    setSavedRecipeMap({});
+    setRecipeModal({
+      leadItem: item,
+      items: context,
+      selectedItemIds: new Set([item.id, ...context.map(i => i.id)]),
+      recipes: [],
+      loading: false,
+      error: null,
+      filters: null,           // null = not yet generated; mode-toggle for the sheet
+      awaitingSuggest: true,   // render the pre-suggest filter screen
+    });
   }
   function onUseTop5() {
-    fetchRecipes({ leadItem: null, contextItems: ranked.slice(0, 5) });
+    const top5 = ranked.slice(0, 5);
+    setSelectedRecipeIdx(null);
+    setSavedRecipeMap({});
+    setRecipeModal({
+      leadItem: null,
+      items: top5,
+      selectedItemIds: new Set(top5.map(i => i.id)),
+      recipes: [],
+      loading: false,
+      error: null,
+      filters: null,
+      awaitingSuggest: true,
+    });
+  }
+  // v1.26 #320 — helper to flatten leadItem + items into one array and
+  // toggle a specific item's inclusion in the recipe set.
+  function allModalItems(m) {
+    if (!m) return [];
+    return [...(m.leadItem ? [m.leadItem] : []), ...(m.items || [])];
+  }
+  function toggleItemInclusion(itemId) {
+    setRecipeModal(m => {
+      if (!m) return m;
+      const sel = new Set(m.selectedItemIds || []);
+      if (sel.has(itemId)) sel.delete(itemId);
+      else sel.add(itemId);
+      return { ...m, selectedItemIds: sel };
+    });
   }
 
   // v1.19 — when a list-view card is tapped, switch the modal into detail
@@ -3417,24 +3496,23 @@ function EatMeFirstScreen({ items, householdId }) {
         setAddToListError("Tap an ingredient to queue it first.");
         return;
       }
-      // Find next position in the list (use length + 1 as a simple
-      // starting point — accurate enough for append semantics).
-      const { count } = await supabase
-        .from("shopping_list_items")
-        .select("id", { count: "exact", head: true })
-        .eq("list_id", listId);
-      const startPos = (count || 0) + 1;
-      const rows = queued.map(({ m, j }, k) => {
+      // v1.26 bug 2 (round 2) — match the canonical shopping_list_items
+      // row shape used by every OTHER insert in App.js (line 7225, 7580,
+      // 9520). The schema only has: household_id, list_id, name,
+      // created_by — plus id/checked/created_at which default. This
+      // EatMeFirst insert was using a stale shape from an earlier schema
+      // and was failing on missing columns one by one (added_by, then
+      // position). Dropping the stray fields (quantity, position,
+      // checked) and adding the required household_id + created_by.
+      const rows = queued.map(({ j }) => {
         const ing = recipe.ingredients[j];
         const itemName = typeof ing === "object" ? (ing.item || "Ingredient") : String(ing);
         const amount = typeof ing === "object" ? (ing.amount || null) : null;
         return {
+          household_id: householdId,
           list_id: listId,
           name: amount ? `${itemName} — ${amount}` : itemName,
-          quantity: 1,
-          position: startPos + k,
-          added_by: user.id,
-          checked: false,
+          created_by: user.id,
         };
       });
       const { error: insErr } = await supabase.from("shopping_list_items").insert(rows);
@@ -3544,9 +3622,10 @@ function EatMeFirstScreen({ items, householdId }) {
           onPress={() => setRecipeModal(null)}
           style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" }}
         >
-          <TouchableOpacity
-            activeOpacity={1}
-            onPress={() => { /* swallow taps inside the sheet so they don't dismiss */ }}
+          {/* v1.26 bug fix — see deepLinkRecipe modal: View+onStartShouldSetResponder
+              instead of TouchableOpacity so the inner ScrollView wins on drag. */}
+          <View
+            onStartShouldSetResponder={() => true}
             style={{ backgroundColor: T.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, height: "85%", overflow: "hidden" }}
           >
             <View style={{ flexDirection: "row", alignItems: "flex-start", paddingTop: 20, paddingHorizontal: 20, paddingBottom: 6 }}>
@@ -3566,15 +3645,28 @@ function EatMeFirstScreen({ items, householdId }) {
                 <Text style={[s.pageTitle, { fontSize: 18, paddingHorizontal: 0, paddingTop: 0 }]}>
                   {selectedRecipeIdx !== null
                     ? (recipeModal?.recipes?.[selectedRecipeIdx]?.name || "Recipe")
-                    : recipeModal?.leadItem
-                      ? `Recipes using ${recipeModal.leadItem.name}`
-                      : "Recipes for your top expiring items"}
+                    : recipeModal?.awaitingSuggest
+                      ? "What are you cooking tonight?"
+                      : recipeModal?.leadItem
+                        ? `Recipes using ${recipeModal.leadItem.name}`
+                        : "Recipes for your top expiring items"}
                 </Text>
-                {selectedRecipeIdx === null && (
-                  <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 4 }}>
-                    Using: {[recipeModal?.leadItem?.name, ...(recipeModal?.items || []).map(i => i.name)].filter(Boolean).join(", ")}
-                  </Text>
-                )}
+                {selectedRecipeIdx === null && (() => {
+                  // v1.26 #320 — Show only the items the user kept
+                  // selected. Falls back to all items if no selection map
+                  // exists (defensive). Pre-suggest mode also shows count.
+                  const all = allModalItems(recipeModal);
+                  const sel = recipeModal?.selectedItemIds || new Set(all.map(i => i.id));
+                  const kept = all.filter(i => sel.has(i.id));
+                  const countSuffix = recipeModal?.awaitingSuggest && all.length > 0
+                    ? ` · ${kept.length} of ${all.length}`
+                    : "";
+                  return (
+                    <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 4 }}>
+                      Using: {kept.map(i => i.name).join(", ") || "(none selected)"}{countSuffix}
+                    </Text>
+                  );
+                })()}
                 {selectedRecipeIdx !== null && (() => {
                   const r = recipeModal?.recipes?.[selectedRecipeIdx];
                   if (!r) return null;
@@ -3677,7 +3769,12 @@ function EatMeFirstScreen({ items, householdId }) {
                   eat too much vertical space on the recipe sheet. */}
               {selectedRecipeIdx === null && recipeModal && !recipeModal.loading && (() => {
                 const applied = recipeModal.filters || {};
-                const dirty =
+                // v1.26 #307 — In awaitingSuggest (pre-suggest) mode, the
+                // "dirty" check would always be false since no filters
+                // have been applied yet. Force the CTA to show so the user
+                // can pick filters + tap Suggest.
+                const isPreSuggest = !!recipeModal.awaitingSuggest;
+                const dirty = isPreSuggest ||
                   (pendingFilters.cuisine || null) !== (applied.cuisine || null) ||
                   (pendingFilters.protein || null) !== (applied.protein || null) ||
                   (pendingFilters.maxIngredients || null) !== (applied.maxIngredients || null);
@@ -3690,7 +3787,19 @@ function EatMeFirstScreen({ items, householdId }) {
                     <Text style={{ color: T.textSoft, fontSize: 10, fontWeight: "700", letterSpacing: 0.5, marginBottom: 4, textTransform: "uppercase" }}>
                       {label}
                     </Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      // v1.26 bug 1 — directionalLockEnabled (iOS) prevents the
+                      // parent ScrollView from catching the vertical component
+                      // of a diagonal swipe across the filter chips. Without
+                      // this, swiping the chip row sideways causes the modal
+                      // sheet to scroll up/down unintentionally. Android
+                      // ignores the prop (it always locks on first axis).
+                      directionalLockEnabled
+                      // Snap-to-start nudges feel right for chip rows.
+                      decelerationRate="fast"
+                    >
                       <TouchableOpacity
                         onPress={() => onPick(null)}
                         style={[chipBase, {
@@ -3721,8 +3830,49 @@ function EatMeFirstScreen({ items, householdId }) {
                     </ScrollView>
                   </View>
                 );
+                // v1.26 #320 — item-selection chips. Each top-expiring item
+                // gets a toggleable chip; default-selected. User can deselect
+                // items they don't want in the recipe (e.g. blueberries when
+                // also using chicken — they rarely combine). Only shown in
+                // pre-suggest mode so the post-fetch flow stays unchanged.
+                const itemPool = allModalItems(recipeModal);
+                const selIds = recipeModal?.selectedItemIds || new Set(itemPool.map(i => i.id));
+                const nothingSelected = isPreSuggest && itemPool.length > 0 && selIds.size === 0;
                 return (
                   <View style={{ paddingBottom: 6, marginBottom: 10, borderBottomWidth: 1, borderBottomColor: T.border }}>
+                    {isPreSuggest && itemPool.length > 0 && (
+                      <View style={{ marginBottom: 10 }}>
+                        <Text style={{ color: T.textSoft, fontSize: 10, fontWeight: "700", letterSpacing: 0.5, marginBottom: 6, textTransform: "uppercase" }}>
+                          Items to include
+                        </Text>
+                        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                          {itemPool.map(it => {
+                            const on = selIds.has(it.id);
+                            return (
+                              <TouchableOpacity
+                                key={it.id}
+                                onPress={() => toggleItemInclusion(it.id)}
+                                style={{
+                                  flexDirection: "row", alignItems: "center", gap: 4,
+                                  paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14,
+                                  borderWidth: 1,
+                                  backgroundColor: on ? T.accent : T.surface,
+                                  borderColor: on ? T.accent : T.border,
+                                }}
+                              >
+                                <Text style={{ fontSize: 13 }}>{it.emoji || "🥬"}</Text>
+                                <Text style={{ color: on ? "#FFFFFF" : T.text, fontSize: 12, fontWeight: "600" }}>
+                                  {it.name}
+                                </Text>
+                                {on && (
+                                  <Ionicons name="checkmark" size={13} color="#FFFFFF" style={{ marginLeft: 2 }} />
+                                )}
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    )}
                     {renderRow("Cuisine", EMF_CUISINE_OPTIONS, pendingFilters.cuisine,
                       key => setPendingFilters(p => ({ ...p, cuisine: key })))}
                     {renderRow("Protein", EMF_PROTEIN_OPTIONS, pendingFilters.protein,
@@ -3731,15 +3881,25 @@ function EatMeFirstScreen({ items, householdId }) {
                       key => setPendingFilters(p => ({ ...p, maxIngredients: key })))}
                     {dirty && (
                       <TouchableOpacity
+                        disabled={nothingSelected}
                         onPress={() => fetchRecipes({
                           leadItem: recipeModal.leadItem,
                           contextItems: recipeModal.items,
                           filters: pendingFilters,
                         })}
-                        style={{ backgroundColor: T.accent, paddingVertical: 10, borderRadius: 8, alignItems: "center", marginTop: 4 }}
+                        style={{
+                          backgroundColor: nothingSelected ? T.muted : T.accent,
+                          paddingVertical: isPreSuggest ? 14 : 10,
+                          borderRadius: 8,
+                          alignItems: "center",
+                          marginTop: isPreSuggest ? 8 : 4,
+                          opacity: nothingSelected ? 0.6 : 1,
+                        }}
                       >
-                        <Text style={{ color: "#FFFFFF", fontSize: 13, fontWeight: "700" }}>
-                          Update results
+                        <Text style={{ color: "#FFFFFF", fontSize: isPreSuggest ? 15 : 13, fontWeight: "700" }}>
+                          {nothingSelected
+                            ? "Select at least 1 item"
+                            : (isPreSuggest ? "Suggest recipes →" : "Update results")}
                         </Text>
                       </TouchableOpacity>
                     )}
@@ -3965,7 +4125,7 @@ function EatMeFirstScreen({ items, householdId }) {
                 );
               })()}
             </ScrollView>
-          </TouchableOpacity>
+          </View>
         </TouchableOpacity>
       </Modal>
     </ScrollView>
@@ -4426,7 +4586,19 @@ function SettingsScreen({ notificationsEnabled, onToggleNotifications, emailDige
   }
 
   return (
-    <ScrollView style={s.screen} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={s.screen}
+      // v1.26 bug 4 — Without contentContainerStyle, the ScrollView allowed
+      // overscroll-pulls to leave content displaced (Greg saw blank-space
+      // scrolling past the visible content, only recoverable by tab-
+      // switching). flexGrow:1 forces the content container to be at least
+      // as tall as the viewport so empty space below the last item is
+      // clamped. paddingBottom:120 leaves room for the bottom tab bar +
+      // home-indicator + a comfortable settling buffer; without it the
+      // last item (version footer) gets eaten by the nav bar.
+      contentContainerStyle={{ flexGrow: 1, paddingBottom: 120 }}
+      showsVerticalScrollIndicator={false}
+    >
       <View style={s.headerRow}>
         <View>
           <Text style={s.pageTitle}>Settings</Text>
@@ -4771,7 +4943,43 @@ function buildSampleRows() {
   ];
 }
 
-function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPresetConsumed }) {
+// v1.26 #321 — module-scope row mapper. Extracted from BulkAddModal's
+// applyReceiptItems so App-scope scan handlers can pre-build rows BEFORE
+// BulkAddModal mounts (kills the modal flash that used to appear between
+// "tap Snap Items" and the camera opening). The shape this returns matches
+// what BulkAddModal's rows state expects, so it can drop straight in via
+// the new initialRows prop. Pure function: no setState calls.
+function mapParsedToBulkRows(parsed) {
+  return (parsed || [])
+    .filter(item => item && typeof item.name === "string" && item.name.trim())
+    .map(item => {
+      const cat = guessCategory(item.name) !== "Other" ? guessCategory(item.name) : (item.category || "Other");
+      const rawDays = item.expiry_days;
+      const days = Number.isFinite(Number(rawDays)) && Number(rawDays) > 0
+        ? Number(rawDays)
+        : (EXPIRY_MAP[cat] || 7);
+      const expiryDate = new Date(Date.now() + days * 86400000);
+      const yyyy = expiryDate.getFullYear();
+      const mm = String(expiryDate.getMonth() + 1).padStart(2, "0");
+      const dd = String(expiryDate.getDate()).padStart(2, "0");
+      const qStr = String(item.quantity || "1").trim();
+      const qMatch = qStr.match(/^([\d.]+)\s*(.*)$/);
+      const amount = qMatch ? qMatch[1] : qStr;
+      const rawUnit = qMatch && qMatch[2] ? qMatch[2].trim() : "";
+      const unit = smartUnitFor(item.name, rawUnit);
+      return {
+        id: Date.now() + Math.random(),
+        name: item.name.trim(),
+        quantity: amount || "1",
+        unit: unit,
+        expiry: `${yyyy}-${mm}-${dd}`,
+        container: defaultContainerFor(item.name, cat),
+        usdaDays: days,
+      };
+    });
+}
+
+function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPresetConsumed, initialRows }) {
   // v1.16 — each row carries its own `container` so a single receipt can split
   // across fridge/pantry/freezer. Empty rows inherit the active fridge tab's
   // section as the default; typed/scanned items get smart defaults via
@@ -4826,40 +5034,65 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
       setIsSample(true);
       track("sample_receipt_shown");
       if (onPresetConsumed) onPresetConsumed();
+    } else if (Array.isArray(initialRows) && initialRows.length > 0) {
+      // v1.26 #321 — App-scope scan handlers pre-fetched + parsed before
+      // opening this modal, so we land directly in review state without
+      // the camera flash. Skip empty-row default.
+      setRows(initialRows);
+      setIsSample(false);
     } else {
       setRows([emptyRow(), emptyRow(), emptyRow()]);
       setIsSample(false);
     }
   }, [visible, presetMode]);
 
-  // Auto-launch the camera or library picker when the parent hands us
-  // presetMode="scan-camera" / "scan-library". Same single-fire ref pattern
-  // as the row-init effect above so onPresetConsumed clearing presetMode
-  // doesn't trigger a re-fire.
+  // v1.26 bug 5 (round 2) — earlier this used a setTimeout(80ms) to fire
+  // the camera/library picker after the modal mounted. That ran while the
+  // modal's slide-in animation was still in-flight, and on iOS the picker
+  // could fail silently (camera never opens, user stranded on the empty
+  // manual-entry rows). Greg confirmed permission was granted yet the
+  // picker still wouldn't appear.
+  //
+  // The robust fix: instead of guessing-with-setTimeout, queue the scan
+  // launch in state, and fire it only from the <Modal>'s `onShow` callback
+  // — which RN guarantees fires AFTER the modal is fully presented. iOS
+  // can then reliably stack the system image picker on top.
+  //
+  // pendingScanSource is the source string ("camera" | "library" |
+  // "items_camera" | "items_library") to dispatch on onShow.
   const presetScanFiredRef = useRef(false);
+  const [pendingScanSource, setPendingScanSource] = useState(null);
   useEffect(() => {
     if (!visible) {
       presetScanFiredRef.current = false;
+      setPendingScanSource(null);
       return;
     }
     if (presetScanFiredRef.current) return;
     if (presetMode === "scan-camera" || presetMode === "scan-library") {
       presetScanFiredRef.current = true;
-      const src = presetMode === "scan-camera" ? "camera" : "library";
-      // Defer one tick so the modal mount is fully settled before we
-      // present another modal (the OS image picker).
-      setTimeout(() => { handleScanReceipt(src); }, 80);
+      setPendingScanSource(presetMode === "scan-camera" ? "camera" : "library");
       if (onPresetConsumed) onPresetConsumed();
     } else if (presetMode === "scan-items-camera" || presetMode === "scan-items-library") {
-      // v1.25 — Snap Items preset, mirror of the receipt-scan preset path.
-      // Dispatches to handleScanItems with the items_camera/items_library
-      // source string the scan-items handler expects.
       presetScanFiredRef.current = true;
-      const src = presetMode === "scan-items-camera" ? "items_camera" : "items_library";
-      setTimeout(() => { handleScanItems(src); }, 80);
+      setPendingScanSource(presetMode === "scan-items-camera" ? "items_camera" : "items_library");
       if (onPresetConsumed) onPresetConsumed();
     }
   }, [visible, presetMode]);
+
+  // Fired by the BulkAddModal <Modal>'s onShow prop after the slide-in
+  // animation completes. iOS is now safely ready to present the system
+  // camera/library picker on top of this modal.
+  function handleModalShown() {
+    const src = pendingScanSource;
+    if (!src) return;
+    setPendingScanSource(null);
+    if (src === "camera" || src === "library") {
+      handleScanReceipt(src);
+    } else if (src === "items_camera" || src === "items_library") {
+      handleScanItems(src);
+    }
+  }
 
   function updateRow(id, field, value) {
     setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
@@ -4944,6 +5177,7 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
                 ]
               : [{ text: "OK" }]
           );
+          closeIfScanPreset();
           return;
         }
         // v1.24 — drop base64:true here. Resize happens in
@@ -4971,6 +5205,7 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
                 ]
               : [{ text: "OK" }]
           );
+          closeIfScanPreset();
           return;
         }
         result = await ImagePicker.launchImageLibraryAsync({
@@ -4984,6 +5219,10 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
         // user backed out before taking/picking a photo) from later cancels
         // on the post-scan review screen. v1.15 fired this for both cases.
         track("receipt_scan_cancelled", { source, cancel_stage: "picker" });
+        // v1.26 bug 5 — if user reached this modal via a scan preset and
+        // then cancelled the picker, close the modal so they're returned
+        // to the previous surface instead of stranded on manual entry.
+        closeIfScanPreset();
         return;
       }
 
@@ -5031,6 +5270,8 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
       // Should rarely fire now that the inner blocks own their error paths.
       track("receipt_scan_failed", { source, error_type: "unexpected", message: String(e?.message || "").slice(0, 80) });
       Alert.alert("Scan failed", "Something went wrong. Check your connection and try again.");
+      // v1.26 bug 5 — same belt-and-suspenders close as handleScanItems.
+      closeIfScanPreset();
     } finally {
       setScanning(false);
     }
@@ -5041,6 +5282,21 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
   // 5/day rate limit). Surfaces the same review screen via applyReceiptItems
   // so users edit / commit identically — no separate UX to learn. Source
   // identifies which CTA tile launched it for funnel analysis.
+  // v1.26 bug 5 — When BulkAddModal opens via a scan preset (Snap Items /
+  // Scan Receipt from AddItemModal), the user expected the camera or photo
+  // library to open. If they cancel the picker, hit a permission wall, or
+  // the scan errors out, they're now stranded on the manual-entry rows
+  // (since v1.26 removed the in-modal scan tiles). This helper closes
+  // the modal entirely in those cases so they're returned to the previous
+  // surface and can re-enter through AddItemModal cleanly.
+  function closeIfScanPreset() {
+    const preset = presetForThisOpenRef.current;
+    if (preset === "scan-camera" || preset === "scan-library" ||
+        preset === "scan-items-camera" || preset === "scan-items-library") {
+      onClose();
+    }
+  }
+
   async function handleScanItems(source) {
     track("items_scan_started", { source });
     try {
@@ -5056,6 +5312,7 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
               ? "ok2eat uses your camera to identify items in a photo. Open Settings to allow it."
               : "Tap Allow on the next prompt and we'll identify the items in your photo automatically."
           );
+          closeIfScanPreset();
           return;
         }
         result = await ImagePicker.launchCameraAsync({
@@ -5073,6 +5330,7 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
               ? "ok2eat needs access to your photos so you can pick a saved grocery photo. Open Settings to allow it."
               : "Tap Allow on the next prompt and we'll identify the items in your saved photo."
           );
+          closeIfScanPreset();
           return;
         }
         result = await ImagePicker.launchImageLibraryAsync({
@@ -5083,6 +5341,7 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
       const uri = result?.assets?.[0]?.uri;
       if (result.canceled || !uri) {
         track("items_scan_cancelled", { source, cancel_stage: "picker" });
+        closeIfScanPreset();
         return;
       }
 
@@ -5125,6 +5384,10 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
     } catch (e) {
       track("items_scan_failed", { source, error_type: "unexpected", message: String(e?.message || "").slice(0, 80) });
       Alert.alert("Scan failed", "Something went wrong. Check your connection and try again.");
+      // v1.26 bug 5 — outer catch also closes the modal if we got here via
+      // a scan preset, so the user isn't stranded on the empty manual-entry
+      // rows after an unexpected error.
+      closeIfScanPreset();
     } finally {
       setScanning(false);
     }
@@ -5186,7 +5449,7 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
   }
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose} onShow={handleModalShown}>
       <SafeAreaView style={{ flex: 1, backgroundColor: T.bg, paddingTop: ANDROID_TOP_INSET }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: T.border, backgroundColor: "#FFFFFF" }}>
           <TouchableOpacity onPress={onClose}><Text style={{ color: T.accent, fontSize: 15 }}>Cancel</Text></TouchableOpacity>
@@ -5196,63 +5459,19 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 120 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
 
-            {/* Receipt Scanner Buttons */}
-            {/* v1.24 — friendlier loading copy. The Claude vision call takes
-                4-6s typically, and the previous "Reading receipt..." felt
-                like a freeze. Setting expectations + a phase indicator
-                that rotates every 2s makes the wait feel intentional and
-                helps reduce the 50% mid-flow cancel rate seen in PostHog. */}
-            {scanning ? (
+            {/* v1.26 — removed the 4 scan/upload tiles that used to live here.
+                When the user reaches this modal via the AddItemModal "Bulk Add"
+                tile, they've already chosen manual entry; the scan tiles were
+                redundant with the entry-surface tiles in AddItemModal. The
+                scanning indicator stays — it shows when one of the preset
+                scan-launching paths (scan-camera, scan-library, scan-items-*)
+                opens this modal and fires the Claude vision call automatically. */}
+            {scanning && (
               <View style={[s.card, { padding: 24, marginBottom: 16, alignItems: "center" }]}>
                 <ActivityIndicator color={T.accent} size="large" />
                 <Text style={[s.bold, { fontSize: 15, marginTop: 12 }]}>{scanPhase}</Text>
                 <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 4, textAlign: "center" }}>Usually takes 4-6 seconds. Don't close the app.</Text>
               </View>
-            ) : (
-              <>
-                <View style={{ flexDirection: "row", gap: 10, marginBottom: 10 }}>
-                  <TouchableOpacity
-                    style={[s.card, { flex: 1, padding: 14, alignItems: "center", gap: 6 }]}
-                    onPress={() => handleScanReceipt("camera")}
-                  >
-                    <Text style={{ fontSize: 28 }}>📷</Text>
-                    <Text style={[s.bold, { fontSize: 13, textAlign: "center" }]}>Scan Receipt</Text>
-                    <Text style={{ color: T.textSoft, fontSize: 11, textAlign: "center" }}>Take a photo</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[s.card, { flex: 1, padding: 14, alignItems: "center", gap: 6 }]}
-                    onPress={() => handleScanReceipt("library")}
-                  >
-                    <Text style={{ fontSize: 28 }}>🖼</Text>
-                    <Text style={[s.bold, { fontSize: 13, textAlign: "center" }]}>Upload Receipt</Text>
-                    <Text style={{ color: T.textSoft, fontSize: 11, textAlign: "center" }}>From camera roll</Text>
-                  </TouchableOpacity>
-                </View>
-                {/* v1.25 — Photo of items. Third + fourth tile pair, separate
-                    row from receipt scan so the two flows read as distinct
-                    capabilities. Greg explicitly wanted this discoverable
-                    alongside Scan Receipt rather than buried in a sub-menu.
-                    Tighter 5/day rate limit vs receipt's 10/day; both surface
-                    in their respective error_type=daily_limit messages. */}
-                <View style={{ flexDirection: "row", gap: 10, marginBottom: 16 }}>
-                  <TouchableOpacity
-                    style={[s.card, { flex: 1, padding: 14, alignItems: "center", gap: 6 }]}
-                    onPress={() => handleScanItems("items_camera")}
-                  >
-                    <Text style={{ fontSize: 28 }}>🥬</Text>
-                    <Text style={[s.bold, { fontSize: 13, textAlign: "center" }]}>Snap Items</Text>
-                    <Text style={{ color: T.textSoft, fontSize: 11, textAlign: "center" }}>Photo on counter</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[s.card, { flex: 1, padding: 14, alignItems: "center", gap: 6 }]}
-                    onPress={() => handleScanItems("items_library")}
-                  >
-                    <Text style={{ fontSize: 28 }}>📤</Text>
-                    <Text style={[s.bold, { fontSize: 13, textAlign: "center" }]}>Upload Items</Text>
-                    <Text style={{ color: T.textSoft, fontSize: 11, textAlign: "center" }}>From camera roll</Text>
-                  </TouchableOpacity>
-                </View>
-              </>
             )}
 
             {isSample && (
@@ -5263,7 +5482,7 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
             )}
 
             <View style={{ backgroundColor: "rgba(22,163,74,0.08)", borderRadius: 12, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: "rgba(22,163,74,0.2)" }}>
-              <Text style={{ color: T.accent, fontSize: 13, fontWeight: "600" }}>Scan a receipt to auto-fill, or type your grocery items below — category and expiry are auto-filled based on the item name.</Text>
+              <Text style={{ color: T.accent, fontSize: 13, fontWeight: "600" }}>Type your grocery items below — category and expiry are auto-filled based on the item name.</Text>
             </View>
 
             {rows.map((row, index) => {
@@ -6770,9 +6989,25 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
                 <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: T.border }} />
               </View>
               <Text style={[s.bold, { fontSize: 18, marginBottom: 4 }]}>Snap items</Text>
-              <Text style={{ color: T.textSoft, fontSize: 13, marginBottom: 18 }}>
+              <Text style={{ color: T.textSoft, fontSize: 13, marginBottom: 12 }}>
                 Take a photo of your groceries spread on the counter, or pick a saved photo. We'll identify each item.
               </Text>
+              {/* v1.26 #322 — Surface the per-day limit + tips for best
+                  recognition results so users don't burn scans on photos
+                  the model can't read. Calibrated from the v1.25 scan
+                  data: 4-12 items per photo lands ~90% identification;
+                  20+ items in one shot fragments badly. */}
+              <View style={{ backgroundColor: T.bg, borderRadius: 10, padding: 12, marginBottom: 18 }}>
+                <Text style={{ color: T.text, fontSize: 12, fontWeight: "700", marginBottom: 6 }}>
+                  Tips for best results
+                </Text>
+                <Text style={{ color: T.textSoft, fontSize: 12, lineHeight: 18 }}>
+                  • Spread 4–12 items on a counter or table, not piled up{"\n"}
+                  • Good lighting — daylight or overhead helps a lot{"\n"}
+                  • Labels facing the camera when possible{"\n"}
+                  • 5 photo scans per day · counter resets at midnight
+                </Text>
+              </View>
               <TouchableOpacity
                 onPress={() => {
                   setShowItemsChooser(false);
@@ -7011,6 +7246,24 @@ function PlanScreen({ items, householdId, onOpenRecipeId, onOpenSavedRecipe, lis
   //   • search  — full-text search against bank (name + description).
   // Each card taps through to the existing deep-link RecipeSheet modal,
   // which now handles both bank-slug and daily-cache id shapes.
+  // v1.26 #312 — Top-level mode gate. Users land on a 2-button picker
+  // ("For Today" / "For This Week") before seeing the existing recipe sub-
+  // tabs. Today mode preserves the v1.19 flow (cuisine picker → Tonight/All/
+  // Saved). Week mode swaps in a multi-cuisine + serving picker → 5-card
+  // Mon-Fri plan persisted to weekly_meal_plans. null = haven't picked.
+  const [planMode, setPlanMode] = useState(null);                 // null | "today" | "week"
+  // Active weekly plan (most-recent row from weekly_meal_plans for this
+  // household) + the multi-cuisine + servings inputs the user is composing
+  // for a fresh plan. weeklyPlan.recipes is the JSONB array; weeklyPlan.id
+  // is null when in "compose new plan" state, non-null when viewing an
+  // already-saved plan.
+  const [weeklyPlan, setWeeklyPlan] = useState(null);             // null | { id, servings, cuisines, recipes, created_at }
+  const [weeklyCuisines, setWeeklyCuisines] = useState(new Set()); // Set<cuisineKey>
+  const [weeklyServings, setWeeklyServings] = useState(2);        // 1..20
+  const [weeklyGenerating, setWeeklyGenerating] = useState(false);
+  const [previousPlans, setPreviousPlans] = useState([]);         // [{ id, servings, cuisines, recipes, created_at }]
+  const [previousPlansExpanded, setPreviousPlansExpanded] = useState(false);
+  const [viewingPreviousPlan, setViewingPreviousPlan] = useState(null);  // null | row (read-only sheet)
   const [recipesTab, setRecipesTab] = useState("tonight");        // "tonight" | "browse" | "search"
   const [tonightRecipes, setTonightRecipes] = useState([]);       // [RecipeCard, ...]
   const [browseRecipes, setBrowseRecipes] = useState([]);
@@ -7324,6 +7577,129 @@ function PlanScreen({ items, householdId, onOpenRecipeId, onOpenSavedRecipe, lis
     }
   }
 
+  // v1.26 #312 — Weekly Meal Plans handlers. Three async functions cover the
+  // full lifecycle: loadWeeklyPlans (read active + history), generateWeeklyPlan
+  // (call Edge Function → save to DB → set as active), cloneWeeklyPlan (insert
+  // a copy of a previous plan as a fresh active row).
+  //
+  // The "active" plan is just the most-recent row for this household. Every
+  // generation appends a new row, so previousPlans = ALL rows except the most
+  // recent. Auto-save model — no separate Save button.
+  async function loadWeeklyPlans() {
+    if (!householdId) {
+      setWeeklyPlan(null);
+      setPreviousPlans([]);
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from("weekly_meal_plans")
+        .select("id, servings, cuisines, recipes, created_at")
+        .eq("household_id", householdId)
+        .is("archived_at", null)
+        .order("created_at", { ascending: false })
+        .limit(21);  // 1 active + 20 previous
+      if (error) throw error;
+      const rows = data || [];
+      if (rows.length === 0) {
+        setWeeklyPlan(null);
+        setPreviousPlans([]);
+      } else {
+        setWeeklyPlan(rows[0]);
+        setPreviousPlans(rows.slice(1));
+      }
+    } catch (e) {
+      console.warn("[plan] loadWeeklyPlans failed:", e?.message || e);
+    }
+  }
+
+  async function generateWeeklyPlan() {
+    if (!householdId || weeklyGenerating) return;
+    setWeeklyGenerating(true);
+    try {
+      // Build the ingredient pool the same way Eat Me First does — top
+      // expiring + non-expired items so the plan favors fridge overlap
+      // (hybrid mode: prefer use-up, don't gate on it).
+      const itemNames = (items || [])
+        .map(i => (i.name || "").trim())
+        .filter(Boolean)
+        .slice(0, 60);  // generous cap; Edge Function trims again
+      if (itemNames.length === 0) {
+        Alert.alert("Add a few items first", "Open the Fridge tab and add a few items — the weekly plan uses your inventory.");
+        return;
+      }
+      const cuisinesArr = Array.from(weeklyCuisines);
+      const body = {
+        items: itemNames,
+        servings: weeklyServings,
+        mode: "weekly",
+        cuisines: cuisinesArr,
+      };
+      const { data, error } = await supabase.functions.invoke("generate-recipes", { body });
+      if (error) throw error;
+      const recipes = Array.isArray(data?.recipes) ? data.recipes : [];
+      if (recipes.length === 0) {
+        Alert.alert("Couldn't build a plan", "Try a different set of cuisines or add more items to your fridge.");
+        return;
+      }
+      // Auto-save. Inserting a new row makes this the active plan; the
+      // previous active becomes the head of previousPlans on next reload.
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data: inserted, error: insErr } = await supabase
+        .from("weekly_meal_plans")
+        .insert({
+          household_id: householdId,
+          created_by: user?.id || null,
+          servings: weeklyServings,
+          cuisines: cuisinesArr,
+          recipes,
+        })
+        .select("id, servings, cuisines, recipes, created_at")
+        .single();
+      if (insErr) throw insErr;
+      // Move what was active into previousPlans (head), make the new one active.
+      setPreviousPlans(prev => weeklyPlan ? [weeklyPlan, ...prev].slice(0, 20) : prev);
+      setWeeklyPlan(inserted);
+      track("weekly_plan_generated", {
+        servings: weeklyServings,
+        cuisine_count: cuisinesArr.length,
+        recipe_count: recipes.length,
+        source: data?.source || "claude",
+      });
+    } catch (e) {
+      console.warn("[plan] generateWeeklyPlan failed:", e?.message || e);
+      Alert.alert("Couldn't build a plan", e?.message || "Try again in a moment.");
+    } finally {
+      setWeeklyGenerating(false);
+    }
+  }
+
+  async function cloneWeeklyPlan(sourcePlan) {
+    if (!householdId || !sourcePlan) return;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data: inserted, error } = await supabase
+        .from("weekly_meal_plans")
+        .insert({
+          household_id: householdId,
+          created_by: user?.id || null,
+          servings: sourcePlan.servings,
+          cuisines: sourcePlan.cuisines || [],
+          recipes: sourcePlan.recipes,
+        })
+        .select("id, servings, cuisines, recipes, created_at")
+        .single();
+      if (error) throw error;
+      setPreviousPlans(prev => weeklyPlan ? [weeklyPlan, ...prev].slice(0, 20) : prev);
+      setWeeklyPlan(inserted);
+      setViewingPreviousPlan(null);
+      track("weekly_plan_cloned", { source_id: sourcePlan.id });
+    } catch (e) {
+      console.warn("[plan] cloneWeeklyPlan failed:", e?.message || e);
+      Alert.alert("Couldn't reactivate plan", "Try again in a moment.");
+    }
+  }
+
   // v1.19 — recipe-browse Edge Function call. Pulls cards for the current
   // Recipes sub-tab. We use supabase.functions.invoke so the auth header is
   // attached automatically (the Tonight tab needs JWT to score the user's
@@ -7392,6 +7768,13 @@ function PlanScreen({ items, householdId, onOpenRecipeId, onOpenSavedRecipe, lis
   // changes, hence the householdId dependency). Browse + Search load on tab
   // switch / filter change / query change — handled in separate effects below.
   useEffect(() => { loadRecipesForTab("tonight"); /* eslint-disable-line */ }, [householdId]);
+  // v1.26 #312 — Load weekly plans (active + history) on household change AND
+  // when user first enters Week mode. Cheap: single household-scoped SELECT,
+  // cached by Supabase, idempotent on re-runs.
+  useEffect(() => {
+    if (planMode === "week") loadWeeklyPlans();
+    // eslint-disable-next-line
+  }, [householdId, planMode]);
   // "all" tab: combined browse + search behavior. Fires on tab switch, on
   // meal-type filter change, and on debounced query change (300ms).
   useEffect(() => {
@@ -7653,11 +8036,72 @@ function PlanScreen({ items, householdId, onOpenRecipeId, onOpenSavedRecipe, lis
       </View>
 
       {/* v1.19 — Recipes section. Primary surface for recipe discovery.
-          Three sub-tabs: Tonight (personalized via fridge), Browse (full
-          bank by meal type), Search (text query against name+description).
-          Each card opens the existing deep-link RecipeSheet modal. Shown
-          at the TOP of Plan, above shopping lists, regardless of whether
-          the user is in picker or in-list mode — recipes are the headline. */}
+          v1.26 #312 — Gated behind a top-level mode picker: "For Today" runs
+          the existing Tonight/All/Saved cuisine-first flow; "For This Week"
+          opens a new multi-cuisine + serving picker → 5-card Mon-Fri plan
+          persisted to weekly_meal_plans. */}
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginBottom: 8, marginTop: 8 }}>
+        <Text style={[s.sectionLabel, { paddingHorizontal: 0, marginBottom: 0 }]}>// MEAL PLANNING</Text>
+      </View>
+
+      {/* v1.26 #312 — Mode gate. Shown when user hasn't picked Today vs Week
+          yet. Two big tappable cards. Once selected, gets replaced by a
+          "Currently: <mode> · change" pill so users can flip back. */}
+      {planMode === null && (
+        <View style={{ paddingHorizontal: 16, marginBottom: 14 }}>
+          <Text style={{ fontSize: 14, color: T.textSoft, marginBottom: 12 }}>
+            What are you planning?
+          </Text>
+          <View style={{ flexDirection: "row", gap: 10 }}>
+            <TouchableOpacity
+              onPress={() => { setPlanMode("today"); track("plan_mode_selected", { mode: "today" }); }}
+              style={[s.card, { flex: 1, padding: 16, alignItems: "center", gap: 6 }]}
+            >
+              <Text style={{ fontSize: 32 }}>🍽️</Text>
+              <Text style={[s.bold, { fontSize: 14, color: T.text }]}>For Today</Text>
+              <Text style={{ fontSize: 11, color: T.textSoft, textAlign: "center" }}>
+                What to cook tonight
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => { setPlanMode("week"); track("plan_mode_selected", { mode: "week" }); }}
+              style={[s.card, { flex: 1, padding: 16, alignItems: "center", gap: 6 }]}
+            >
+              <Text style={{ fontSize: 32 }}>📅</Text>
+              <Text style={[s.bold, { fontSize: 14, color: T.text }]}>For This Week</Text>
+              <Text style={{ fontSize: 11, color: T.textSoft, textAlign: "center" }}>
+                5 dinners Mon–Fri
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* v1.26 #312 — Mode-active pill. Tap to return to the gate. */}
+      {planMode !== null && (
+        <View style={{ paddingHorizontal: 16, marginBottom: 10, flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <TouchableOpacity
+            onPress={() => { setPlanMode(null); track("plan_mode_changed"); }}
+            style={{
+              flexDirection: "row", alignItems: "center", gap: 6,
+              paddingHorizontal: 11, paddingVertical: 6, borderRadius: 14,
+              backgroundColor: "rgba(22,163,74,0.10)",
+            }}
+          >
+            <Ionicons name="arrow-back" size={14} color={T.accent} />
+            <Text style={{ fontSize: 12, fontWeight: "700", color: T.accent }}>
+              {planMode === "today" ? "🍽️ Planning for today" : "📅 Planning for the week"}
+            </Text>
+          </TouchableOpacity>
+          <Text style={{ color: T.textSoft, fontSize: 11 }}>· tap to change</Text>
+        </View>
+      )}
+
+      {/* v1.26 #312 — Today mode wraps the entire existing Tonight/All/Saved
+          recipe block (header + sub-tabs + cuisine picker + cards). When user
+          is in Week mode, this is hidden and the Week UI below takes over. */}
+      {planMode === "today" && (
+      <>
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginBottom: 8, marginTop: 8 }}>
         <Text style={[s.sectionLabel, { paddingHorizontal: 0, marginBottom: 0 }]}>// RECIPES</Text>
       </View>
@@ -7691,8 +8135,13 @@ function PlanScreen({ items, householdId, onOpenRecipeId, onOpenSavedRecipe, lis
         })}
       </View>
 
-      {/* "All Recipes" tab gets both a search input AND meal-type filter chips. */}
-      {recipesTab === "all" && (
+      {/* "All Recipes" tab gets both a search input AND meal-type filter chips.
+          v1.26 bug fix — gated behind cuisine selection. Previously the search
+          input rendered before the cuisine picker, so users could type a query
+          like "chicken" and nothing happened (results section is null-blocked
+          until cuisine is picked). Now we only show search + meal-type filters
+          AFTER the cuisine gate is cleared. Pick cuisine first, then refine. */}
+      {recipesTab === "all" && browseCuisine && (
         <>
           <View style={{ paddingHorizontal: 16, marginBottom: 8 }}>
             <TextInput
@@ -7865,7 +8314,11 @@ function PlanScreen({ items, householdId, onOpenRecipeId, onOpenSavedRecipe, lis
         </View>
       ) : ((recipesTab === "tonight" && !tonightCuisine) || (recipesTab === "all" && !browseCuisine)) ? null : (() => {
         // Filter the loaded list by the locked-in cuisine. Tonight already
-        // ranks by fridge overlap; we just keep the cuisine matches.
+        // ranks by fridge overlap; we just keep the cuisine matches. Search
+        // respects the cuisine filter — the cuisine gate (above) requires
+        // the user to pick a cuisine before the search bar even appears, so
+        // search is always scoped to "within this cuisine". To search across
+        // all cuisines, tap "Change cuisine" to reset.
         const activeCuisine = recipesTab === "tonight" ? tonightCuisine : browseCuisine;
         const baseList = recipesTab === "tonight" ? tonightRecipes : browseRecipes;
         const currentList = activeCuisine
@@ -7881,14 +8334,36 @@ function PlanScreen({ items, householdId, onOpenRecipeId, onOpenSavedRecipe, lis
           );
         }
         if (currentList.length === 0) {
+          // v1.26 — empty state is cuisine-aware. When a user searches inside
+          // a cuisine and gets no results, the message hints that the cuisine
+          // filter is the likely culprit + offers a one-tap "Show all cuisines"
+          // CTA so they don't have to figure out the back-arrow chip.
+          const activeCuisineLabel = activeCuisine
+            ? CUISINE_PICKER_OPTIONS.find(c => c.key === activeCuisine)?.label || ""
+            : "";
+          const isSearchingNow = recipesTab === "all" && searchQuery.trim();
           const emptyMsg =
             recipesTab === "tonight" ? "Add items to your fridge to get personalized picks." :
-            (searchQuery.trim() ? `No matches for "${searchQuery.trim()}"` :
+            (isSearchingNow
+              ? (activeCuisineLabel
+                  ? `No ${activeCuisineLabel} recipes match "${searchQuery.trim()}". Try another cuisine?`
+                  : `No matches for "${searchQuery.trim()}"`) :
              browseMealType ? "No recipes match this filter." : "No recipes found.");
           return (
             <View style={{ paddingHorizontal: 16, marginBottom: 18 }}>
               <View style={[s.card, { padding: 14, alignItems: "center" }]}>
                 <Text style={{ fontSize: 13, color: T.textSoft, textAlign: "center" }}>{emptyMsg}</Text>
+                {isSearchingNow && activeCuisineLabel && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (recipesTab === "tonight") setTonightCuisine(null);
+                      else setBrowseCuisine(null);
+                    }}
+                    style={{ marginTop: 10, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: "rgba(22,163,74,0.10)" }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: "700", color: T.accent }}>Change cuisine</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
           );
@@ -7930,6 +8405,344 @@ function PlanScreen({ items, householdId, onOpenRecipeId, onOpenSavedRecipe, lis
           </View>
         );
       })()}
+      </>
+      )}
+
+      {/* v1.26 #312 — Week mode UI. Two states:
+            1. Compose new plan — multi-cuisine chips + serving picker + Generate
+            2. Active plan exists — show 5-card Mon-Fri layout + "New plan" CTA
+          Below either of those, a collapsible "Previous Plans" section. */}
+      {planMode === "week" && (() => {
+        const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+        if (weeklyGenerating) {
+          return (
+            <View style={{ paddingHorizontal: 16, marginBottom: 18 }}>
+              <View style={[s.card, { padding: 18, alignItems: "center" }]}>
+                <ActivityIndicator color={T.accent} />
+                <Text style={{ fontSize: 13, color: T.textSoft, marginTop: 12, textAlign: "center" }}>
+                  Building your week's plan…{"\n"}5 dinners, scaled to {weeklyServings} {weeklyServings === 1 ? "serving" : "servings"}.
+                </Text>
+              </View>
+            </View>
+          );
+        }
+        // ─────────── ACTIVE PLAN STATE — 5 cards Mon-Fri ───────────
+        if (weeklyPlan && Array.isArray(weeklyPlan.recipes) && weeklyPlan.recipes.length > 0) {
+          const planRecipes = weeklyPlan.recipes;
+          const planCuisinesLabel = (weeklyPlan.cuisines || [])
+            .map(k => CUISINE_PICKER_OPTIONS.find(c => c.key === k)?.label || k)
+            .join(", ");
+          return (
+            <View style={{ paddingHorizontal: 16, marginBottom: 18 }}>
+              <View style={[s.card, { padding: 12, marginBottom: 10, backgroundColor: "rgba(22,163,74,0.06)" }]}>
+                <Text style={{ fontSize: 11, color: T.textSoft, marginBottom: 2 }}>
+                  Active plan · {weeklyPlan.servings} {weeklyPlan.servings === 1 ? "serving" : "servings"}
+                  {planCuisinesLabel ? ` · ${planCuisinesLabel}` : ""}
+                </Text>
+                <Text style={{ fontSize: 12, fontWeight: "700", color: T.accent }}>
+                  📅 Your week
+                </Text>
+              </View>
+              {planRecipes.slice(0, 5).map((r, idx) => {
+                const day = DAY_LABELS[idx] || `Day ${idx + 1}`;
+                const meta = [r.time, r.difficulty].filter(Boolean).join(" · ");
+                return (
+                  <TouchableOpacity
+                    key={`${weeklyPlan.id}-${idx}`}
+                    onPress={() => {
+                      track("weekly_plan_recipe_opened", { plan_id: weeklyPlan.id, day_index: idx, name: r.name });
+                      if (onOpenSavedRecipe) onOpenSavedRecipe(r, null);
+                    }}
+                    style={[s.card, { padding: 12, marginBottom: 8, flexDirection: "row", alignItems: "center", gap: 10 }]}
+                  >
+                    <View style={{ width: 44, height: 44, borderRadius: 10, backgroundColor: "rgba(22,163,74,0.10)", alignItems: "center", justifyContent: "center" }}>
+                      <Text style={{ fontSize: 10, fontWeight: "700", color: T.accent }}>{day.toUpperCase()}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[s.bold, { fontSize: 14, color: T.text }]} numberOfLines={1}>
+                        {r.emoji || "🍽️"} {r.name || "Recipe"}
+                      </Text>
+                      {!!meta && (
+                        <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 2 }} numberOfLines={1}>
+                          {meta}
+                        </Text>
+                      )}
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={T.muted} />
+                  </TouchableOpacity>
+                );
+              })}
+              <TouchableOpacity
+                onPress={() => {
+                  // Clear active plan so the user re-enters the compose flow.
+                  // The OLD active plan persists in DB and shows up as the top
+                  // entry of Previous Plans on next load.
+                  setWeeklyPlan(null);
+                  setWeeklyCuisines(new Set());
+                  setWeeklyServings(2);
+                  track("weekly_plan_new_tapped", { previous_id: weeklyPlan.id });
+                }}
+                style={[s.card, { padding: 12, marginBottom: 14, alignItems: "center", borderStyle: "dashed" }]}
+              >
+                <Text style={{ fontSize: 13, color: T.accent, fontWeight: "700" }}>+ New plan</Text>
+                <Text style={{ fontSize: 11, color: T.textSoft, marginTop: 2 }}>
+                  Compose a fresh week
+                </Text>
+              </TouchableOpacity>
+
+              {/* Previous Plans — collapsed by default */}
+              {previousPlans.length > 0 && (
+                <View style={{ marginTop: 4 }}>
+                  <TouchableOpacity
+                    onPress={() => setPreviousPlansExpanded(!previousPlansExpanded)}
+                    style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 8 }}
+                  >
+                    <Text style={{ fontSize: 11, fontWeight: "700", color: T.textSoft, letterSpacing: 0.5 }}>
+                      ⏱  PREVIOUS PLANS · {previousPlans.length}
+                    </Text>
+                    <Ionicons name={previousPlansExpanded ? "chevron-up" : "chevron-down"} size={16} color={T.muted} />
+                  </TouchableOpacity>
+                  {previousPlansExpanded && previousPlans.map(p => {
+                    const created = new Date(p.created_at);
+                    const dateLabel = created.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                    const cuisinesLabel = (p.cuisines || [])
+                      .map(k => CUISINE_PICKER_OPTIONS.find(c => c.key === k)?.label || k)
+                      .join(", ") || "Any cuisine";
+                    const firstRecipeName = (p.recipes?.[0]?.name) || "Recipe";
+                    return (
+                      <TouchableOpacity
+                        key={p.id}
+                        onPress={() => setViewingPreviousPlan(p)}
+                        style={[s.card, { padding: 10, marginBottom: 6, flexDirection: "row", alignItems: "center", gap: 10 }]}
+                      >
+                        <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(0,0,0,0.04)", alignItems: "center", justifyContent: "center" }}>
+                          <Text style={{ fontSize: 10, fontWeight: "700", color: T.textSoft }}>{dateLabel.split(" ")[0]}</Text>
+                          <Text style={{ fontSize: 12, fontWeight: "700", color: T.text, lineHeight: 14 }}>{dateLabel.split(" ")[1]}</Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[s.bold, { fontSize: 13, color: T.text }]} numberOfLines={1}>
+                            {cuisinesLabel}
+                          </Text>
+                          <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 2 }} numberOfLines={1}>
+                            {p.servings} {p.servings === 1 ? "serving" : "servings"} · starts with {firstRecipeName}
+                          </Text>
+                        </View>
+                        <Text style={{ color: T.muted, fontSize: 16 }}>›</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+          );
+        }
+        // ─────────── COMPOSE STATE — multi-cuisine + servings + Generate ───────────
+        return (
+          <View style={{ paddingHorizontal: 16, marginBottom: 18 }}>
+            <Text style={{ fontSize: 14, fontWeight: "600", color: T.text, marginBottom: 6 }}>
+              Pick the cuisines you want this week
+            </Text>
+            <Text style={{ fontSize: 11, color: T.textSoft, marginBottom: 12 }}>
+              We'll spread 5 dinners across them. Pick 1 or pick all — your call.
+            </Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 18 }}>
+              {CUISINE_PICKER_OPTIONS.map(c => {
+                const selected = weeklyCuisines.has(c.key);
+                return (
+                  <TouchableOpacity
+                    key={c.key}
+                    onPress={() => {
+                      const next = new Set(weeklyCuisines);
+                      if (selected) next.delete(c.key); else next.add(c.key);
+                      setWeeklyCuisines(next);
+                    }}
+                    style={{
+                      flexDirection: "row", alignItems: "center", gap: 5,
+                      paddingHorizontal: 11, paddingVertical: 7, borderRadius: 14,
+                      borderWidth: 1, borderColor: selected ? T.accent : "rgba(0,0,0,0.12)",
+                      backgroundColor: selected ? "rgba(22,163,74,0.10)" : "transparent",
+                    }}
+                  >
+                    <Text style={{ fontSize: 14 }}>{c.emoji}</Text>
+                    <Text style={{ fontSize: 12, fontWeight: "600", color: selected ? T.accent : T.text }}>
+                      {c.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Text style={{ fontSize: 14, fontWeight: "600", color: T.text, marginBottom: 6 }}>
+              How many people?
+            </Text>
+            <Text style={{ fontSize: 11, color: T.textSoft, marginBottom: 12 }}>
+              We'll scale ingredient amounts to match.
+            </Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 20 }}>
+              {[1, 2, 3, 4, 5, 6, 8].map(n => {
+                const selected = weeklyServings === n;
+                return (
+                  <TouchableOpacity
+                    key={n}
+                    onPress={() => setWeeklyServings(n)}
+                    style={{
+                      minWidth: 44, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 12,
+                      borderWidth: 1, borderColor: selected ? T.accent : "rgba(0,0,0,0.12)",
+                      backgroundColor: selected ? "rgba(22,163,74,0.10)" : "transparent",
+                      alignItems: "center",
+                    }}
+                  >
+                    <Text style={{ fontSize: 14, fontWeight: "700", color: selected ? T.accent : T.text }}>
+                      {n}{n === 8 ? "+" : ""}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <TouchableOpacity
+              onPress={generateWeeklyPlan}
+              disabled={weeklyGenerating}
+              style={[s.btnPrimary, { opacity: weeklyGenerating ? 0.5 : 1 }]}
+            >
+              <Text style={s.btnPrimaryText}>
+                {weeklyCuisines.size > 0
+                  ? `Generate ${weeklyCuisines.size === 1 ? "from " + (CUISINE_PICKER_OPTIONS.find(c => c.key === Array.from(weeklyCuisines)[0])?.label || "selected") : "across " + weeklyCuisines.size + " cuisines"}`
+                  : "Surprise me with 5 dinners"}
+              </Text>
+            </TouchableOpacity>
+            <Text style={{ fontSize: 11, color: T.textSoft, marginTop: 8, textAlign: "center" }}>
+              Uses what's in your fridge when possible · skip cuisines to let us mix
+            </Text>
+
+            {/* Previous Plans — also shown in compose state */}
+            {previousPlans.length > 0 && (
+              <View style={{ marginTop: 24 }}>
+                <TouchableOpacity
+                  onPress={() => setPreviousPlansExpanded(!previousPlansExpanded)}
+                  style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 8 }}
+                >
+                  <Text style={{ fontSize: 11, fontWeight: "700", color: T.textSoft, letterSpacing: 0.5 }}>
+                    ⏱  PREVIOUS PLANS · {previousPlans.length}
+                  </Text>
+                  <Ionicons name={previousPlansExpanded ? "chevron-up" : "chevron-down"} size={16} color={T.muted} />
+                </TouchableOpacity>
+                {previousPlansExpanded && previousPlans.map(p => {
+                  const created = new Date(p.created_at);
+                  const dateLabel = created.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                  const cuisinesLabel = (p.cuisines || [])
+                    .map(k => CUISINE_PICKER_OPTIONS.find(c => c.key === k)?.label || k)
+                    .join(", ") || "Any cuisine";
+                  const firstRecipeName = (p.recipes?.[0]?.name) || "Recipe";
+                  return (
+                    <TouchableOpacity
+                      key={p.id}
+                      onPress={() => setViewingPreviousPlan(p)}
+                      style={[s.card, { padding: 10, marginBottom: 6, flexDirection: "row", alignItems: "center", gap: 10 }]}
+                    >
+                      <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(0,0,0,0.04)", alignItems: "center", justifyContent: "center" }}>
+                        <Text style={{ fontSize: 10, fontWeight: "700", color: T.textSoft }}>{dateLabel.split(" ")[0]}</Text>
+                        <Text style={{ fontSize: 12, fontWeight: "700", color: T.text, lineHeight: 14 }}>{dateLabel.split(" ")[1]}</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[s.bold, { fontSize: 13, color: T.text }]} numberOfLines={1}>
+                          {cuisinesLabel}
+                        </Text>
+                        <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 2 }} numberOfLines={1}>
+                          {p.servings} {p.servings === 1 ? "serving" : "servings"} · starts with {firstRecipeName}
+                        </Text>
+                      </View>
+                      <Text style={{ color: T.muted, fontSize: 16 }}>›</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+        );
+      })()}
+
+      {/* v1.26 #312 — View-previous-plan sheet. Read-only list of the 5
+          recipes in a past plan with a "Reactivate this plan" CTA that
+          clones the row as a fresh active plan. */}
+      <Modal
+        visible={!!viewingPreviousPlan}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setViewingPreviousPlan(null)}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => setViewingPreviousPlan(null)}
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" }}
+        >
+          <View
+            onStartShouldSetResponder={() => true}
+            style={{ backgroundColor: T.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "85%" }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", paddingTop: 20, paddingHorizontal: 20, paddingBottom: 6 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={[s.pageTitle, { fontSize: 18, paddingHorizontal: 0, paddingTop: 0 }]}>
+                  Previous plan
+                </Text>
+                {viewingPreviousPlan && (
+                  <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 4 }}>
+                    {new Date(viewingPreviousPlan.created_at).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                    {" · "}{viewingPreviousPlan.servings} {viewingPreviousPlan.servings === 1 ? "serving" : "servings"}
+                  </Text>
+                )}
+              </View>
+              <TouchableOpacity
+                onPress={() => setViewingPreviousPlan(null)}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: T.bg, alignItems: "center", justifyContent: "center", marginLeft: 8 }}
+              >
+                <Ionicons name="close" size={20} color={T.text} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ paddingHorizontal: 20 }}>
+              <View style={{ height: 8 }} />
+              {viewingPreviousPlan && (viewingPreviousPlan.recipes || []).slice(0, 5).map((r, idx) => {
+                const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+                const day = DAY_LABELS[idx] || `Day ${idx + 1}`;
+                const meta = [r.time, r.difficulty].filter(Boolean).join(" · ");
+                return (
+                  <View
+                    key={`prev-${idx}`}
+                    style={[s.card, { padding: 12, marginBottom: 8, flexDirection: "row", alignItems: "center", gap: 10 }]}
+                  >
+                    <View style={{ width: 44, height: 44, borderRadius: 10, backgroundColor: "rgba(22,163,74,0.08)", alignItems: "center", justifyContent: "center" }}>
+                      <Text style={{ fontSize: 10, fontWeight: "700", color: T.accent }}>{day.toUpperCase()}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[s.bold, { fontSize: 14, color: T.text }]} numberOfLines={1}>
+                        {r.emoji || "🍽️"} {r.name || "Recipe"}
+                      </Text>
+                      {!!meta && (
+                        <Text style={{ color: T.textSoft, fontSize: 11, marginTop: 2 }} numberOfLines={1}>
+                          {meta}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                );
+              })}
+              <TouchableOpacity
+                onPress={() => viewingPreviousPlan && cloneWeeklyPlan(viewingPreviousPlan)}
+                style={[s.btnPrimary, { marginTop: 10, marginBottom: 12 }]}
+              >
+                <Text style={s.btnPrimaryText}>Reactivate this plan</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setViewingPreviousPlan(null)}
+                style={[s.btnPrimary, { marginTop: 0, marginBottom: 20, backgroundColor: "rgba(0,0,0,0.04)" }]}
+              >
+                <Text style={[s.btnPrimaryText, { color: T.text }]}>Close</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* v1.19 — Saved Recipes are now rendered inside the Recipes section
           as a sub-tab (Tonight / All Recipes / Saved), so no standalone
@@ -8044,9 +8857,12 @@ function PlanScreen({ items, householdId, onOpenRecipeId, onOpenSavedRecipe, lis
               onPress={() => setOpenSavedRecipe(null)}
               style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" }}
             >
-              <TouchableOpacity
-                activeOpacity={1}
-                onPress={() => { /* swallow */ }}
+              {/* v1.26 bug fix — was TouchableOpacity; ScrollView couldn't
+                  claim drag gestures on Text-only sections (description,
+                  instructions, header). View+onStartShouldSetResponder still
+                  swallows tap-through to backdrop but doesn't fight ScrollView. */}
+              <View
+                onStartShouldSetResponder={() => true}
                 style={{ backgroundColor: T.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "85%" }}
               >
                 <View style={{ flexDirection: "row", alignItems: "flex-start", paddingTop: 20, paddingHorizontal: 20, paddingBottom: 6 }}>
@@ -8150,7 +8966,7 @@ function PlanScreen({ items, householdId, onOpenRecipeId, onOpenSavedRecipe, lis
                     <Text style={s.btnPrimaryText}>Close</Text>
                   </TouchableOpacity>
                 </ScrollView>
-              </TouchableOpacity>
+              </View>
             </TouchableOpacity>
           </Modal>
         </>
@@ -8854,6 +9670,18 @@ export default function App() {
   // Cleared via onPresetConsumed once the modal handles it, so reopening
   // doesn't re-trigger.
   const [bulkAddPresetMode, setBulkAddPresetMode] = useState(null);
+  // v1.26 #321 — App-scope pre-parsed rows for BulkAddModal. When set,
+  // BulkAddModal opens already populated with these (no scan-in-modal
+  // round-trip, no flash). Cleared whenever the modal closes. Populated
+  // by the App-scope appScanReceipt + appScanItems handlers below, which
+  // run the camera/library picker BEFORE opening BulkAddModal so the user
+  // sees the OS picker directly with no intermediate modal flash.
+  const [pendingBulkRows, setPendingBulkRows] = useState(null);
+  // v1.26 #321 — Loading overlay during App-scope scans. The picker closes
+  // → there's a 4-6s Claude vision round-trip → BulkAddModal opens with
+  // parsed rows. Without an overlay, the screen would just appear "frozen"
+  // on the previous surface (Fridge tab) during that window.
+  const [appScanning, setAppScanning] = useState(false);
   const [addSection, setAddSection] = useState("fridge");
   const [toast, setToast] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
@@ -8958,6 +9786,46 @@ export default function App() {
     });
     return () => authSub.unsubscribe();
   }, []);
+
+  // v1.26 — Android hardware/gesture back-button handling. Before this, the
+  // first back press from any screen (including Fridge) closed the app
+  // immediately because there was no BackHandler registered, so Android
+  // fell back to its default exit-activity behavior. Real-user feedback
+  // called this out as a hard quit.
+  //
+  // Behavior now:
+  //   - On any non-Fridge tab → first back press routes home to Fridge.
+  //   - On Fridge tab → double-tap-to-exit. First press shows a Toast
+  //     ("Press back again to exit"); second press within 2s actually
+  //     exits via BackHandler.exitApp(). This matches the convention used
+  //     by Gmail, WhatsApp, Slack and most major Android apps.
+  //
+  // Active modals are NOT intercepted here — they wire up their own dismiss
+  // path via React Native's Modal `onRequestClose`, which already routes
+  // the back press to the modal's own close handler.
+  const lastBackPressRef = useRef(0);
+  useEffect(() => {
+    if (Platform.OS !== "android") return undefined;
+    const onBackPress = () => {
+      if (tab !== "fridge") {
+        setTab("fridge");
+        return true;
+      }
+      const now = Date.now();
+      if (now - lastBackPressRef.current < 2000) {
+        // Second press within 2s → exit.
+        BackHandler.exitApp();
+        return true;
+      }
+      lastBackPressRef.current = now;
+      try {
+        ToastAndroid.show("Press back again to exit", ToastAndroid.SHORT);
+      } catch { /* ToastAndroid is Android-only but Platform.OS guard already ran */ }
+      return true; // Always prevent default close on first press.
+    };
+    const sub = BackHandler.addEventListener("hardwareBackPress", onBackPress);
+    return () => sub.remove();
+  }, [tab]);
 
   // v1.25 #284 — Load onboarding-gate state from user_settings whenever the
   // user changes. If onboarding_4_items_unlocked_at is non-NULL, they've
@@ -9766,6 +10634,193 @@ export default function App() {
     }
   }
 
+  // v1.26 #321 — App-scope scan handlers. These run BEFORE BulkAddModal
+  // opens, so the user taps Scan Receipt / Snap Items and goes straight to
+  // the OS camera/library picker with no flashing intermediate modal.
+  // After the scan completes we set pendingBulkRows and open BulkAddModal,
+  // which mounts directly into the review screen.
+  //
+  // The handlers mirror BulkAddModal's old handleScanReceipt/handleScanItems
+  // 1:1 for permissions + picker + resize + Claude vision + error routing.
+  // The only difference is where the parsed rows land: instead of setRows
+  // (modal-local), we call mapParsedToBulkRows + setPendingBulkRows + open
+  // the modal.
+  async function appScanReceipt(source) {
+    track("receipt_scan_started", { source });
+    try {
+      let result;
+      if (source === "camera") {
+        const perm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!perm.granted) {
+          const permanent = perm.canAskAgain === false;
+          track("camera_permission_denied", { permanent, surface: "receipt_camera" });
+          Alert.alert(
+            permanent ? "Camera access blocked" : "Camera access needed",
+            permanent
+              ? "ok2eat needs your camera to read grocery receipts. Open Settings to allow it — takes 5 seconds."
+              : "Tap Allow on the next prompt and we'll read the items off your receipt automatically.",
+            permanent
+              ? [
+                  { text: "Not now", style: "cancel" },
+                  { text: "Open Settings", onPress: () => Linking.openSettings() },
+                ]
+              : [{ text: "OK" }]
+          );
+          return;
+        }
+        result = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.7 });
+      } else {
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) {
+          const permanent = perm.canAskAgain === false;
+          track("photo_library_permission_denied", { permanent, surface: "receipt_library" });
+          Alert.alert(
+            permanent ? "Photo access blocked" : "Photo access needed",
+            permanent
+              ? "ok2eat needs access to your photos so you can pick a saved receipt to scan. Open Settings to allow it."
+              : "Tap Allow on the next prompt and we'll read the items off your saved receipt photo.",
+            permanent
+              ? [
+                  { text: "Not now", style: "cancel" },
+                  { text: "Open Settings", onPress: () => Linking.openSettings() },
+                ]
+              : [{ text: "OK" }]
+          );
+          return;
+        }
+        result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.7 });
+      }
+      const uri = result?.assets?.[0]?.uri;
+      if (result.canceled || !uri) {
+        track("receipt_scan_cancelled", { source, cancel_stage: "picker" });
+        return;
+      }
+      setAppScanning(true);
+      let resizedB64;
+      try {
+        resizedB64 = await resizeReceiptForUpload(uri);
+      } catch (e) {
+        track("receipt_scan_failed", { source, error_type: "client_resize_failed", message: String(e?.message || "").slice(0, 80) });
+        Alert.alert("Couldn't process that photo", "Try taking the photo again. If this keeps happening, email hello@ok2eat.com.");
+        return;
+      }
+      try {
+        const parsed = await parseReceiptImage(resizedB64);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          track("receipt_scanned", { source, item_count: parsed.length });
+          const rows = mapParsedToBulkRows(parsed);
+          setPendingBulkRows(rows);
+          setShowBulkAdd(true);
+        } else {
+          track("receipt_scan_no_items", { source });
+          Alert.alert("No items found", "Couldn't extract food items from this image. Try a clearer photo.");
+        }
+      } catch (e) {
+        const errorType = e?.errorType || "unknown";
+        track("receipt_scan_failed", { source, error_type: errorType });
+        const title = errorType === "anthropic_transient" ? "Connection slow"
+                    : errorType === "image_too_large"    ? "Photo too large"
+                    : errorType === "daily_limit"        ? "Daily limit reached"
+                    : errorType === "unauthenticated"    ? "Sign-in needed"
+                    : "Couldn't read the receipt";
+        const body = errorType === "anthropic_transient" ? "Network hiccup — try again in a moment."
+                   : errorType === "image_too_large"    ? "The photo is unusually large. Try a smaller one."
+                   : errorType === "daily_limit"        ? (e?.message || "You've hit today's scan limit. Try again tomorrow.")
+                   : errorType === "unauthenticated"    ? "Please sign in and try again."
+                   : errorType === "anthropic_permanent" || errorType === "bad_model_output" ? "Try a clearer photo or better lighting — make sure the whole receipt is in frame."
+                   : "Couldn't process the receipt. Check your connection and try again.";
+        Alert.alert(title, body);
+      }
+    } catch (e) {
+      track("receipt_scan_failed", { source, error_type: "unexpected", message: String(e?.message || "").slice(0, 80) });
+      Alert.alert("Scan failed", "Something went wrong. Check your connection and try again.");
+    } finally {
+      setAppScanning(false);
+    }
+  }
+
+  async function appScanItems(source) {
+    track("items_scan_started", { source });
+    try {
+      let result;
+      if (source === "items_camera") {
+        const perm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!perm.granted) {
+          const permanent = perm.canAskAgain === false;
+          track("camera_permission_denied", { permanent, surface: "items_camera" });
+          Alert.alert(
+            permanent ? "Camera access blocked" : "Camera access needed",
+            permanent
+              ? "ok2eat uses your camera to identify items in a photo. Open Settings to allow it."
+              : "Tap Allow on the next prompt and we'll identify the items in your photo automatically."
+          );
+          return;
+        }
+        result = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.7 });
+      } else {
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) {
+          const permanent = perm.canAskAgain === false;
+          track("photo_library_permission_denied", { permanent, surface: "items_library" });
+          Alert.alert(
+            permanent ? "Photo access blocked" : "Photo access needed",
+            permanent
+              ? "ok2eat needs access to your photos so you can pick a saved grocery photo. Open Settings to allow it."
+              : "Tap Allow on the next prompt and we'll identify the items in your saved photo."
+          );
+          return;
+        }
+        result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.7 });
+      }
+      const uri = result?.assets?.[0]?.uri;
+      if (result.canceled || !uri) {
+        track("items_scan_cancelled", { source, cancel_stage: "picker" });
+        return;
+      }
+      setAppScanning(true);
+      let resizedB64;
+      try {
+        resizedB64 = await resizeReceiptForUpload(uri);
+      } catch (e) {
+        track("items_scan_failed", { source, error_type: "client_resize_failed" });
+        Alert.alert("Couldn't process that photo", "Try taking the photo again. If this keeps happening, email hello@ok2eat.com.");
+        return;
+      }
+      try {
+        const parsed = await parseItemsImage(resizedB64);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          track("items_scanned", { source, item_count: parsed.length });
+          const rows = mapParsedToBulkRows(parsed);
+          setPendingBulkRows(rows);
+          setShowBulkAdd(true);
+        } else {
+          track("items_scan_no_items", { source });
+          Alert.alert("No items found", "Couldn't identify food items in this photo. Try a clearer shot with items spread out.");
+        }
+      } catch (e) {
+        const errorType = e?.errorType || "unknown";
+        track("items_scan_failed", { source, error_type: errorType });
+        const title = errorType === "anthropic_transient" ? "Connection slow"
+                    : errorType === "image_too_large"    ? "Photo too large"
+                    : errorType === "daily_limit"        ? "Daily limit reached"
+                    : errorType === "unauthenticated"    ? "Sign-in needed"
+                    : "Couldn't read the photo";
+        const body = errorType === "anthropic_transient" ? "Network hiccup — try again in a moment."
+                   : errorType === "image_too_large"    ? "The photo is unusually large. Try a smaller one."
+                   : errorType === "daily_limit"        ? (e?.message || "You've hit today's 5-scan limit for item photos. Try again tomorrow.")
+                   : errorType === "unauthenticated"    ? "Please sign in and try again."
+                   : errorType === "anthropic_permanent" || errorType === "bad_model_output" ? "Try a clearer shot with items spread out — good lighting helps a lot."
+                   : "Couldn't process the photo. Check your connection and try again.";
+        Alert.alert(title, body);
+      }
+    } catch (e) {
+      track("items_scan_failed", { source, error_type: "unexpected", message: String(e?.message || "").slice(0, 80) });
+      Alert.alert("Scan failed", "Something went wrong. Check your connection and try again.");
+    } finally {
+      setAppScanning(false);
+    }
+  }
+
   async function handleAddManual(data) {
     try {
       // Snapshot expiry_unopened for manual adds so the open/close feature
@@ -9999,7 +11054,7 @@ export default function App() {
           // v1.21 — accepts "camera" | "library" so the empty-state CTA on
           // FridgeScreen can match the AddModal chooser's UX. Defaults to
           // camera when no source is provided (legacy callers).
-          onScanReceipt={(src) => { setBulkAddPresetMode(src === "library" ? "scan-library" : "scan-camera"); setShowBulkAdd(true); }}
+          onScanReceipt={(src) => { appScanReceipt(src === "library" ? "library" : "camera"); }}
           onTrySample={() => { track("sample_receipt_tapped"); setBulkAddPresetMode("sample"); setShowBulkAdd(true); }}
         />}
         {tab === "scan" && <ScanScreen onScanned={handleScanned} />}
@@ -10050,16 +11105,15 @@ export default function App() {
         onClose={() => setShowAdd(false)}
         onAdd={handleAddManual}
         onGoToScan={() => { setShowAdd(false); setTab("scan"); }}
-        // v1.16 fix — was missing setBulkAddPresetMode("scan-camera"), so the
-        // AddModal "Scan Receipt" tile opened BulkAddModal in manual mode
-        // (3 empty rows) instead of auto-launching the camera. The empty-state
-        // CTA at line 5411 was correctly wired; only this path regressed.
+        // v1.26 #321 — App-scope scan handlers. Previously this opened
+        // BulkAddModal with a presetMode and BulkAddModal then fired the
+        // camera. That two-step caused a visible flash of the bulk-add UI
+        // before the camera opened. Now AddModal closes → camera opens
+        // directly → BulkAddModal mounts AFTER scan with parsed rows.
         // v1.21 — accepts "camera" | "library" from the AddModal chooser.
-        onScanReceipt={(src) => { setShowAdd(false); setBulkAddPresetMode(src === "library" ? "scan-library" : "scan-camera"); setShowBulkAdd(true); }}
-        // v1.25 — Snap Items dispatcher. Mirror of onScanReceipt but routes
-        // to the new scan-items preset modes consumed by BulkAddModal's
-        // useEffect (which calls handleScanItems with the appropriate source).
-        onScanItems={(src) => { setShowAdd(false); setBulkAddPresetMode(src === "items_library" ? "scan-items-library" : "scan-items-camera"); setShowBulkAdd(true); }}
+        onScanReceipt={(src) => { setShowAdd(false); appScanReceipt(src === "library" ? "library" : "camera"); }}
+        // v1.25 — Snap Items dispatcher. v1.26 #321 — same hoist as receipt.
+        onScanItems={(src) => { setShowAdd(false); appScanItems(src === "items_library" ? "items_library" : "items_camera"); }}
         section={addSection}
         onBulkAdd={() => setShowBulkAdd(true)}
         recentItems={recentItems}
@@ -10102,9 +11156,18 @@ export default function App() {
           onPress={() => { setDeepLinkRecipe(null); setDeepLinkRecipeError(null); }}
           style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" }}
         >
-          <TouchableOpacity
-            activeOpacity={1}
-            onPress={() => { /* swallow taps inside the sheet */ }}
+          {/* v1.26 bug fix — was a TouchableOpacity to "swallow" taps inside
+              the sheet so they wouldn't bubble to the backdrop dismiss. But
+              wrapping the ScrollView in a touchable means the touchable
+              becomes the gesture responder first and the ScrollView never
+              gets a chance to start a scroll on Text-only sections (header,
+              description, instructions). Only rows that were themselves
+              touchable (ingredients) worked. Switching to a View with
+              onStartShouldSetResponder swallows tap events the same way but
+              never claims the scroll responder, so the ScrollView wins on
+              drag and the entire sheet is now scrollable from anywhere. */}
+          <View
+            onStartShouldSetResponder={() => true}
             style={{ backgroundColor: T.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "85%" }}
           >
             <View style={{ flexDirection: "row", alignItems: "flex-start", paddingTop: 20, paddingHorizontal: 20, paddingBottom: 6 }}>
@@ -10482,7 +11545,7 @@ export default function App() {
                 <Text style={[s.btnPrimaryText, { color: T.text }]}>Close</Text>
               </TouchableOpacity>
             </ScrollView>
-          </TouchableOpacity>
+          </View>
         </TouchableOpacity>
       </Modal>
       {/* v1.19 — InventoryMatchSheet removed. The match flow now lives
@@ -10511,12 +11574,38 @@ export default function App() {
       />
       <BulkAddModal
         visible={showBulkAdd}
-        onClose={() => { setShowBulkAdd(false); setBulkAddPresetMode(null); }}
+        onClose={() => { setShowBulkAdd(false); setBulkAddPresetMode(null); setPendingBulkRows(null); }}
         onAddItems={handleBulkAdd}
         section={addSection}
         presetMode={bulkAddPresetMode}
         onPresetConsumed={() => setBulkAddPresetMode(null)}
+        initialRows={pendingBulkRows}
       />
+
+      {/* v1.26 #321 — Loading overlay during the App-scope Claude vision call.
+          Shows the moment the picker closes with an image and stays up until
+          BulkAddModal opens with parsed rows (~4-6s). Without it the screen
+          would just appear "frozen" on whatever the user was looking at when
+          they tapped Scan Items / Scan Receipt. transparent Modal sits above
+          everything else and blocks interaction so users can't double-tap. */}
+      <Modal
+        visible={appScanning}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+      >
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <View style={{ backgroundColor: T.surface, borderRadius: 16, padding: 28, alignItems: "center", maxWidth: 280 }}>
+            <ActivityIndicator color={T.accent} size="large" />
+            <Text style={{ fontSize: 15, fontWeight: "600", color: T.text, marginTop: 14, textAlign: "center" }}>
+              Reading your photo…
+            </Text>
+            <Text style={{ fontSize: 12, color: T.textSoft, marginTop: 6, textAlign: "center", lineHeight: 17 }}>
+              Identifying items — usually takes a few seconds.
+            </Text>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={updateInfo !== null}
@@ -10589,10 +11678,15 @@ export default function App() {
           higher in the tree already accounts for the home indicator. */}
       {/* v1.25 #286 — bumped Android paddingBottom 36 → 48 after Greg's
           Samsung Galaxy screenshot still showed the gesture handle riding
-          right against the FRIDGE/EAT FIRST row. 48 gives enough clearance
-          for both Pixel 9 (gesture-nav inset ~30px) and Samsung S-series
-          (which adds a few extra px for the home indicator strip). */}
-      <View style={[s.navBar, { paddingBottom: Platform.OS === "android" ? 48 : 24 }]}>
+          right against the FRIDGE/EAT FIRST row.
+          v1.26 #311 — bumped again 48 → 64 after Greg saw a tiny remaining
+          overlap on Samsung Galaxy. Without react-native-safe-area-context
+          (would require a native rebuild), a generous static value is the
+          safest fix. 64 gives ample clearance on Pixel 9 (gesture-nav
+          inset ~30px) and Samsung S-series (~40px including the home
+          indicator strip). iOS stays at 24 since SafeAreaView higher in
+          the tree already accounts for the home indicator. */}
+      <View style={[s.navBar, { paddingBottom: Platform.OS === "android" ? 64 : 24 }]}>
         {navItems.map(n => {
           const active = tab === n.id ||
             (n.id === "eatMeFirst" && tab === "reminders") || // back-compat

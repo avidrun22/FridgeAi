@@ -342,21 +342,48 @@ async function searchTab(
   limit: number,
   offset: number,
 ): Promise<{ recipes: RecipeCard[]; total: number }> {
-  // Postgres .textSearch with 'websearch' config gives a Google-like query parser
-  // — quoted phrases, OR, etc. Falls back gracefully on single-word queries.
+  // v1.26 bug 3 round 3 — Greg confirmed recipe_bank has 238 rows + the
+  // Edge Function is deployed, yet search still returns nothing. Root
+  // cause was almost certainly PostgREST .or() + ilike wildcard escaping
+  // (the `*tacos*` form gets URL-encoded inconsistently across supabase-js
+  // versions and can be parsed as a literal asterisk rather than a wildcard).
+  //
+  // Switched to: fetch the meal_type/dietary-filtered bank server-side
+  // (~238 rows max, no perf concern), then case-insensitive substring
+  // match on (name OR description) in-memory. This eliminates the entire
+  // class of PostgREST escaping bugs and is robust against any query the
+  // user types — including punctuation, spaces, and edge-case wildcards.
+  const needle = q.toLowerCase().trim();
+  if (!needle) return { recipes: [], total: 0 };
+
   let query = supa
     .from("recipe_bank")
-    .select("slug, name, emoji, time_minutes, difficulty, meal_type, cuisine, dietary_tags, description", { count: "exact" })
-    .textSearch("name", q, { type: "websearch", config: "english" });
+    .select("slug, name, emoji, time_minutes, difficulty, meal_type, cuisine, dietary_tags, description")
+    // Cap the in-memory scan at 500 to stay defensive as the bank grows.
+    // Currently 238 rows; this gives 2x headroom before we'd need to
+    // revisit (e.g. by re-introducing tsvector via a stored RPC).
+    .limit(500);
   if (filters.meal_type) query = query.eq("meal_type", filters.meal_type);
   if (filters.dietary && filters.dietary.length > 0) query = query.contains("dietary_tags", filters.dietary);
 
-  const { data, error, count } = await query.range(offset, offset + limit - 1);
+  const { data, error } = await query;
   if (error) throw new Error(`recipe_bank search: ${error.message}`);
 
+  // In-memory text match. Both name AND description searched, case-
+  // insensitive. Simple .includes() handles "tacos" → "Beef Tacos with
+  // Lime" cleanly with no stemming-dictionary surprises.
+  const matched = (data || []).filter((r) => {
+    const name = (r.name || "").toLowerCase();
+    const desc = (r.description || "").toLowerCase();
+    return name.includes(needle) || desc.includes(needle);
+  });
+
+  // Apply pagination after in-memory filter.
+  const page = matched.slice(offset, offset + limit);
+
   return {
-    recipes: (data || []).map(cardFromBank),
-    total: count || (data?.length ?? 0),
+    recipes: page.map(cardFromBank),
+    total: matched.length,
   };
 }
 
