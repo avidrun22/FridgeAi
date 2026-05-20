@@ -4491,7 +4491,7 @@ function SettingsScreen({ notificationsEnabled, onToggleNotifications, emailDige
 
       {/* Account */}
       <Text style={s.sectionLabel}>// ACCOUNT</Text>
-      <View style={[s.card, { margin: 16, padding: 14, marginBottom: 24 }]}>
+      <View style={[s.card, { margin: 16, padding: 14, marginBottom: 12 }]}>
         <View style={{ flexDirection: "row", alignItems: "center" }}>
           <View style={[s.reminderIcon, { backgroundColor: "rgba(22,163,74,0.1)" }]}><Text style={{ fontSize: 20 }}>👤</Text></View>
           <View style={{ flex: 1, marginLeft: 12 }}>
@@ -4505,6 +4505,18 @@ function SettingsScreen({ notificationsEnabled, onToggleNotifications, emailDige
             <Text style={{ color: T.danger, fontSize: 12, fontWeight: "700" }}>Sign out</Text>
           </TouchableOpacity>
         </View>
+      </View>
+
+      {/* v1.25 #287 — App version + platform footer. Discreet, bottom of
+          settings. Helpful for support requests ("I'm on 1.24, my friend
+          on 1.25 has feature X but I don't") and for Greg debugging in
+          PostHog cohorts ("which version is this bug on?"). Reads from
+          expo-constants so it auto-bumps with app.json — no risk of a
+          hardcoded stale value. */}
+      <View style={{ alignItems: "center", paddingBottom: 24 }}>
+        <Text style={{ color: T.textSoft, fontSize: 11 }}>
+          ok2eat v{APP_VERSION}{Platform.OS === "ios" ? " · iOS" : Platform.OS === "android" ? " · Android" : ""}
+        </Text>
       </View>
     </ScrollView>
   );
@@ -4546,6 +4558,40 @@ async function parseReceiptImage(base64) {
   }
 
   const res = await fetch(`${SUPABASE_URL}/functions/v1/scan-receipt`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({ image: base64 }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data?.error || `Scan failed (HTTP ${res.status}).`);
+    err.errorType = data?.error_type || (res.status === 429 ? "daily_limit"
+      : res.status === 401 ? "unauthenticated"
+      : `http_${res.status}`);
+    throw err;
+  }
+  return Array.isArray(data.items) ? data.items : [];
+}
+
+// v1.25 — Photo-of-items vision call. Same plumbing as parseReceiptImage but
+// posts to /functions/v1/scan-items, which has its own prompt tuned for
+// grocery photos (counter spreads, fridge interiors) and its own 5/day rate
+// limit. Returns the same shape so the existing BulkAddModal review UI
+// reuses transparently. Errors carry .errorType for the same actionable-
+// Alert routing pattern the receipt flow uses.
+async function parseItemsImage(base64) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    const err = new Error("Please sign in to scan items.");
+    err.errorType = "unauthenticated";
+    throw err;
+  }
+
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/scan-items`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -4932,6 +4978,100 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
     }
   }
 
+  // v1.25 — Photo-of-items handler. Same flow as handleScanReceipt but
+  // sends the image to /functions/v1/scan-items (separate prompt, separate
+  // 5/day rate limit). Surfaces the same review screen via applyReceiptItems
+  // so users edit / commit identically — no separate UX to learn. Source
+  // identifies which CTA tile launched it for funnel analysis.
+  async function handleScanItems(source) {
+    track("items_scan_started", { source });
+    try {
+      let result;
+      if (source === "items_camera") {
+        const perm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!perm.granted) {
+          const permanent = perm.canAskAgain === false;
+          track("camera_permission_denied", { permanent, surface: "items_camera" });
+          Alert.alert(
+            permanent ? "Camera access blocked" : "Camera access needed",
+            permanent
+              ? "ok2eat uses your camera to identify items in a photo. Open Settings to allow it."
+              : "Tap Allow on the next prompt and we'll identify the items in your photo automatically."
+          );
+          return;
+        }
+        result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ["images"],
+          quality: 0.7,
+        });
+      } else {
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) {
+          const permanent = perm.canAskAgain === false;
+          track("photo_library_permission_denied", { permanent, surface: "items_library" });
+          Alert.alert(
+            permanent ? "Photo access blocked" : "Photo access needed",
+            permanent
+              ? "ok2eat needs access to your photos so you can pick a saved grocery photo. Open Settings to allow it."
+              : "Tap Allow on the next prompt and we'll identify the items in your saved photo."
+          );
+          return;
+        }
+        result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ["images"],
+          quality: 0.7,
+        });
+      }
+      const uri = result?.assets?.[0]?.uri;
+      if (result.canceled || !uri) {
+        track("items_scan_cancelled", { source, cancel_stage: "picker" });
+        return;
+      }
+
+      setScanning(true);
+      // Reuse the same client-side resize as receipt scan. v1.24 added the
+      // helper; it's source-agnostic, just shrinks any image to ~1600px.
+      let resizedB64;
+      try {
+        resizedB64 = await resizeReceiptForUpload(uri);
+      } catch (e) {
+        track("items_scan_failed", { source, error_type: "client_resize_failed" });
+        Alert.alert("Couldn't process that photo", "Try taking the photo again. If this keeps happening, email hello@ok2eat.com.");
+        return;
+      }
+      try {
+        const parsed = await parseItemsImage(resizedB64);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          applyReceiptItems(parsed);
+          track("items_scanned", { source, item_count: parsed.length });
+        } else {
+          track("items_scan_no_items", { source });
+          Alert.alert("No items found", "Couldn't identify food items in this photo. Try a clearer shot with items spread out.");
+        }
+      } catch (e) {
+        const errorType = e?.errorType || "unknown";
+        track("items_scan_failed", { source, error_type: errorType });
+        const title = errorType === "anthropic_transient" ? "Connection slow"
+                    : errorType === "image_too_large"    ? "Photo too large"
+                    : errorType === "daily_limit"        ? "Daily limit reached"
+                    : errorType === "unauthenticated"    ? "Sign-in needed"
+                    : "Couldn't read the photo";
+        const body = errorType === "anthropic_transient" ? "Network hiccup — try again in a moment."
+                   : errorType === "image_too_large"    ? "The photo is unusually large. Try a smaller one."
+                   : errorType === "daily_limit"        ? (e?.message || "You've hit today's 5-scan limit for item photos. Try again tomorrow.")
+                   : errorType === "unauthenticated"    ? "Please sign in and try again."
+                   : errorType === "anthropic_permanent" || errorType === "bad_model_output" ? "Try a clearer shot with items spread out — good lighting helps a lot."
+                   : "Couldn't process the photo. Check your connection and try again.";
+        Alert.alert(title, body);
+      }
+    } catch (e) {
+      track("items_scan_failed", { source, error_type: "unexpected", message: String(e?.message || "").slice(0, 80) });
+      Alert.alert("Scan failed", "Something went wrong. Check your connection and try again.");
+    } finally {
+      setScanning(false);
+    }
+  }
+
   const validRows = rows.filter(r => r.name.trim());
 
   async function handleAddAll() {
@@ -5011,24 +5151,50 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
                 <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 4, textAlign: "center" }}>Usually takes 4-6 seconds. Don't close the app.</Text>
               </View>
             ) : (
-              <View style={{ flexDirection: "row", gap: 10, marginBottom: 16 }}>
-                <TouchableOpacity
-                  style={[s.card, { flex: 1, padding: 14, alignItems: "center", gap: 6 }]}
-                  onPress={() => handleScanReceipt("camera")}
-                >
-                  <Text style={{ fontSize: 28 }}>📷</Text>
-                  <Text style={[s.bold, { fontSize: 13, textAlign: "center" }]}>Scan Receipt</Text>
-                  <Text style={{ color: T.textSoft, fontSize: 11, textAlign: "center" }}>Take a photo</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[s.card, { flex: 1, padding: 14, alignItems: "center", gap: 6 }]}
-                  onPress={() => handleScanReceipt("library")}
-                >
-                  <Text style={{ fontSize: 28 }}>🖼</Text>
-                  <Text style={[s.bold, { fontSize: 13, textAlign: "center" }]}>Upload Receipt</Text>
-                  <Text style={{ color: T.textSoft, fontSize: 11, textAlign: "center" }}>From camera roll</Text>
-                </TouchableOpacity>
-              </View>
+              <>
+                <View style={{ flexDirection: "row", gap: 10, marginBottom: 10 }}>
+                  <TouchableOpacity
+                    style={[s.card, { flex: 1, padding: 14, alignItems: "center", gap: 6 }]}
+                    onPress={() => handleScanReceipt("camera")}
+                  >
+                    <Text style={{ fontSize: 28 }}>📷</Text>
+                    <Text style={[s.bold, { fontSize: 13, textAlign: "center" }]}>Scan Receipt</Text>
+                    <Text style={{ color: T.textSoft, fontSize: 11, textAlign: "center" }}>Take a photo</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[s.card, { flex: 1, padding: 14, alignItems: "center", gap: 6 }]}
+                    onPress={() => handleScanReceipt("library")}
+                  >
+                    <Text style={{ fontSize: 28 }}>🖼</Text>
+                    <Text style={[s.bold, { fontSize: 13, textAlign: "center" }]}>Upload Receipt</Text>
+                    <Text style={{ color: T.textSoft, fontSize: 11, textAlign: "center" }}>From camera roll</Text>
+                  </TouchableOpacity>
+                </View>
+                {/* v1.25 — Photo of items. Third + fourth tile pair, separate
+                    row from receipt scan so the two flows read as distinct
+                    capabilities. Greg explicitly wanted this discoverable
+                    alongside Scan Receipt rather than buried in a sub-menu.
+                    Tighter 5/day rate limit vs receipt's 10/day; both surface
+                    in their respective error_type=daily_limit messages. */}
+                <View style={{ flexDirection: "row", gap: 10, marginBottom: 16 }}>
+                  <TouchableOpacity
+                    style={[s.card, { flex: 1, padding: 14, alignItems: "center", gap: 6 }]}
+                    onPress={() => handleScanItems("items_camera")}
+                  >
+                    <Text style={{ fontSize: 28 }}>🥬</Text>
+                    <Text style={[s.bold, { fontSize: 13, textAlign: "center" }]}>Snap Items</Text>
+                    <Text style={{ color: T.textSoft, fontSize: 11, textAlign: "center" }}>Photo on counter</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[s.card, { flex: 1, padding: 14, alignItems: "center", gap: 6 }]}
+                    onPress={() => handleScanItems("items_library")}
+                  >
+                    <Text style={{ fontSize: 28 }}>📤</Text>
+                    <Text style={[s.bold, { fontSize: 13, textAlign: "center" }]}>Upload Items</Text>
+                    <Text style={{ color: T.textSoft, fontSize: 11, textAlign: "center" }}>From camera roll</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
             )}
 
             {isSample && (
@@ -9111,6 +9277,17 @@ export default function App() {
   useEffect(() => {
     if (__DEV__) return;
     if (updatePromptShownThisSessionRef.current) return;
+    // v1.25 #285 — Android users were hitting the prompt and being sent to
+    // the iOS App Store via the iTunes Lookup URL. The check itself is
+    // Apple-specific (iTunes Lookup returns iOS data regardless of platform),
+    // so on Android it was both:
+    //   (a) telling Android users they need to update when they don't, AND
+    //   (b) sending them to the wrong store.
+    // Skip Android entirely until we have a parallel Play Store version
+    // check (TODO: poll a Supabase `app_version_notifications` row for
+    // Android-latest). Play Store auto-updates handle 95% of the upgrade
+    // path on Android without any in-app prompt.
+    if (Platform.OS === "android") return;
     let cancelled = false;
     const t = setTimeout(async () => {
       try {
@@ -10201,7 +10378,12 @@ export default function App() {
           edge-to-edge mode (the system gesture bar can be 32-40px tall).
           Bumped to 36 on Android only. iOS stays at 24 since SafeAreaView
           higher in the tree already accounts for the home indicator. */}
-      <View style={[s.navBar, { paddingBottom: Platform.OS === "android" ? 36 : 24 }]}>
+      {/* v1.25 #286 — bumped Android paddingBottom 36 → 48 after Greg's
+          Samsung Galaxy screenshot still showed the gesture handle riding
+          right against the FRIDGE/EAT FIRST row. 48 gives enough clearance
+          for both Pixel 9 (gesture-nav inset ~30px) and Samsung S-series
+          (which adds a few extra px for the home indicator strip). */}
+      <View style={[s.navBar, { paddingBottom: Platform.OS === "android" ? 48 : 24 }]}>
         {navItems.map(n => {
           const active = tab === n.id ||
             (n.id === "eatMeFirst" && tab === "reminders") || // back-compat

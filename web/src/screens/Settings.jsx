@@ -324,6 +324,15 @@ export default function Settings({ user }) {
         </div>
       </section>
 
+      {/* v1.25 #287 — App version footer. Same intent as the iOS/Android
+          footer in App.js: discreet, helpful for support requests and
+          cohort debugging in PostHog. __APP_VERSION__ is a Vite compile-
+          time replace defined in vite.config.js — reads from the root
+          app.json so iOS/Android/web stay in lockstep without manual sync. */}
+      <p className="text-center text-textSoft text-xs mt-2 mb-6">
+        ok2eat v{typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "dev"} · web
+      </p>
+
       <HouseholdShareModal
         open={showShare}
         onClose={() => setShowShare(false)}
