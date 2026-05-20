@@ -6,6 +6,7 @@ import { track } from "../lib/analytics.js";
 import AddItemModal from "../components/AddItemModal.jsx";
 import BulkAddItemsModal from "../components/BulkAddItemsModal.jsx";
 import ScanReceiptModal from "../components/ScanReceiptModal.jsx";
+import ScanItemsModal   from "../components/ScanItemsModal.jsx";
 import ItemDetailModal from "../components/ItemDetailModal.jsx";
 import ManageInventoryModal from "../components/ManageInventoryModal.jsx";
 import HouseholdShareModal from "../components/HouseholdShareModal.jsx";
@@ -23,6 +24,9 @@ export default function Fridge({ user }) {
   const [showAdd, setShowAdd] = useState(false);
   const [showBulkAdd, setShowBulkAdd] = useState(false);
   const [showScanReceipt, setShowScanReceipt] = useState(false);
+  // v1.25 — Snap Items modal, parallel to ScanReceipt. Uses scan-items
+  // Edge Function (5/day rate limit, vision prompt tuned for grocery photos).
+  const [showScanItems,   setShowScanItems]   = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
   // v1.22 #257 — Web parity with iOS Manage inventory + invite flow.
   const [showManage, setShowManage] = useState(false);
@@ -202,6 +206,18 @@ export default function Fridge({ user }) {
                 <line x1="12" y1="3" x2="12" y2="15"/>
               </svg>
               Scan receipt
+            </button>
+            {/* v1.25 — Snap Items. Photo-of-groceries flow, sibling of
+                Scan receipt. Accent-outline (not filled) so the two
+                primary CTAs don't both fight for attention; receipt
+                stays the visual default since it's the more common
+                multi-add path. 🥬 emoji mirrors the iOS tile icon. */}
+            <button
+              onClick={() => setShowScanItems(true)}
+              className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-full border border-accent text-accent text-xs sm:text-sm font-semibold hover:bg-accent/10 flex items-center gap-1.5 whitespace-nowrap"
+            >
+              <span aria-hidden="true">🥬</span>
+              Snap items
             </button>
           </div>
         </div>
@@ -408,6 +424,17 @@ export default function Fridge({ user }) {
         <ScanReceiptModal
           open={showScanReceipt}
           onClose={() => setShowScanReceipt(false)}
+          onAdded={handleAdded}
+          householdId={householdId}
+          defaultContainer={activeContainer}
+        />
+
+        {/* v1.25 — Snap Items modal. Same props shape as ScanReceiptModal so
+            the onAdded refresh / householdId / defaultContainer flow stays
+            uniform across the two parallel scan flows. */}
+        <ScanItemsModal
+          open={showScanItems}
+          onClose={() => setShowScanItems(false)}
           onAdded={handleAdded}
           householdId={householdId}
           defaultContainer={activeContainer}
