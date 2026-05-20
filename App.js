@@ -6423,12 +6423,22 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
                 flows in column 1 (Scan Barcode, Snap Items); paired multi-add
                 flows in column 2 (Scan/Upload Receipt, Add a List). */}
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+              {/* v1.25 emoji + label refinements per Greg:
+                   - Scan Barcode: 📷 → 🏷️ (label/tag reads as a product
+                     barcode much better than a camera, which now belongs
+                     to Snap Items).
+                   - Snap Items: 🥬 → 📷 (camera = "take a photo of your
+                     groceries"). Subtitle: "Photo on counter" → "Watch
+                     the magic happen" (more inviting).
+                   - Add a List → Bulk Add (clearer + matches how the
+                     marketing copy and onboarding emails refer to the
+                     feature). */}
               <TouchableOpacity
                 style={{ flexBasis: "48%", flexGrow: 1, backgroundColor: "rgba(22,163,74,0.08)", borderWidth: 1, borderColor: "rgba(22,163,74,0.25)", borderRadius: 14, padding: 12, alignItems: "center", gap: 4 }}
                 onPress={() => { onClose(); setTimeout(() => onGoToScan && onGoToScan(), 350); }}
                 accessibilityLabel="Scan barcode"
               >
-                <Text style={{ fontSize: 26 }}>📷</Text>
+                <Text style={{ fontSize: 26 }}>🏷️</Text>
                 <Text style={[s.bold, { fontSize: 12, textAlign: "center" }]}>Scan Barcode</Text>
                 <Text style={{ color: T.textSoft, fontSize: 10, textAlign: "center" }}>One product</Text>
               </TouchableOpacity>
@@ -6446,17 +6456,17 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
                 onPress={() => setShowItemsChooser(true)}
                 accessibilityLabel="Snap a photo of items"
               >
-                <Text style={{ fontSize: 26 }}>🥬</Text>
+                <Text style={{ fontSize: 26 }}>📷</Text>
                 <Text style={[s.bold, { fontSize: 12, textAlign: "center" }]}>Snap Items</Text>
-                <Text style={{ color: T.textSoft, fontSize: 10, textAlign: "center" }}>Photo on counter</Text>
+                <Text style={{ color: T.textSoft, fontSize: 10, textAlign: "center" }}>Watch the magic happen</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={{ flexBasis: "48%", flexGrow: 1, backgroundColor: "rgba(22,163,74,0.08)", borderWidth: 1, borderColor: "rgba(22,163,74,0.25)", borderRadius: 14, padding: 12, alignItems: "center", gap: 4 }}
                 onPress={() => { onClose(); setTimeout(() => onBulkAdd && onBulkAdd(), 350); }}
-                accessibilityLabel="Add multiple items"
+                accessibilityLabel="Bulk add"
               >
                 <Text style={{ fontSize: 26 }}>📝</Text>
-                <Text style={[s.bold, { fontSize: 12, textAlign: "center" }]}>Add a List</Text>
+                <Text style={[s.bold, { fontSize: 12, textAlign: "center" }]}>Bulk Add</Text>
                 <Text style={{ color: T.textSoft, fontSize: 10, textAlign: "center" }}>Several at once</Text>
               </TouchableOpacity>
             </View>
