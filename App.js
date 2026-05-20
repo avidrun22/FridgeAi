@@ -769,9 +769,41 @@ async function lookupBarcode(barcode) {
   return adaptOFFProduct(product);
 }
 
+// v1.25 #275 followup — fix inconsistent results on the barcode-scan
+// screen's "Search Food Database" button. Was hitting Open Food Facts'
+// public search API directly via _offLib.searchByText, which is known to
+// be flaky — Greg reported "greek yogurt" returning results 1 of 3 tries.
+// Now uses our Supabase search_products RPC (FoodKeeper + USDA + OFF mirror,
+// 855K rows, ~150-500ms reliable) as the primary path, with OFF as a
+// last-ditch fallback if the RPC returns 0 results (some long-tail branded
+// items only exist in OFF).
+//
+// Returned shape is compatible with the existing renderer — RPC rows have
+// {id, name, brand, category, emoji, image_url, barcode, source} fields,
+// adaptOFFProduct produces the same shape, so the consumer doesn't care.
 async function searchProducts(query) {
-  const products = await _offLib.searchByText(query, { pageSize: 10 });
-  return products.map(adaptOFFProduct).filter(Boolean);
+  // Primary path: Supabase RPC. Fast, reliable, hits our curated catalog first.
+  try {
+    const { data, error } = await supabase.rpc("search_products", {
+      query,
+      result_limit: 10,
+    });
+    if (!error && Array.isArray(data) && data.length > 0) {
+      return data;
+    }
+  } catch (e) {
+    console.warn("[search] supabase rpc threw, falling back to OFF:", e?.message || e);
+  }
+  // Fallback: Open Food Facts public API. Used only when the RPC has zero
+  // matches (e.g. a long-tail branded snack we haven't mirrored yet). OFF
+  // is flaky, so it's last-resort and we silently swallow failures.
+  try {
+    const products = await _offLib.searchByText(query, { pageSize: 10 });
+    return products.map(adaptOFFProduct).filter(Boolean);
+  } catch (e) {
+    console.warn("[search] OFF fallback failed:", e?.message || e);
+    return [];
+  }
 }
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
@@ -2251,56 +2283,74 @@ function FridgeScreen({ items, onDelete, onBulkDelete, onAdd, onUpdate, onUse, o
             onChange={setFilter}
           />
         </View>
-        {expiringSoon > 0 && <View style={s.warnBanner}><Text style={{ fontSize: 18 }}>⚠️</Text><View style={{ marginLeft: 10 }}><Text style={[s.bold, { color: T.warn }]}>Heads up!</Text><Text style={{ color: T.textSoft, fontSize: 12 }}>{expiringSoon} item{expiringSoon > 1 ? "s" : ""} expiring within 3 days</Text></View></View>}
+        {/* v1.25 — Removed the "Heads up!" expiring-soon banner. The same
+            count already lives in the EXPIRING SOON stats card at the top
+            of the fridge view, so the banner was duplicated visual noise.
+            Keeping the data in one place reduces cognitive load and makes
+            the fridge feel less crowded. */}
 
-        {/* Multi-select toolbar */}
-        {filtered.length > 0 && (
+        {/* v1.25 — Standalone Select row removed. Select moved inline with
+            the sort chip in the row below (Recently added · Select). When
+            selectMode is active, the inline row swaps to a full toolbar
+            (Cancel / N selected / Select all / Delete). Cleaner one-row UI;
+            users discover Select alongside the existing sort affordance. */}
+        {filtered.length > 0 && selectMode && (
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 16, marginBottom: 8 }}>
-            {selectMode ? (
-              <>
-                <TouchableOpacity onPress={exitSelectMode}><Text style={{ color: T.accent, fontSize: 14, fontWeight: "600" }}>Cancel</Text></TouchableOpacity>
-                <Text style={{ color: T.textSoft, fontSize: 13 }}>{selectedIds.size} selected</Text>
-                <View style={{ flexDirection: "row", gap: 14 }}>
-                  <TouchableOpacity onPress={selectAllVisible}><Text style={{ color: T.accent, fontSize: 14, fontWeight: "600" }}>Select all</Text></TouchableOpacity>
-                  <TouchableOpacity onPress={confirmBulkDelete} disabled={selectedIds.size === 0}>
-                    <Text style={{ color: selectedIds.size > 0 ? T.danger : T.muted, fontSize: 14, fontWeight: "700" }}>Delete{selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}</Text>
-                  </TouchableOpacity>
-                </View>
-              </>
-            ) : (
-              <>
-                <View />
-                <TouchableOpacity onPress={() => setSelectMode(true)}><Text style={{ color: T.accent, fontSize: 14, fontWeight: "600" }}>Select</Text></TouchableOpacity>
-              </>
-            )}
+            <TouchableOpacity onPress={exitSelectMode}><Text style={{ color: T.accent, fontSize: 14, fontWeight: "600" }}>Cancel</Text></TouchableOpacity>
+            <Text style={{ color: T.textSoft, fontSize: 13 }}>{selectedIds.size} selected</Text>
+            <View style={{ flexDirection: "row", gap: 14 }}>
+              <TouchableOpacity onPress={selectAllVisible}><Text style={{ color: T.accent, fontSize: 14, fontWeight: "600" }}>Select all</Text></TouchableOpacity>
+              <TouchableOpacity onPress={confirmBulkDelete} disabled={selectedIds.size === 0}>
+                <Text style={{ color: selectedIds.size > 0 ? T.danger : T.muted, fontSize: 14, fontWeight: "700" }}>Delete{selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
         {loading ? (
           <View style={{ alignItems: "center", padding: 48 }}><ActivityIndicator color={T.accent} size="large" /><Text style={{ color: T.textSoft, marginTop: 12 }}>Loading your fridge...</Text></View>
         ) : (
           <>
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginTop: 4, marginBottom: 4 }}>
-              <Text style={[s.sectionLabel, { paddingHorizontal: 0, marginTop: 0 }]}>{filter === "expiring" ? "// EXPIRING SOON" : filter === "expired" ? "// EXPIRED — REMOVE OR DISCARD" : "// CONTENTS · TAP TO VIEW DETAILS"}</Text>
-              {/* v1.22 #235 — Sort dropdown. Compact chip row to the right
-                  of the section label. Tap cycles through the 4 options
-                  (added → expiring → longest → az → added). Visible label
-                  shows the active sort. */}
-              {filtered.length > 1 && (
-                <TouchableOpacity
-                  onPress={() => {
-                    const order = ["added", "expiring", "longest", "az"];
-                    const next = order[(order.indexOf(sortBy) + 1) % order.length];
-                    setSortBy(next);
-                    track("fridge_sort_changed", { from: sortBy, to: next });
-                  }}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: T.bg, borderWidth: 1, borderColor: T.border }}
-                >
-                  <Ionicons name="swap-vertical" size={12} color={T.textSoft} />
-                  <Text style={{ color: T.text, fontSize: 11, fontWeight: "600" }}>
-                    {sortBy === "added" ? "Recently added" : sortBy === "expiring" ? "Expires soonest" : sortBy === "longest" ? "Expires latest" : "A→Z"}
-                  </Text>
-                </TouchableOpacity>
+            {/* v1.25 — Reflowed this row: dropped the "// CONTENTS · TAP TO VIEW
+                DETAILS" label (Greg flagged it as visual noise — the list
+                BELOW it is self-evidently the contents). EXPIRING SOON /
+                EXPIRED labels stay because they're meaningful filter-state
+                indicators. Sort chip + Select live in the same row on the
+                right; on the default contents view, the row contains only
+                the right-side actions (no label needed). */}
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginTop: 4, marginBottom: 4, minHeight: 28 }}>
+              {(filter === "expiring" || filter === "expired") ? (
+                <Text style={[s.sectionLabel, { paddingHorizontal: 0, marginTop: 0 }]}>
+                  {filter === "expiring" ? "// EXPIRING SOON" : "// EXPIRED — REMOVE OR DISCARD"}
+                </Text>
+              ) : <View />}
+              {/* Right-side actions: Sort chip + Select. v1.22 #235 sort
+                  cycles through 4 modes; v1.25 added Select here so it's
+                  paired with the existing affordance instead of getting its
+                  own row. Hidden when selectMode is active (the full toolbar
+                  in the row above takes over). */}
+              {filtered.length > 0 && !selectMode && (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                  {filtered.length > 1 && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        const order = ["added", "expiring", "longest", "az"];
+                        const next = order[(order.indexOf(sortBy) + 1) % order.length];
+                        setSortBy(next);
+                        track("fridge_sort_changed", { from: sortBy, to: next });
+                      }}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: T.bg, borderWidth: 1, borderColor: T.border }}
+                    >
+                      <Ionicons name="swap-vertical" size={12} color={T.textSoft} />
+                      <Text style={{ color: T.text, fontSize: 11, fontWeight: "600" }}>
+                        {sortBy === "added" ? "Recently added" : sortBy === "expiring" ? "Expires soonest" : sortBy === "longest" ? "Expires latest" : "A→Z"}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity onPress={() => setSelectMode(true)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Text style={{ color: T.accent, fontSize: 13, fontWeight: "600" }}>Select</Text>
+                  </TouchableOpacity>
+                </View>
               )}
             </View>
             {filtered.length === 0 && (
@@ -4800,6 +4850,14 @@ function BulkAddModal({ visible, onClose, onAddItems, section, presetMode, onPre
       // present another modal (the OS image picker).
       setTimeout(() => { handleScanReceipt(src); }, 80);
       if (onPresetConsumed) onPresetConsumed();
+    } else if (presetMode === "scan-items-camera" || presetMode === "scan-items-library") {
+      // v1.25 — Snap Items preset, mirror of the receipt-scan preset path.
+      // Dispatches to handleScanItems with the items_camera/items_library
+      // source string the scan-items handler expects.
+      presetScanFiredRef.current = true;
+      const src = presetMode === "scan-items-camera" ? "items_camera" : "items_library";
+      setTimeout(() => { handleScanItems(src); }, 80);
+      if (onPresetConsumed) onPresetConsumed();
     }
   }, [visible, presetMode]);
 
@@ -6089,7 +6147,7 @@ function ExpiryDateField({ days, onDaysChange }) {
 }
 
 // ─── Add Item Modal ───────────────────────────────────────────────────────────
-function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceipt, section, recentItems }) {
+function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceipt, onScanItems, section, recentItems }) {
   const [name, setName] = useState("");
   const [category, setCategory] = useState("Other");
   // v1.21 — Receipt-source chooser. Greg's Pixel 9 testing surfaced that
@@ -6097,6 +6155,8 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
   // way to upload a saved photo. The new flow: tap → small chooser sheet
   // (Take Photo / Upload from Photos / Cancel) → onScanReceipt(source).
   const [showReceiptChooser, setShowReceiptChooser] = useState(false);
+  // v1.25 — mirror of the receipt chooser for the new Snap Items flow.
+  const [showItemsChooser, setShowItemsChooser]     = useState(false);
   const [initialQty, setInitialQty] = useState("");
   const [initialUnit, setInitialUnit] = useState("");
   // v1.17 — container is selectable from inside AddModal (was previously
@@ -6353,14 +6413,18 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
               </TouchableOpacity>
             </View>
 
-            {/* v1.17 — Three prominent peer tiles for the fast-paths.
-                "Multi-add" was previously a low-emphasis text link below the
-                form; testers reported they didn't find it. Promoted to peer
-                of Scan Barcode + Scan Receipt for discoverability. The text
-                link at the bottom of the modal was removed. */}
-            <View style={{ flexDirection: "row", gap: 8, marginBottom: 14 }}>
+            {/* v1.17 — Prominent peer tiles for the fast-paths. "Multi-add"
+                was previously a low-emphasis text link below the form; testers
+                reported they didn't find it. Promoted to peer of the scan
+                tiles for discoverability.
+                v1.25 — Snap Items (photo of groceries on the counter) joined
+                as the 4th tile. Reflowed from a 3-wide row to a 2x2 grid via
+                flexWrap so each tile keeps its labels readable. Camera-based
+                flows in column 1 (Scan Barcode, Snap Items); paired multi-add
+                flows in column 2 (Scan/Upload Receipt, Add a List). */}
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
               <TouchableOpacity
-                style={{ flex: 1, backgroundColor: "rgba(22,163,74,0.08)", borderWidth: 1, borderColor: "rgba(22,163,74,0.25)", borderRadius: 14, padding: 12, alignItems: "center", gap: 4 }}
+                style={{ flexBasis: "48%", flexGrow: 1, backgroundColor: "rgba(22,163,74,0.08)", borderWidth: 1, borderColor: "rgba(22,163,74,0.25)", borderRadius: 14, padding: 12, alignItems: "center", gap: 4 }}
                 onPress={() => { onClose(); setTimeout(() => onGoToScan && onGoToScan(), 350); }}
                 accessibilityLabel="Scan barcode"
               >
@@ -6369,7 +6433,7 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
                 <Text style={{ color: T.textSoft, fontSize: 10, textAlign: "center" }}>One product</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={{ flex: 1, backgroundColor: "rgba(22,163,74,0.08)", borderWidth: 1, borderColor: "rgba(22,163,74,0.25)", borderRadius: 14, padding: 12, alignItems: "center", gap: 4 }}
+                style={{ flexBasis: "48%", flexGrow: 1, backgroundColor: "rgba(22,163,74,0.08)", borderWidth: 1, borderColor: "rgba(22,163,74,0.25)", borderRadius: 14, padding: 12, alignItems: "center", gap: 4 }}
                 onPress={() => setShowReceiptChooser(true)}
                 accessibilityLabel="Scan or upload receipt"
               >
@@ -6378,7 +6442,16 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
                 <Text style={{ color: T.textSoft, fontSize: 10, textAlign: "center" }}>Whole grocery run</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={{ flex: 1, backgroundColor: "rgba(22,163,74,0.08)", borderWidth: 1, borderColor: "rgba(22,163,74,0.25)", borderRadius: 14, padding: 12, alignItems: "center", gap: 4 }}
+                style={{ flexBasis: "48%", flexGrow: 1, backgroundColor: "rgba(22,163,74,0.08)", borderWidth: 1, borderColor: "rgba(22,163,74,0.25)", borderRadius: 14, padding: 12, alignItems: "center", gap: 4 }}
+                onPress={() => setShowItemsChooser(true)}
+                accessibilityLabel="Snap a photo of items"
+              >
+                <Text style={{ fontSize: 26 }}>🥬</Text>
+                <Text style={[s.bold, { fontSize: 12, textAlign: "center" }]}>Snap Items</Text>
+                <Text style={{ color: T.textSoft, fontSize: 10, textAlign: "center" }}>Photo on counter</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flexBasis: "48%", flexGrow: 1, backgroundColor: "rgba(22,163,74,0.08)", borderWidth: 1, borderColor: "rgba(22,163,74,0.25)", borderRadius: 14, padding: 12, alignItems: "center", gap: 4 }}
                 onPress={() => { onClose(); setTimeout(() => onBulkAdd && onBulkAdd(), 350); }}
                 accessibilityLabel="Add multiple items"
               >
@@ -6660,6 +6733,68 @@ function AddModal({ visible, onClose, onAdd, onBulkAdd, onGoToScan, onScanReceip
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => setShowReceiptChooser(false)}
+                style={{ alignItems: "center", paddingVertical: 12 }}
+              >
+                <Text style={{ color: T.textSoft, fontSize: 14, fontWeight: "600" }}>Cancel</Text>
+              </TouchableOpacity>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        )}
+
+        {/* v1.25 — Snap Items chooser. Mirror of the Receipt chooser above,
+            different copy. Dispatches to onScanItems(source) which the parent
+            wires to the BulkAddModal preset mode. Same Absolute-positioned
+            bottom-sheet pattern + same shape, so the two flows feel familiar. */}
+        {showItemsChooser && (
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={() => setShowItemsChooser(false)}
+            style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" }}
+          >
+            <TouchableOpacity
+              activeOpacity={1}
+              onPress={() => { /* swallow taps inside the sheet */ }}
+              style={{ backgroundColor: T.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 32 }}
+            >
+              <View style={{ alignItems: "center", marginBottom: 14 }}>
+                <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: T.border }} />
+              </View>
+              <Text style={[s.bold, { fontSize: 18, marginBottom: 4 }]}>Snap items</Text>
+              <Text style={{ color: T.textSoft, fontSize: 13, marginBottom: 18 }}>
+                Take a photo of your groceries spread on the counter, or pick a saved photo. We'll identify each item.
+              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowItemsChooser(false);
+                  onClose();
+                  setTimeout(() => onScanItems && onScanItems("items_camera"), 350);
+                }}
+                style={{ backgroundColor: "rgba(22,163,74,0.08)", borderWidth: 1, borderColor: "rgba(22,163,74,0.3)", borderRadius: 14, padding: 16, flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 10 }}
+              >
+                <Text style={{ fontSize: 28 }}>📷</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.bold, { fontSize: 15 }]}>Take Photo</Text>
+                  <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Snap your counter spread</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={T.muted} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowItemsChooser(false);
+                  onClose();
+                  setTimeout(() => onScanItems && onScanItems("items_library"), 350);
+                }}
+                style={{ backgroundColor: "rgba(22,163,74,0.08)", borderWidth: 1, borderColor: "rgba(22,163,74,0.3)", borderRadius: 14, padding: 16, flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 14 }}
+              >
+                <Text style={{ fontSize: 28 }}>🖼️</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.bold, { fontSize: 15 }]}>Upload from Photos</Text>
+                  <Text style={{ color: T.textSoft, fontSize: 12, marginTop: 2 }}>Pick a saved grocery photo</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={T.muted} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setShowItemsChooser(false)}
                 style={{ alignItems: "center", paddingVertical: 12 }}
               >
                 <Text style={{ color: T.textSoft, fontSize: 14, fontWeight: "600" }}>Cancel</Text>
@@ -9911,6 +10046,10 @@ export default function App() {
         // CTA at line 5411 was correctly wired; only this path regressed.
         // v1.21 — accepts "camera" | "library" from the AddModal chooser.
         onScanReceipt={(src) => { setShowAdd(false); setBulkAddPresetMode(src === "library" ? "scan-library" : "scan-camera"); setShowBulkAdd(true); }}
+        // v1.25 — Snap Items dispatcher. Mirror of onScanReceipt but routes
+        // to the new scan-items preset modes consumed by BulkAddModal's
+        // useEffect (which calls handleScanItems with the appropriate source).
+        onScanItems={(src) => { setShowAdd(false); setBulkAddPresetMode(src === "items_library" ? "scan-items-library" : "scan-items-camera"); setShowBulkAdd(true); }}
         section={addSection}
         onBulkAdd={() => setShowBulkAdd(true)}
         recentItems={recentItems}
