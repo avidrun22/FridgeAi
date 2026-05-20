@@ -1,4 +1,5 @@
 import { NavLink } from "react-router-dom";
+import { useOnboardingGate } from "../lib/useOnboardingGate.js";
 
 // Shared layout for every authenticated screen.
 //
@@ -22,10 +23,21 @@ import { NavLink } from "react-router-dom";
 // Header stays single-line on every viewport; the underlying screens scroll
 // inside <main>.
 export default function Layout({ user, children }) {
+  // v1.25 #284 — Onboarding gate. If the user hasn't crossed the 4-item
+  // threshold yet, grey out Eat Me First / Plan / Dashboard NavLinks and
+  // make them no-op. Settings stays unlocked. The full guard against
+  // direct-URL navigation lives in App.jsx; this is just the visual cue.
+  const { locked, itemsRemaining } = useOnboardingGate(user?.id);
+
   const navLinkClass = ({ isActive }) =>
     isActive
       ? "text-accent font-semibold"
       : "text-textSoft hover:text-accent";
+
+  // Greyed-out variant for locked NavLinks. No hover state, lower opacity,
+  // not-allowed cursor. The onClick handler stops navigation cold.
+  const lockedLinkClass = "text-textSoft/40 cursor-not-allowed";
+  const preventLockedNav = (e) => { if (locked) e.preventDefault(); };
 
   // Settings icon button uses the same active-state visual cue as the
   // nav links (accent color, slight bg tint) so users get feedback that
@@ -53,10 +65,28 @@ export default function Layout({ user, children }) {
           <div className="w-7 h-7 rounded-lg bg-accent flex items-center justify-center text-white text-xs font-bold flex-shrink-0">o</div>
           <span className="text-accent font-extrabold tracking-tight text-sm flex-shrink-0">ok2eat</span>
           <nav className="ml-4 sm:ml-6 flex gap-4 text-sm overflow-x-auto whitespace-nowrap min-w-0 [-ms-overflow-style:none] [scrollbar-width:none] [&amp;::-webkit-scrollbar]:hidden">
-            <NavLink to="/fridge"        className={navLinkClass}>Fridge</NavLink>
-            <NavLink to="/eat-me-first"  className={navLinkClass}>Eat Me First</NavLink>
-            <NavLink to="/plan"          className={navLinkClass}>Plan</NavLink>
-            <NavLink to="/dashboard"     className={navLinkClass}>Dashboard</NavLink>
+            <NavLink to="/fridge" className={navLinkClass}>Fridge</NavLink>
+            <NavLink
+              to="/eat-me-first"
+              className={locked ? lockedLinkClass : navLinkClass}
+              onClick={preventLockedNav}
+              aria-disabled={locked}
+              title={locked ? "Add 4 items to unlock" : undefined}
+            >Eat Me First</NavLink>
+            <NavLink
+              to="/plan"
+              className={locked ? lockedLinkClass : navLinkClass}
+              onClick={preventLockedNav}
+              aria-disabled={locked}
+              title={locked ? "Add 4 items to unlock" : undefined}
+            >Plan</NavLink>
+            <NavLink
+              to="/dashboard"
+              className={locked ? lockedLinkClass : navLinkClass}
+              onClick={preventLockedNav}
+              aria-disabled={locked}
+              title={locked ? "Add 4 items to unlock" : undefined}
+            >Dashboard</NavLink>
           </nav>
         </div>
         <div className="flex items-center gap-3 flex-shrink-0">
@@ -78,6 +108,16 @@ export default function Layout({ user, children }) {
       <main className="max-w-3xl mx-auto px-6 py-8">
         {children}
       </main>
+
+      {/* v1.25 #284 — Locked-state hint banner. Mirrors the iOS/Android
+          banner above the bottom nav. Floats over the bottom of the
+          viewport so it's visible regardless of scroll position. Hides
+          the moment the gate unlocks (4th item added). */}
+      {locked && user && (
+        <div className="fixed bottom-4 left-4 right-4 max-w-md mx-auto bg-accent text-white text-sm font-semibold text-center rounded-xl shadow-lg px-4 py-3 z-40">
+          Add {itemsRemaining} more item{itemsRemaining === 1 ? "" : "s"} to unlock recipes, dashboards &amp; more.
+        </div>
+      )}
     </div>
   );
 }

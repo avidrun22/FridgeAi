@@ -8692,6 +8692,13 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [showBulkAdd, setShowBulkAdd] = useState(false);
+  // v1.25 #284 — Onboarding gate. Until a user has added 4+ items at least
+  // ONCE, non-Fridge tabs are disabled. Once they cross the threshold, the
+  // unlock is persisted to user_settings.onboarding_4_items_unlocked_at and
+  // never resets — even if they later delete down to 0 items. Fail-open
+  // default (true) so existing users / network hiccups don't accidentally
+  // lock anyone out before the user_settings load completes.
+  const [gateUnlocked, setGateUnlocked] = useState(true);
   // v1.15 — preset mode for BulkAddModal so the empty-state Fridge CTAs can
   // open the modal directly into a populated state. Values:
   //   "scan-camera"  → modal mounts and immediately fires the camera
@@ -8802,10 +8809,63 @@ export default function App() {
     const { data: { subscription: authSub } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) identifyUser(session.user.id);
-      else { setItems([]); resetAnalytics(); }
+      else { setItems([]); resetAnalytics(); setGateUnlocked(true); /* reset for next signin */ }
     });
     return () => authSub.unsubscribe();
   }, []);
+
+  // v1.25 #284 — Load onboarding-gate state from user_settings whenever the
+  // user changes. If onboarding_4_items_unlocked_at is non-NULL, they've
+  // already crossed the 4-item threshold at some point → tabs stay unlocked.
+  // If NULL, they're a new user (or pre-existing user with empty fridge) →
+  // lock non-Fridge tabs until they hit 4 items. Default-true above means
+  // any read error fails open (safer than locking out a paying user).
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from("user_settings")
+          .select("onboarding_4_items_unlocked_at")
+          .eq("user_id", user.id)
+          .maybeSingle();
+        if (cancelled) return;
+        setGateUnlocked(!!data?.onboarding_4_items_unlocked_at);
+      } catch (e) {
+        // Fail open — don't lock the user out on a transient query failure.
+        console.warn("[gate] user_settings read failed:", e?.message || e);
+        if (!cancelled) setGateUnlocked(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id]);
+
+  // v1.25 #284 — Auto-unlock the moment the user crosses the 4-item threshold.
+  // Watches items.length; when it hits 4 and the gate isn't already unlocked,
+  // writes the unlock timestamp to user_settings and flips local state. One-
+  // way operation — once set, never re-locks even if they delete back to 0.
+  useEffect(() => {
+    if (!user?.id) return;
+    if (gateUnlocked) return;
+    if (items.length < 4) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await supabase.from("user_settings").upsert({
+          user_id: user.id,
+          onboarding_4_items_unlocked_at: new Date().toISOString(),
+        }, { onConflict: "user_id" });
+        if (!cancelled) {
+          setGateUnlocked(true);
+          track("onboarding_gate_unlocked", { item_count: items.length });
+        }
+      } catch (e) {
+        console.warn("[gate] unlock upsert failed:", e?.message || e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id, items.length, gateUnlocked]);
 
   // AppState + notification tap listeners
   useEffect(() => {
@@ -10388,19 +10448,58 @@ export default function App() {
           const active = tab === n.id ||
             (n.id === "eatMeFirst" && tab === "reminders") || // back-compat
             (n.id === "settings"   && (tab === "howto" || tab === "share"));
-          const color = active ? T.accent : T.muted;
+          // v1.25 #284 — Gate: when the user hasn't crossed the 4-item
+          // threshold yet, only the Fridge tab is tappable. Other tabs
+          // render greyed out (40% opacity) and ignore taps. Settings stays
+          // unlocked so users can sign out / change account if they need to
+          // — locking that would be a trap. The first 'Fridge' label gets
+          // a small "Add 4 items first" hint to explain WHY the others are
+          // disabled (otherwise the grey looks like a bug).
+          const locked = !gateUnlocked && n.id !== "fridge" && n.id !== "settings";
+          const color = locked ? T.muted : (active ? T.accent : T.muted);
+          const opacity = locked ? 0.4 : 1;
           return (
-            <TouchableOpacity key={n.id} style={s.navBtn} onPress={() => setTab(n.id)}>
+            <TouchableOpacity
+              key={n.id}
+              style={[s.navBtn, { opacity }]}
+              disabled={locked}
+              onPress={() => {
+                if (locked) return;
+                setTab(n.id);
+              }}
+            >
               {n.id === "fridge"     && <MaterialIcons name="kitchen"            size={24} color={color} />}
               {n.id === "eatMeFirst" && <MaterialIcons name="local-fire-department" size={24} color={color} />}
               {n.id === "plan"       && <Ionicons      name="list-outline"       size={24} color={color} />}
               {n.id === "dashboard"  && <Ionicons      name="bar-chart-outline"  size={24} color={color} />}
               {n.id === "settings"   && <Ionicons      name="settings-outline"   size={24} color={color} />}
-              <Text style={[s.navLabel, active && { color: T.accent }]}>{n.label}</Text>
+              <Text style={[s.navLabel, active && !locked && { color: T.accent }]}>{n.label}</Text>
             </TouchableOpacity>
           );
         })}
       </View>
+      {/* v1.25 #284 — Hint banner sits just above the nav bar when the gate
+          is locked. Explains the disabled tabs and points to the +Add CTA
+          on the Fridge. Renders only when user is locked, hides as soon as
+          item count crosses 4 (gateUnlocked flips true). */}
+      {!gateUnlocked && user && (
+        <View style={{
+          position: "absolute",
+          bottom: (Platform.OS === "android" ? 48 : 24) + 56, // above navBar (~56px) + its paddingBottom
+          left: 16, right: 16,
+          backgroundColor: T.accent,
+          borderRadius: 12,
+          padding: 12,
+          shadowColor: "#000",
+          shadowOpacity: 0.15,
+          shadowRadius: 8,
+          shadowOffset: { width: 0, height: 4 },
+        }}>
+          <Text style={{ color: "#FFFFFF", fontSize: 13, fontWeight: "700", textAlign: "center" }}>
+            Add {Math.max(0, 4 - items.length)} more item{items.length === 3 ? "" : "s"} to unlock recipes, dashboards & more.
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
