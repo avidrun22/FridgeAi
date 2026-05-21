@@ -1471,7 +1471,14 @@ function ItemDetailModal({ item, visible, onClose, onUpdate, onDelete, onShowUse
         </View>
         <ScrollView showsVerticalScrollIndicator={false}>
           <View style={{ alignItems: "center", padding: 24, paddingBottom: 16 }}>
-            <Text style={{ fontSize: 72 }}>{inferEmoji(name || item.name, emojiMap[category] || item.emoji)}</Text>
+            {/* v1.27 #327 — fallback order matters. Was: emojiMap[category] || item.emoji
+                — which clobbered the stored emoji (e.g. 🍱 for Cooked leftovers, set in
+                handleSaveLeftovers) whenever the category had a default. inferEmoji's
+                "preserve non-default fallback" guard then returned the category emoji
+                instead of the stored leftover one, so the same item showed 🍗 here but
+                🍱 in the Fridge list. Swap to item.emoji first matches the list-view
+                pattern at FridgeScreen line ~2433 so both renders agree. */}
+            <Text style={{ fontSize: 72 }}>{inferEmoji(name || item.name, item.emoji || emojiMap[category])}</Text>
             {editing ? <TextInput style={[s.input, { textAlign: "center", fontSize: 18, fontWeight: "700", marginTop: 12, marginBottom: 0, width: "100%" }]} value={name} onChangeText={setName} /> : <Text style={[s.pageTitle, { textAlign: "center", marginTop: 12, fontSize: 22 }]}>{item.name}</Text>}
             <View style={[s.expiryBadge, { backgroundColor: color + "22", borderColor: color + "55", marginTop: 10 }]}>
               {/* v1.21 2026-05-15 — day-0 reads "Use today" instead of "Expired"; an item expiring today is still safe to cook tonight. Same split shipped in web helpers + EatMeFirst + Demo. */}
@@ -2589,6 +2596,15 @@ function ScanScreen({ onScanned }) {
                 <Text style={{ color: T.textSoft, fontSize: 14, fontWeight: "600" }}>days</Text>
               </View>
               <Text style={{ color: T.muted, fontSize: 11, marginTop: 8 }}>Suggested for {selected.category}: {selected.defaultExpiry} days</Text>
+              {/* v1.27 #326 — surface the actual calendar date next to the
+                  days widget + let user tap to pick a specific date (e.g.
+                  the "best by" printed on the package). Mirrors the AddModal
+                  pattern so the barcode-scan flow and manual-add flow feel
+                  the same. ExpiryDateField two-way binds with editedExpiryDays. */}
+              <ExpiryDateField
+                days={parseInt(editedExpiryDays, 10) || selected.defaultExpiry}
+                onDaysChange={(d) => setEditedExpiryDays(String(d))}
+              />
 
               {isPackagedCategory(selected.category) && (
                 <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: T.border }}>

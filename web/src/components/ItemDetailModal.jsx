@@ -97,7 +97,9 @@ export default function ItemDetailModal({ open, onClose, item, onUpdated, onRemo
         name: name.trim(),
         category,
         // v1.19 — upgrade to inferred emoji on save (mirrors iOS App.js).
-        emoji: inferEmoji(name.trim(), CATEGORY_EMOJI[category] || item.emoji),
+        // v1.26.1 #327 — fallback order: item.emoji first so stored Cooked
+        // leftover emoji (🍱) isn't clobbered by category default (🍗).
+        emoji: inferEmoji(name.trim(), item.emoji || CATEGORY_EMOJI[category]),
         quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
         unit: unit || null,
         container,
@@ -343,7 +345,11 @@ export default function ItemDetailModal({ open, onClose, item, onUpdated, onRemo
     <Modal open={open} onClose={onClose} title="Item" size="md">
       <div className="space-y-4">
         <div className="text-center">
-          <div className="text-6xl mb-2">{inferEmoji(editing ? name : item.name, CATEGORY_EMOJI[item.category] || item.emoji || "📦")}</div>
+          {/* v1.26.1 #327 — item.emoji first; stored Cooked leftover 🍱 was
+              being clobbered by CATEGORY_EMOJI[Protein] = 🍗 in this fallback
+              chain. Same fix as App.js ItemDetailModal at line ~1474 and the
+              save path at line 100 above. */}
+          <div className="text-6xl mb-2">{inferEmoji(editing ? name : item.name, item.emoji || CATEGORY_EMOJI[item.category] || "📦")}</div>
           {editing ? (
             <input
               value={name}
