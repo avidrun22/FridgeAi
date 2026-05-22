@@ -356,19 +356,62 @@ Deno.serve(async (req) => {
     .map(normalizeItem)
     .filter(Boolean)
     .filter(notPantryStaple);
-  // v1.26 #312 — Skip cache for weekly-with-cuisines[] requests. The cache
-  // key is single-cuisine, so a multi-cuisine weekly plan would either
-  // miss-everything or hit-wrong-cuisine. We let those go straight to
-  // Claude. Today mode + single-cuisine weekly still benefit from cache.
-  const skipCacheForMultiCuisine = mode === "weekly" && cuisinesFilter.length > 0;
-  const cacheHits = skipCacheForMultiCuisine
-    ? []
-    : await queryCache(
+  // v1.26 #312 → v1.27 #335 — Multi-cuisine cache hybrid.
+  //
+  // Earlier behavior: weekly + cuisines[] skipped cache entirely (because the
+  // cache key is single-cuisine), so every multi-cuisine weekly plan = one
+  // full Claude call. That's our most expensive surface.
+  //
+  // New behavior: split the requested recipe count across the selected
+  // cuisines (e.g. [Italian, Thai, Mexican] for 5 dinners → ~2/2/1). For
+  // each cuisine, run the existing single-cuisine queryCache. Concatenate
+  // hits. If the total fills all 5 slots, return cache-only (no Claude bill).
+  // If short, fall through to Claude — which now has a smaller gap to fill
+  // since some slots are already covered.
+  //
+  // Result: hit rate scales with cache density per cuisine. Once we have
+  // ~10+ rows per popular cuisine, multi-cuisine weekly plans should be
+  // mostly free.
+  let cacheHits: CacheRow[] = [];
+  if (mode === "weekly" && cuisinesFilter.length > 0) {
+    // Spread the recipeCount slots across cuisines round-robin so the most
+    // popular cuisines aren't always over-represented in the cache pull.
+    // Example: 5 slots, 3 cuisines → [2, 2, 1].
+    const perCuisine: number[] = cuisinesFilter.map((_, i) =>
+      Math.floor(recipeCount / cuisinesFilter.length) +
+      (i < (recipeCount % cuisinesFilter.length) ? 1 : 0),
+    );
+    // Track recipe IDs we've already taken so a row that matches under two
+    // cuisine filters (rare but possible if a recipe has cuisine NULL) isn't
+    // counted twice.
+    const seen = new Set<string>();
+    for (let i = 0; i < cuisinesFilter.length; i++) {
+      const cuisine = cuisinesFilter[i];
+      const need = perCuisine[i];
+      if (need <= 0) continue;
+      const slice = await queryCache(
         normalizedItems,
-        { cuisine: cuisineFilter, protein: proteinFilter, maxIngredients },
+        { cuisine, protein: proteinFilter, maxIngredients },
         prefs,
-        recipeCount,
+        need + 2,  // pull a couple extra so dedup doesn't starve us
       );
+      for (const hit of slice) {
+        if (seen.has(hit.id)) continue;
+        seen.add(hit.id);
+        cacheHits.push(hit);
+        if (cacheHits.length >= recipeCount) break;
+      }
+      if (cacheHits.length >= recipeCount) break;
+    }
+  } else {
+    // Today mode + single-cuisine weekly: unchanged single-cuisine path.
+    cacheHits = await queryCache(
+      normalizedItems,
+      { cuisine: cuisineFilter, protein: proteinFilter, maxIngredients },
+      prefs,
+      recipeCount,
+    );
+  }
   if (cacheHits.length >= recipeCount) {
     // Cache hit — bump counters, return without calling Claude. This path
     // does NOT decrement the user's daily Claude budget; cache hits are free.
@@ -411,6 +454,12 @@ Deno.serve(async (req) => {
     );
   }
 
+  // v1.27 #335 — hybrid cache miss: if some slots were filled by the
+  // per-cuisine cache pull above, only ask Claude for what's missing.
+  // remainingNeeded drives both the prompt's stated count and the Claude
+  // call's max_tokens budget.
+  const remainingNeeded = Math.max(0, recipeCount - cacheHits.length);
+
   const preamble = buildPromptPreamble(prefs, overrideServings);
 
   const cuisineLabel = cuisineFilter ? cuisineFilter.replace(/_/g, " ") : null;
@@ -424,8 +473,11 @@ Deno.serve(async (req) => {
     ? cuisinesFilter.map((c) => c.replace(/_/g, " "))
     : null;
   if (mode === "weekly" && weeklyCuisineLabels && weeklyCuisineLabels.length > 0) {
+    // v1.27 #335 — wording reflects how many recipes we still need from Claude
+    // (the cache may have already filled some). Plural-vs-singular handled.
+    const noun = remainingNeeded === 1 ? "dinner" : "dinners";
     filterClauses.push(
-      `Draw the 5 dinners from these cuisines: ${weeklyCuisineLabels.join(", ")}. Spread across them (e.g. one or two of each) so the week shows real variety. Don't drift into other cuisines unless honoring a dietary/allergen constraint requires it.`,
+      `Draw the ${remainingNeeded} ${noun} from these cuisines: ${weeklyCuisineLabels.join(", ")}. Spread across them so the set shows real variety. Don't drift into other cuisines unless honoring a dietary/allergen constraint requires it.`,
     );
   } else if (cuisineLabel) {
     filterClauses.push(
@@ -449,8 +501,10 @@ Deno.serve(async (req) => {
     // framing; weekly = explicit 5-dinner workweek framing so Claude picks
     // a variety of cuisines/proteins across the 5 instead of 5 similar
     // chicken dishes. Recipe count flows in via recipeCount.
+    // v1.27 #335 — modeClause now uses remainingNeeded for weekly (so cache
+    // hits don't get duplicated by Claude). Today mode always asks for 3.
     const modeClause = mode === "weekly"
-      ? `Suggest 5 dinner recipes for a Monday-through-Friday workweek that use as many of these ingredients as possible across the 5 nights. Vary the cuisines, proteins, and cooking methods so the week doesn't feel repetitive — but every recipe must still respect any dietary/allergen constraints stated above.`
+      ? `Suggest ${remainingNeeded} dinner ${remainingNeeded === 1 ? "recipe" : "recipes"} that use as many of these ingredients as possible. Vary cuisines, proteins, and cooking methods — every recipe must still respect any dietary/allergen constraints stated above.`
       : `Suggest 3 recipes that use as many of them as possible.`;
     const prompt =
       `${preamble} I have these ingredients on hand: ${cleaned.join(", ")}. ` +
@@ -462,18 +516,29 @@ Deno.serve(async (req) => {
       `Respond ONLY with JSON array (no markdown): ` +
       `[{"name":"","time":"","difficulty":"","emoji":"","description":"","ingredients":[{"item":"","amount":""}],"instructions":[""],"tip":""}]`;
     const { text } = await callClaude({
-      // Weekly needs more output tokens since we're returning 5 full recipes
-      // (~400 tokens each) vs 3. Bumping to 3500 leaves headroom.
-      max_tokens: mode === "weekly" ? 3500 : 2000,
+      // v1.27 #335 — token budget scales with remainingNeeded. ~600 tokens
+      // per recipe with headroom: weekly base bumped per recipe needed.
+      // Today mode stays at 2000 (3 recipes flat).
+      max_tokens: mode === "weekly" ? Math.max(800, remainingNeeded * 700) : 2000,
       messages: [{ role: "user", content: [{ type: "text", text: prompt }] }],
     });
-    const recipes = extractJson<unknown[]>(text);
-    if (!Array.isArray(recipes)) return json({ error: "bad model output" }, 502);
+    const claudeRecipes = extractJson<unknown[]>(text);
+    if (!Array.isArray(claudeRecipes)) return json({ error: "bad model output" }, 502);
+
+    // v1.27 #335 — merge cache hits + fresh Claude recipes for hybrid responses.
+    // Cache hits come FIRST (they're known-good, already served before).
+    const cacheRecipes = cacheHits.map((r) => r.recipe);
+    const recipes = [...cacheRecipes, ...claudeRecipes].slice(0, recipeCount);
+    if (cacheHits.length > 0) {
+      await bumpServeCounters(cacheHits.map((r) => r.id));
+    }
 
     // v1.26 — write fresh recipes into the shared cache for future users.
     // The user's dietary/allergens become the cache row's safety tags;
     // Claude was instructed to honor both, so we trust the output.
-    insertGeneratedRecipes(recipes, {
+    // v1.27 #335 — only insert the CLAUDE-fresh recipes; the cache hits are
+    // already in the cache (that's where we got them).
+    insertGeneratedRecipes(claudeRecipes, {
       cuisine: cuisineFilter,
       protein: proteinFilter,
       maxIngredients,
@@ -494,7 +559,12 @@ Deno.serve(async (req) => {
         max_ingredients: maxIngredients,
         mode,
       },
-      source: "claude",
+      // v1.27 #335 — "hybrid" when cache filled some slots + Claude filled the
+      // rest. "claude" when nothing came from cache (full Claude call). Used by
+      // PostHog dashboards + the AI spend alert to see hit rate over time.
+      source: cacheHits.length > 0 ? "hybrid" : "claude",
+      cache_hits: cacheHits.length,
+      claude_recipes: claudeRecipes.length,
     });
   } catch (e) {
     console.error("anthropic error", e);

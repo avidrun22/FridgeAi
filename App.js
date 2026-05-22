@@ -10203,7 +10203,7 @@ export default function App() {
   // shopping_list_items.
 
   async function openMatchSheet(recipe) {
-    if (!recipe || !recipe.id) return;
+    if (!recipe) return;
     setMatchSheetRecipe(recipe);
     setMatchSheetResult(null);
     setMatchSheetError(null);
@@ -10214,7 +10214,70 @@ export default function App() {
     // this state is ignored.
     setMatchSheetNewListName(recipe.name || "");
     setMatchSheetLoading(true);
-    track("recipe_make_tapped", { recipe_id: recipe.id, name: recipe.name });
+    track("recipe_make_tapped", { recipe_id: recipe.id || null, name: recipe.name });
+
+    // v1.26.1 #334 — Weekly meal plan recipes are stored as raw JSON in
+    // weekly_meal_plans.recipes with no stable ID. The server-side
+    // match-recipe-inventory function keys on recipe_id, so it can't help
+    // here. Synthesize a client-side match result by comparing each
+    // ingredient NAME against the user's currently-loaded fridge items.
+    // Same UX (✓ have / + add affordances), no network round-trip.
+    if (!recipe.id) {
+      const fridgeNames = (items || [])
+        .map((it) => (it?.name || "").trim().toLowerCase())
+        .filter(Boolean);
+      const matched = [];
+      const missing = [];
+      (recipe.ingredients || []).forEach((ing) => {
+        const name = (typeof ing === "object" ? ing.item : ing) || "";
+        const lower = name.toLowerCase().trim();
+        if (!lower) return;
+        // Substring match in either direction so "chicken thighs" recipe row
+        // matches a "Boneless chicken thighs" fridge item, and "milk" recipe
+        // row matches a "Whole milk" fridge item. Conservative on false
+        // positives — pantry-staple words like "salt" tend not to be in fridge.
+        const hit = fridgeNames.find(
+          (fn) => fn.includes(lower) || lower.includes(fn),
+        );
+        if (hit) {
+          matched.push({ ingredient: name, fridge_item: hit });
+        } else {
+          missing.push({ ingredient: name });
+        }
+      });
+      // Same default-toggles behavior as the server path: matched checked,
+      // missing unchecked. User can flip either via tap.
+      const toggles = {};
+      matched.forEach((_, i) => { toggles[`matched-${i}`] = true; });
+      setMatchSheetResult({ matched, missing });
+      setMatchSheetToggles(toggles);
+      setMatchSheetLoading(false);
+      // Still need to load the user's shopping lists for the picker dropdown.
+      (async () => {
+        try {
+          const { data, error } = await supabase
+            .from("shopping_lists")
+            .select("id, name")
+            .eq("household_id", householdId)
+            .is("archived_at", null)
+            .order("created_at", { ascending: false });
+          if (error) throw error;
+          const lists = data || [];
+          setMatchSheetUserLists(lists);
+          if (lists.length > 0) setMatchSheetTargetListId(lists[0].id);
+        } catch (e) {
+          console.warn("[match] list load failed (id-less recipe):", e?.message || e);
+          setMatchSheetUserLists([]);
+        }
+      })();
+      track("inventory_match_result", {
+        recipe_id: null,
+        matched_count: matched.length,
+        missing_count: missing.length,
+        source: "client_side_no_id",
+      });
+      return;
+    }
 
     // Kick off both in parallel: lists (for the picker) + match (for the rows).
     (async () => {
@@ -10317,7 +10380,7 @@ export default function App() {
       if (insertErr) throw insertErr;
 
       track("shopping_list_generated", {
-        recipe_id: matchSheetRecipe.id,
+        recipe_id: matchSheetRecipe.id || null,
         target_list_id: listId,
         item_count: rows.length,
         had_target_list: !!matchSheetTargetListId,
