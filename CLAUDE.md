@@ -127,6 +127,60 @@ Version references in blog posts and IG launch image filenames
 are SAFE TO LEAVE. They refer to specific shipped versions in context.
 Only the homepage badge + structured data are live-version indicators.
 
+### Pre-flight checklist — work through BEFORE printing the build command
+
+Before telling Greg to run the `eas build --platform all --auto-submit`
+line, Claude must confirm each of these. If any fails, fix or surface the
+gap; do not silently skip.
+
+**Parity gates (per the three-platform rule above):**
+- [ ] User-facing changes in `App.js` (iOS + Android) AND mirrored in
+      `web/src/screens/*.jsx` (web). Backend-only and bug-fix-only releases
+      are exempt — call that out explicitly.
+- [ ] PostHog events present for any new feature surface (search the new
+      code path for `track(`). Missing instrumentation = blind launch.
+
+**Backend deploy gates:**
+- [ ] Any new `supabase/migrations/*.sql` file? Apply via SQL Editor first
+      (don't `supabase db push` — the migration history isn't reliable, see
+      "Migrations are idempotent" rule above).
+- [ ] Any modified `supabase/functions/*/index.ts`? Note the deploy command
+      `supabase functions deploy <name>` and surface it as a separate step
+      Greg runs from his terminal — it does NOT auto-deploy with the app build.
+- [ ] Any new `pg_cron` jobs? Confirm the literal `app.cron_secret`
+      (`'k7Mq3vP9xT2nL5wB8cR4yH6jE1fD0aZs'`) is inlined, not pulled from
+      `current_setting()`.
+
+**App release gates:**
+- [ ] `app.json` `version` bumped (PATCH for hotfix, MINOR for feature).
+      EAS handles `buildNumber` + `versionCode` remotely — never bump
+      those locally.
+- [ ] Two release-notes paste blocks drafted and ready to print in chat
+      (App Store + Play Store). Reviewer notes only if the release adds a
+      new AI feature, sub-flow, or in-app purchase product.
+
+**Cost / observability gates:**
+- [ ] Any new AI-spending surface (Claude vision, generation)? Confirm
+      cache-first or rate-limit is in place. New uncapped Claude callsites
+      need either `generated_recipes_cache`-style caching or a daily
+      `checkAndIncrement` limit.
+- [ ] Any new Resend send path? Confirm sender domain + unsubscribe link
+      handling (transactional vs broadcast; broadcasts go through audience
+      segments, transactional via API).
+
+**Marketing & comms gates (post-approval, not at submit time):**
+- [ ] Reminder logged that marketing-site bump (hero badge + JSON-LD +
+      datePublished) waits until Apple approves — Android approval doesn't
+      gate this.
+- [ ] If release contains an externally-promotable feature (not bug fixes):
+      blog draft staged in `blog/drafts/`, social drafts queued in
+      `marketing/`, daily digest `FEATURED_POST` slot booked for the right
+      window.
+
+When all applicable boxes check out, print the build command + both
+release-notes paste blocks in one chat reply. If anything's outstanding,
+list it explicitly so Greg can decide ship-now vs fix-first.
+
 ## Three-platform parity — iOS, Android, web
 
 Starting **v1.22** (after Android shipped to Google Play internal testing in
