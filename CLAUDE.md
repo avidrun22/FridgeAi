@@ -71,35 +71,61 @@ not a guessed one. A failed `cd` continues silently in zsh and the rest of the
 script runs from `~`, producing very confusing "file not found" errors deep
 into the chain.
 
-## App Store submission checklist
+## Mobile release ritual — iOS + Android together, always
 
-**Every time we `eas submit` a new iOS version, the marketing site has to
-move in lockstep.** The version-pill on ok2eat.com is the first thing
-visitors see, and it had drifted to v1.16 while we were on v1.18 — that
-shouldn't happen again. Going forward, "submit to App Store" is a 4-step
-ritual, not 1 step:
+**Every release ships to BOTH platforms in the same pass.** No iOS-only or
+Android-only submissions going forward — the platforms drift if treated
+separately, and Greg's repeatedly burned cycles untangling drift. The
+canonical build command targets BOTH:
 
-1. **Bump `app.json`** — `version` field to the new MAJOR.MINOR (e.g. `1.19`).
-2. **Run `eas build` + `eas submit`** in Greg's terminal.
-3. **Update marketing site to match** — two spots in `ok2eat.html`:
-   - The hero badge: `<div class="hero-badge">v1.NN · iOS + web</div>` (currently around line 1094).
-   - The JSON-LD `softwareVersion` (around line 978) — Google Search uses
-     this for the MobileApplication rich result.
-4. **Deploy the marketing site** via `python3 scripts/deploy_website.py` or
-   the Telegram `/deploy` shortcut.
+```
+cd ~/fridgeai-native && eas build --platform all --profile production --auto-submit
+```
 
-The hero badge + JSON-LD always reflect the version that's currently APPROVED
-and live in the App Store — never a pending submission, never a TestFlight
-build. If we submit a new version that's still in review, the badge stays
-on the previous live version until Apple approves. This matters because
-visitors who tap "Download on the App Store" will get whatever Apple is
-serving, not what our marketing claims is "current."
+`--platform all` builds iOS and Android in parallel on EAS's servers.
+`--auto-submit` chains the submit step automatically: iOS lands in App
+Store Connect (TestFlight + ready to submit for review); Android lands in
+Play Console internal testing track. Total: ~12-18 min wall-clock.
 
-Historical version references in blog posts and the IG launch image
-filename (`_v1_16_ig_image.html`, "rebuilt ok2eat around one question in
-v1.16") are SAFE TO LEAVE. They refer to specific shipped versions in
-context. Only the homepage badge + structured data are live-version
-indicators.
+EAS auto-increments both `buildNumber` (iOS) and `versionCode` (Android)
+via `appVersionSource: "remote"` in eas.json — never manually bump those.
+Only bump `app.json.version` (the MAJOR.MINOR.PATCH user-visible string).
+
+### 4-step ritual
+
+1. **Bump `app.json`** — `version` field. PATCH bump for hotfixes (1.26.1 →
+   1.26.2); MINOR bump for features (1.26 → 1.27).
+2. **Run the build command above** — Greg's terminal only (Apple Keychain +
+   Play Console credentials live there).
+3. **Paste release notes into both stores** — Claude prints two paste-blocks
+   in chat per the "Store release notes" section above, one per destination:
+   - App Store Connect → version → What's New in This Version
+   - Google Play Console → Internal testing release → Release notes (en-US)
+   Reviewer notes (App Store) and reviewer notes (Play Console) only when
+   the release introduces a new AI feature or significant flow change.
+4. **Marketing site bump — only after Apple approves the iOS build:**
+   - `ok2eat.html` hero badge: `<div class="hero-badge">v1.NN · iOS + web</div>`
+   - `ok2eat.html` JSON-LD `softwareVersion`
+   - `datePublished` to today's date
+   - Deploy via `python3 scripts/deploy_website.py` or Telegram `/deploy`
+
+   The hero badge + JSON-LD reflect what's APPROVED and live in App Store —
+   never a pending submission, never a TestFlight build. Android approval
+   doesn't gate the marketing bump (Android updates roll silently); iOS does.
+
+### Per-platform release-notes constraints
+
+- **App Store Connect:** no hard character cap on What's New, but keep
+  scannable (4-5 short bullets max). Use plain text, not markdown.
+- **Google Play Console:** 500-char cap on release notes. Be more terse —
+  reuse the App Store copy but tighten to fit.
+
+### Historical context-leave-alone notes
+
+Version references in blog posts and IG launch image filenames
+(`_v1_16_ig_image.html`, "rebuilt ok2eat around one question in v1.16")
+are SAFE TO LEAVE. They refer to specific shipped versions in context.
+Only the homepage badge + structured data are live-version indicators.
 
 ## Three-platform parity — iOS, Android, web
 
