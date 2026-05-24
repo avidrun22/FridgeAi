@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<!--
+  DRAFT — v1.26 launch features blog post.
+
+  Preview locally:
+    python3 -m http.server 8000  (from repo root)
+    open http://localhost:8000/blog/drafts/whats-new-v1-26.html
+
+  When ready:
+    mv blog/drafts/whats-new-v1-26.html blog/whats-new-v1-26.html
+    Add card to blog/index.html
+    Run /deploy from Telegram
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>What's new in ok2eat v1.26: plan your whole week in three taps — ok2eat</title>
+<meta name="description" content="v1.26 brings 5-dinner weekly meal plans, instant photo-to-fridge scanning, and a faster Eat Me First flow that lets you pick which items to use.">
+<meta name="theme-color" content="#F0EADC">
+<meta property="og:title" content="What's new in ok2eat v1.26: plan your whole week in three taps">
+<meta property="og:description" content="v1.26 brings 5-dinner weekly meal plans, instant photo-to-fridge scanning, and a faster Eat Me First flow that lets you pick which items to use.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://ok2eat.com/blog/whats-new-v1-26.html">
+<meta property="article:published_time" content="2026-05-22">
+<meta property="article:author" content="Greg">
+<link rel="canonical" href="https://ok2eat.com/blog/whats-new-v1-26.html">
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,700;12..96,800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/blog/styles.css">
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="avocado" viewBox="0 0 36 36">
+    <rect width="36" height="36" rx="8" fill="#F0EADC"/>
+    <path fill="#3E721D" d="M35 5.904c2.394 6.042-1.438 20.543-10.5 26.5-9.06 5.957-20.395 3.573-23.097-6.443-1.669-6.186 2.79-10.721 11.851-16.677C22.315 3.327 32.64-.053 35 5.904z"/>
+    <path fill="#A6D388" d="M19.815 26.578c-5.757 4.013-13.482 3.097-16.29-.934C.718 21.613 4 14.474 9.757 10.463c5.755-4.011 20.258-9.264 23.068-5.234 2.807 4.03-4.825 16.175-13.01 21.349"/>
+    <path fill="#662113" d="M11.162 12.488c3.48-2.332 7.382-1.495 9.798.995 1.433 1.477-.88 5.382-4.359 7.714-3.478 2.33-7.769 1.763-8.239.731-1.44-3.157-.677-7.109 2.8-9.44z"/>
+  </symbol>
+</svg>
+
+<nav>
+  <a href="/" class="nav-logo"><svg><use href="#avocado"/></svg> ok2eat</a>
+  <ul class="nav-links">
+    <li><a href="/#features">Features</a></li>
+    <li><a href="/#how">How it works</a></li>
+    <li><a href="/blog/" class="is-active">Blog</a></li>
+    <li><a href="/#support">Support</a></li>
+    <li><a href="https://app.ok2eat.com">Log in</a></li>
+    <li><a href="https://apps.apple.com/us/app/ok2eat/id6761730687" class="nav-cta">Download</a></li>
+  </ul>
+</nav>
+
+<main>
+  <article>
+    <p class="article-meta">2026-05-22 · 4 min read</p>
+    <h1 class="article-title">What's new in ok2eat v1.26: plan your whole week in three taps.</h1>
+    <p class="article-author">By Greg, founder of ok2eat</p>
+
+    <div class="article-body">
+
+      <p>The most consistent feedback we hear is some version of "what do I cook tonight?" — and right behind it, "what do I cook for the rest of the week?" The first one is what Eat Me First exists for. The second one is what v1.26 is about.</p>
+
+      <p>This is the biggest release we've shipped since the rebuild in v1.16. It also has the fewest moving parts, which is a thing I'm proud of. Here's what's new.</p>
+
+      <h2>Plan your whole week, not just tonight.</h2>
+
+      <p>The Plan tab now starts with a choice: <strong>For Today</strong> or <strong>For This Week</strong>.</p>
+
+      <p>For Today keeps doing what it always did — pick a cuisine, get a few recipes tonight, factoring in what's about to spoil. For This Week is new. You pick the cuisines you want to eat (any combination — Italian, Thai, and Mexican is a totally normal week), tell us how many people you're cooking for, and we generate <strong>five dinners for Monday through Friday</strong>, scaled to your serving count, drawn from your selected cuisines.</p>
+
+      <p>The plan saves automatically. Open the tab on Wednesday and Wednesday's recipe is right there. We also keep a <strong>Previous Plans</strong> drawer at the bottom — every plan you've generated, scrollable. Tap one to peek, then "Reactivate this plan" if last week was a hit and you want to repeat it.</p>
+
+      <p>The point isn't to lock you into a schedule. It's to remove the daily "what should we cook" decision. Five answers, generated once, scaled to your household, varied across cuisines — there if you want them.</p>
+
+      <h2>Snap your groceries → in your fridge in seconds.</h2>
+
+      <p>Receipt scanning has been in the app for a while. v1.26 adds the other half of that idea: <strong>Snap Items</strong>. Take a photo of your groceries spread on the counter — bags emptied, items visible — and we identify each one. Categories, default expiry dates, container assignments (fridge / pantry / freezer) all filled in. You review, edit anything wrong, and commit.</p>
+
+      <p>It's the fastest way we know of to get a real fridge inventory without typing. Five photos per day on the free tier. Best results with 4–12 items spread on a counter or table, not piled up — we surface those tips upfront so you know what works.</p>
+
+      <p>One UX detail that's small but mattered: in earlier builds, tapping "Snap Items" briefly showed a manual-entry modal before the camera opened. We've hoisted the camera flow up so it opens directly from the chooser. Camera-first, manual-entry-only-if-you-need-it. The whole flow now feels like one tap and one shutter click.</p>
+
+      <h2>Eat Me First, refined.</h2>
+
+      <p>Eat Me First is the "what's about to spoil and what can I cook with it?" surface. In v1.22 we added filters for cuisine, protein, and ingredient count. The complaint we heard back was reasonable: "I don't want chicken AND blueberries in the same recipe just because they're both expiring."</p>
+
+      <p>So v1.26 adds a <strong>pre-suggest item picker</strong>. When you tap "Get recipes" on a row or "Cook with your top 5 together" from the header, you see an item-selection chip row at the top of the modal. Default: everything selected. Tap any item to remove it from the mix. The Suggest button reflects what you've kept — "Suggest recipes using 3 items" — and won't fire if you've cleared the whole list.</p>
+
+      <p>Smaller surface fixes that came with it:</p>
+
+      <ul>
+        <li><strong>Recipe sheets scroll fully</strong> from any section. Used to be that only the ingredients list responded to a drag — header, description, and instructions were dead zones. Now the whole sheet scrolls.</li>
+        <li><strong>Recipe search</strong> on the All tab returns matches across all cuisines within your selected cuisine context, and the search bar only appears after you've picked a cuisine (so you're not typing into a dead text box).</li>
+        <li><strong>Shopping list adds</strong> from a recipe now write the correct row shape. Previously, certain cooked items hit a column-not-found error.</li>
+        <li><strong>Settings layout</strong> scrolls past the bottom of long content. The Sign Out button is now actually reachable.</li>
+      </ul>
+
+      <h2>What's under the hood (for the curious).</h2>
+
+      <p>v1.26 also ships a shared cache of generated recipes — so when one user generates "Italian recipes using chicken, garlic, and tomatoes", the next user with overlapping ingredients can get the same recipes without us calling the AI again. It's an invisible-to-you change that meaningfully drops our API costs and keeps the app sustainable as we grow.</p>
+
+      <p>We also added an internal alert so the team gets a Telegram message the moment AI spend spikes past a threshold. Nothing user-facing, but it's the kind of thing that quietly keeps the lights on.</p>
+
+      <h2>How to get v1.26.</h2>
+
+      <p><strong>iPhone:</strong> if you already have ok2eat installed, the App Store should be offering the update — or you'll see a prompt next time you open the app. <a href="https://apps.apple.com/us/app/ok2eat/id6761730687">App Store link</a>.</p>
+
+      <p><strong>Web:</strong> already live at <a href="https://app.ok2eat.com">app.ok2eat.com</a>. The Plan tab gate and the Eat Me First item picker are both on the web app.</p>
+
+      <p><strong>Android:</strong> we're in Google Play internal testing — if you want to join the tester list, <a href="/#android-waitlist">add yourself here</a> and we'll send an invite. Public release is close.</p>
+
+      <h2>One more thing.</h2>
+
+      <p>Every release I ship, I read every reply to our digest emails the same day. v1.26's biggest features were direct asks from people who replied. If you find something broken, or confusing, or you wish ok2eat did something it doesn't yet — reply to any of our emails. Read same day, no exceptions.</p>
+
+      <p>Thanks for using ok2eat.</p>
+
+      <p>— Greg, founder</p>
+
+    </div>
+
+    <div class="article-footer">
+      <a href="/blog/" class="back-to-blog">← Back to all posts</a>
+      <a href="https://apps.apple.com/us/app/ok2eat/id6761730687" class="nav-cta" style="text-decoration: none;">Download ok2eat</a>
+    </div>
+
+    <section class="signup" id="subscribe">
+      <h3>Get new posts in your inbox</h3>
+      <p>Two short emails a week, Tuesdays and Thursdays. No spam, no upsells, easy unsubscribe.</p>
+      <form class="signup-form" data-newsletter>
+        <input type="email" name="email" placeholder="you@example.com" required autocomplete="email">
+        <button type="submit">Subscribe</button>
+      </form>
+      <p class="signup-note">We use Resend for delivery. Your email is never shared.</p>
+    </section>
+
+  </article>
+</main>
+
+</body>
+</html>

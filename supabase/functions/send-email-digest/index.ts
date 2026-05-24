@@ -80,12 +80,12 @@ const FEATURED_POST: {
   title: string;
   blurb: string;
   url: string;
-  until: string; // YYYY-MM-DD; banner hides itself after this date
+  until: string;
 } | null = {
-  title: "What we've been up to this week",
-  blurb: "1,200+ more foods with calibrated shelf life (cheddar lasts 6 months, not 14 days), natural-language search that actually understands \"swiss cheese,\" and a save-your-leftovers flow coming in the next iOS update. A short note from Greg on what shipped.",
-  url: "https://ok2eat.com/blog/whats-new-this-week.html?utm_source=email_digest&utm_medium=email&utm_campaign=blog_announce_whats_new_v122",
-  until: "2026-05-24",
+  title: "Grocery prices keep climbing. Good Food IQ is your hedge.",
+  blurb: "USDA projects beef +9.4% and coffee +5.2% in 2026, while produce stays flat. The best hedge against grocery inflation isn't coupons — it's knowing what's in your fridge and how long it lasts.",
+  url: "https://ok2eat.com/blog/grocery-costs-2026-good-food-iq.html?utm_source=email_digest&utm_medium=email&utm_campaign=blog_good_food_iq_hedge",
+  until: "2026-05-31",
 };
 
 const corsHeaders = {

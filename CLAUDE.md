@@ -3,6 +3,34 @@
 Quick orientation for future Claude sessions on this project. Read this first
 before defaulting to handoff-style workflows.
 
+## Current focus — launch sprint (as of 2026-05-22)
+
+**Through public launch (Product Hunt Sat May 30 + ongoing), Claude defaults
+to launch-focused work, not feature work.** When Greg asks "what's next"
+or surfaces an open thread, prefer items from this priority order:
+
+1. **Bug fixes** — incoming user reports, App Store / Play Store review
+   feedback, anything actively broken. These ALWAYS clear the queue first.
+2. **Launch-readiness items** (in roughly the order of compounding payoff):
+   - Stripe + RevenueCat paywall (annual: $19.99 Basic / $34.99 Pro with
+     5-day free trial — see task #328 for the tier matrix)
+   - Updated demo videos (Snap Items, Weekly Plan, Eat Me First)
+   - Blog production (target: 2-3 cornerstone posts/week through launch)
+   - Marketing site conversion lift (hero CTA, social proof, pricing)
+   - Product Hunt launch prep + Sat May 30 ship
+   - Threads / TikTok / YouTube Shorts cadence
+3. **Backlogged feature work** — explicitly deferred until post-launch
+   stabilization. Includes: FridgeScore (#330), vision printed-date reader
+   (#329), Excel/CSV upload (#280), weekly most-cooked analytics (#308),
+   "what others are cooking" discovery tab (#309), scan feedback loop
+   (#323), browser extension (#246). Do not start these without explicit
+   reprioritization from Greg.
+
+When a new feature idea comes up mid-launch, the default response is
+"logged to backlog, defer until post-launch" unless it's a launch
+multiplier (e.g. blocks a paywall conversion, fixes a Product Hunt
+demo flow).
+
 ## Drive by default
 
 If a task can be done by Claude — directly in the SQL editor via Chrome MCP,
