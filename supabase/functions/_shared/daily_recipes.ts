@@ -183,7 +183,7 @@ async function loadExpiringItems(
   return items;
 }
 
-async function getUserHouseholdIds(supa: SupabaseClient, userId: string): Promise<string[]> {
+export async function getUserHouseholdIds(supa: SupabaseClient, userId: string): Promise<string[]> {
   const { data } = await supa
     .from("household_members")
     .select("household_id")

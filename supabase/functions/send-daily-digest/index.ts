@@ -5,6 +5,7 @@
 // Auth: requires the cron-job request to include a shared CRON_SECRET header
 //       (or be invoked by service_role internally).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getUserHouseholdIds } from "../_shared/daily_recipes.ts";
 
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 
@@ -153,12 +154,22 @@ Deno.serve(async (req) => {
   for (const row of targets) {
     usersChecked += 1;
 
+    // v1.27 hotfix — scope by household_id, not user_id (see companion fix
+    // in send-email-digest). Legacy user_id-scoped query missed items whose
+    // user_id doesn't match the current auth uid (shared households, or
+    // rows with a stale user_id from an old/recreated account).
+    const householdIds = await getUserHouseholdIds(supa, row.user_id);
+    const useHousehold = householdIds.length > 0;
+
     const cutoff = new Date(Date.now() + row.expiring_within_days * 86400000).toISOString();
-    const { data: items, error: itemsErr } = await supa
+    let itemsQ = supa
       .from("fridge_items")
       .select("name, quantity, unit, expiry_date")
-      .eq("user_id", row.user_id)
       .lte("expiry_date", cutoff);
+    itemsQ = useHousehold
+      ? itemsQ.in("household_id", householdIds)
+      : itemsQ.eq("user_id", row.user_id);
+    const { data: items, error: itemsErr } = await itemsQ;
     if (itemsErr) {
       console.error("items query failed for", row.user_id, itemsErr.message);
       continue;

@@ -8,7 +8,7 @@
 //
 // Auth: matches send-daily-digest — requires a shared CRON_SECRET header.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { getDailyRecipesForUser, type DailyRecipe } from "../_shared/daily_recipes.ts";
+import { getDailyRecipesForUser, getUserHouseholdIds, type DailyRecipe } from "../_shared/daily_recipes.ts";
 
 const RESEND_URL = "https://api.resend.com/emails";
 
@@ -82,10 +82,10 @@ const FEATURED_POST: {
   url: string;
   until: string;
 } | null = {
-  title: "Grocery prices keep climbing. Good Food IQ is your hedge.",
-  blurb: "USDA projects beef +9.4% and coffee +5.2% in 2026, while produce stays flat. The best hedge against grocery inflation isn't coupons — it's knowing what's in your fridge and how long it lasts.",
-  url: "https://ok2eat.com/blog/grocery-costs-2026-good-food-iq.html?utm_source=email_digest&utm_medium=email&utm_campaign=blog_good_food_iq_hedge",
-  until: "2026-05-31",
+  title: "What's your fridge waste number?",
+  blurb: "Some households throw away up to $3,000 of food a year. Your number is probably different — sometimes much higher than you'd guess. Three questions, sixty seconds, and you'll know yours.",
+  url: "https://ok2eat.com/blog/whats-your-fridge-waste-number.html?utm_source=email_digest&utm_medium=email&utm_campaign=blog_fridge_waste_number",
+  until: "2026-06-02",
 };
 
 const corsHeaders = {
@@ -612,13 +612,26 @@ Deno.serve(async (req) => {
     }
     const toEmail = userData.user.email;
 
+    // v1.27 hotfix — scope fridge_items by household_id, not user_id. The
+    // legacy user_id-scoped query silently returned 0 for anyone whose
+    // items are pinned to a stale/co-member user_id but sit in the current
+    // household (real-user pattern found 2026-07-09: 9 items in household,
+    // 0 matching by user_id → email rendered the empty-fridge activation
+    // template). Falls back to user_id only when the user has no household
+    // membership at all, matching the pattern in _shared/daily_recipes.ts.
+    const householdIds = await getUserHouseholdIds(supa, row.user_id);
+    const useHousehold = householdIds.length > 0;
+
     // Pull their items inside the expiring window
     const cutoff = new Date(Date.now() + row.expiring_within_days * 86400000).toISOString();
-    const { data: items, error: itemsErr } = await supa
+    let itemsQ = supa
       .from("fridge_items")
       .select("name, quantity, unit, expiry_date")
-      .eq("user_id", row.user_id)
       .lte("expiry_date", cutoff);
+    itemsQ = useHousehold
+      ? itemsQ.in("household_id", householdIds)
+      : itemsQ.eq("user_id", row.user_id);
+    const { data: items, error: itemsErr } = await itemsQ;
     if (itemsErr) {
       failures.push({ user_id: row.user_id, reason: `items: ${itemsErr.message}` });
       continue;
@@ -629,10 +642,13 @@ Deno.serve(async (req) => {
     // variant. A user with items expiring 30 days from now is NOT an empty-
     // fridge user, even if `items` (windowed) returns 0 rows. Counted via
     // head:true + count:'exact' to avoid pulling rows we don't need.
-    const { count: totalItems } = await supa
+    let countQ = supa
       .from("fridge_items")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", row.user_id);
+      .select("*", { count: "exact", head: true });
+    countQ = useHousehold
+      ? countQ.in("household_id", householdIds)
+      : countQ.eq("user_id", row.user_id);
+    const { count: totalItems } = await countQ;
 
     const { expiring, expired } = categorize((items || []) as FridgeItem[]);
 
